@@ -37,6 +37,12 @@ const CHAMPS: Array<keyof Reglages> = [
 ];
 
 const money = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
+// Colonnes de montants : deux decimales imposees, sinon les chiffres ne
+// s'alignent plus d'une ligne a l'autre.
+const montant = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 const state: { fichier: File | null; resultat: ConvertResult | null } = {
   fichier: null,
@@ -131,6 +137,7 @@ function afficher(result: ConvertResult, nomFichier: string): void {
     ${clientsInconnus(result)}
     ${listeAnomalies("Anomalies bloquantes", restantes, "erreur")}
     ${listeAnomalies("Avertissements", avertissements, "attention")}
+    ${tableauReconstitutions(result)}
     ${tableauArticles(result)}
     ${fichierGenere(result)}
   `;
@@ -312,6 +319,54 @@ function listeAnomalies(titre: string, issues: ConvertResult["issues"], ton: str
           .join("")}
         ${issues.length > 8 ? `<li class="reste">&hellip; et ${issues.length - 8} autres</li>` : ""}
       </ul>
+    </div>`;
+}
+
+/**
+ * Les factures reconstituees se verifient en les comparant entre elles : un
+ * tableau trie par part exoneree fait ressortir les cas atypiques, la ou
+ * quatorze avertissements identiques ne disent rien.
+ */
+function tableauReconstitutions(result: ConvertResult): string {
+  if (result.reconstitutions.length === 0) return "";
+  const nombre = result.reconstitutions.length;
+  const lignes = [...result.reconstitutions].sort((a, b) => b.partExoneree - a.partExoneree);
+
+  return `
+    <div class="bloc">
+      <h2>Factures reconstituees <span class="compte">${nombre}</span></h2>
+      <p class="source">
+        Ces factures melangent plusieurs taux, que l'export Excel ne detaille pas. La part taxable
+        se deduit du total TVA (TVA &divide; 18 %), le reste est exonere : le partage est exact si la
+        facture ne melange que le taux normal et des articles exoneres. Verifiez-le sur l'export
+        JSON, qui porte le detail reel de chaque article.
+      </p>
+      <div class="table-large">
+        <table>
+          <thead>
+            <tr>
+              <th>Facture</th>
+              <th class="droite">Taux effectif</th>
+              <th class="droite">Part taxable</th>
+              <th class="droite">Part exoneree</th>
+              <th class="droite">Exonere</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lignes
+              .map(
+                (ligne) => `<tr>
+                  <td><code>${escape(ligne.reference)}</code></td>
+                  <td class="droite">${ligne.tauxEffectif} %</td>
+                  <td class="droite">${montant.format(ligne.htTaxable)}</td>
+                  <td class="droite">${montant.format(ligne.htExonere)}</td>
+                  <td class="droite">${ligne.partExoneree} %</td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
     </div>`;
 }
 

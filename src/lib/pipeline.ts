@@ -1,7 +1,12 @@
 import { Invoice } from "@/lib/core/model";
 import { toBase64 } from "@/lib/core/cp1252";
 import { detectMapping, ColumnMapping, missingRequiredFields } from "@/lib/fne/mapping";
-import { normalize, DEFAULT_NORMALIZE_OPTIONS, NormalizeOptions } from "@/lib/fne/normalize";
+import {
+  normalize,
+  DEFAULT_NORMALIZE_OPTIONS,
+  NormalizeOptions,
+  type Reconstitution,
+} from "@/lib/fne/normalize";
 import {
   DEFAULT_NATIVE_OPTIONS,
   FneNativeOptions,
@@ -72,6 +77,8 @@ export interface ConvertResult {
   invoices: Invoice[];
   /** Synthese des taux de TVA par article, pour verifier le parametrage Sage. */
   articles: ArticleResume[];
+  /** Factures partagees entre part taxable et part exoneree, a verifier. */
+  reconstitutions: Reconstitution[];
   clientsInconnus: Array<{ nom: string; ncc: string; factures: string[] }>;
   issues: Issue[];
   summary: ReturnType<typeof summarize>;
@@ -97,6 +104,7 @@ export async function convert(
 
   let parsed: Invoice[];
   let warnings: string[];
+  let reconstitutions: Reconstitution[] = [];
   let mapping: ColumnMapping = {};
   let unmapped: string[] = [];
   let ignored: string[] = [];
@@ -130,6 +138,7 @@ export async function convert(
     const result = normalize(table, mapping, normalizeOptions);
     parsed = result.invoices;
     warnings = result.warnings;
+    reconstitutions = result.reconstitutions;
     source = {
       kind: "tableau",
       format: table.format,
@@ -181,6 +190,7 @@ export async function convert(
     missingFields: missing,
     invoices,
     articles,
+    reconstitutions,
     clientsInconnus: inconnus,
     issues,
     summary: summarize(invoices),

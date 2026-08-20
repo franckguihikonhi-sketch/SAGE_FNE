@@ -52,12 +52,28 @@ export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
   articleSyntheseExonere: "",
 };
 
+/**
+ * Facture dont le detail a ete reconstitue en une part taxable et une part
+ * exoneree. Presentee en tableau plutot qu'en avertissements repetes : quatorze
+ * fois la meme phrase n'aide personne a verifier quoi que ce soit.
+ */
+export interface Reconstitution {
+  reference: string;
+  tauxEffectif: number;
+  htTaxable: number;
+  htExonere: number;
+  /** Part exoneree en pourcentage du total HT, pour reperer les cas atypiques. */
+  partExoneree: number;
+}
+
 export interface NormalizeResult {
   invoices: Invoice[];
   /** Anomalies non bloquantes rencontrees pendant la normalisation. */
   warnings: string[];
   /** Vrai quand les lignes ont ete reconstituees depuis les totaux. */
   synthese: boolean;
+  /** Factures partagees entre part taxable et part exoneree. */
+  reconstitutions: Reconstitution[];
 }
 
 export function normalize(
@@ -90,7 +106,7 @@ export function normalize(
   });
 
   const invoices: Invoice[] = [];
-  const contexte = { decomposees: 0 };
+  const contexte: { reconstitutions: Reconstitution[] } = { reconstitutions: [] };
   for (const [reference, entries] of groups) {
     invoices.push(buildInvoice(reference, entries, mapping, options, synthese, warnings, contexte));
   }
@@ -98,15 +114,16 @@ export function normalize(
   // Le format d'import ne transportant pas la taxe, seule la fiche article
   // donne son regime a une ligne : deux parts sur le meme article recevraient
   // le meme taux, et le partage reconstitue serait perdu a l'import.
-  if (contexte.decomposees > 0 && options.articleSynthese === options.articleSyntheseExonere) {
+  const nombre = contexte.reconstitutions.length;
+  if (nombre > 0 && options.articleSynthese === options.articleSyntheseExonere) {
     warnings.push(
-      `${contexte.decomposees} facture(s) ont ete reconstituees en une part taxable et une part ` +
-        "exoneree. Renseignez deux references d'article distinctes, l'une au taux normal et " +
-        "l'autre exoneree, sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
+      `${nombre} facture(s) ont ete reconstituees en une part taxable et une part exoneree. ` +
+        "Renseignez deux references d'article distinctes, l'une au taux normal et l'autre " +
+        "exoneree, sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
     );
   }
 
-  return { invoices, warnings, synthese };
+  return { invoices, warnings, synthese, reconstitutions: contexte.reconstitutions };
 }
 
 function get(row: Record<string, unknown>, mapping: ColumnMapping, field: FneField): unknown {
@@ -136,7 +153,7 @@ function buildInvoice(
   options: NormalizeOptions,
   synthese: boolean,
   warnings: string[],
-  contexte: { decomposees: number },
+  contexte: { reconstitutions: Reconstitution[] },
 ): Invoice {
   const first = entries[0]!.row;
   const sourceRow = entries[0]!.index + 2; // +2 : ligne d'entete + index base 1
@@ -304,7 +321,7 @@ function syntheseLines(
   options: NormalizeOptions,
   sourceRow: number,
   warnings: string[],
-  contexte: { decomposees: number },
+  contexte: { reconstitutions: Reconstitution[] },
 ): InvoiceLine[] {
   const d = options.decimales;
   const tauxEffectif = totalHT !== 0 ? round((totalTva / totalHT) * 100, 2) : 0;
@@ -341,15 +358,16 @@ function syntheseLines(
     return [ligne(1, options.articleSynthese, libelle, totalHT, tauxEffectif, totalTva)];
   }
 
-  contexte.decomposees += 1;
   const htTaxable = round((totalTva * 100) / NORMAL, d);
   const htExonere = round(totalHT - htTaxable, d);
 
-  warnings.push(
-    `Facture ${reference} : taux effectif de ${tauxEffectif} %, la facture melange plusieurs taux. ` +
-      `Reconstituee en deux lignes d'apres le total TVA : ${htTaxable} HT au taux normal et ` +
-      `${htExonere} HT exonere. Verifiez ce partage, ou utilisez l'export JSON qui porte le detail reel.`,
-  );
+  contexte.reconstitutions.push({
+    reference,
+    tauxEffectif,
+    htTaxable,
+    htExonere,
+    partExoneree: round((htExonere / totalHT) * 100, 1),
+  });
 
   return [
     ligne(1, options.articleSynthese, `${libelle} - part taxable`, htTaxable, NORMAL, totalTva),

@@ -72,6 +72,10 @@ Sur l'export de contrôle fourni (50 factures), 14 factures donnent un taux effe
 de la facture sont conservés au centime près. Le fichier passe ainsi de 64 anomalies bloquantes à
 zéro.
 
+Ces factures sont récapitulées dans un **tableau**, trié par part exonérée décroissante, et non par
+un avertissement répété facture par facture : le partage se vérifie en comparant les lignes entre
+elles, un cas atypique se voyant alors immédiatement.
+
 **Le format d'import ne transportant pas la taxe, c'est la fiche article Sage qui donne son régime à
 chaque ligne.** Il faut donc deux références d'article distinctes — une au taux normal, une exonérée
 — sinon Sage appliquerait le même taux aux deux parts. Le connecteur le signale quand elles ne sont

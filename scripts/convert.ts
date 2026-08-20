@@ -76,12 +76,25 @@ async function main() {
     `Documents     : ${result.summary.factures} facture(s), ${result.summary.avoirs} avoir(s), ` +
       `${result.summary.lignes} ligne(s)`,
   );
-  const fmt = (value: number) => value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+  const fmt = (value: number) =>
+    value.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   console.log(
     `Totaux        : HT ${fmt(result.summary.totalHT)} | TVA ${fmt(result.summary.totalTva)} | ` +
       `TTC ${fmt(result.summary.totalTTC)}`,
   );
   console.log(`Fichier genere: ${output} (${result.file.lineCount} enregistrements)`);
+
+  if (result.reconstitutions.length > 0) {
+    console.log(`\n${result.reconstitutions.length} facture(s) reconstituees (part taxable / part exoneree) :`);
+    console.log("  Facture              Taux    Part taxable   Part exoneree   Exonere");
+    for (const ligne of [...result.reconstitutions].sort((a, b) => b.partExoneree - a.partExoneree)) {
+      console.log(
+        `  ${ligne.reference.padEnd(20)} ${`${ligne.tauxEffectif} %`.padStart(7)} ` +
+          `${fmt(ligne.htTaxable).padStart(14)} ${fmt(ligne.htExonere).padStart(15)} ` +
+          `${`${ligne.partExoneree} %`.padStart(8)}`,
+      );
+    }
+  }
 
   if (result.articles.length > 0) {
     console.log("\nTVA par article (regime a verifier sur la fiche article Sage) :");

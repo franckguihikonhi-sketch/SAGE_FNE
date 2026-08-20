@@ -76,11 +76,27 @@ describe("export tableur FNE (entetes seuls)", () => {
 
     // Reconstituer vaut mieux que bloquer : plus aucune anomalie de taux.
     expect(result.issues.some((issue) => issue.code === "TAUX_TVA_NON_CONFORME")).toBe(false);
+  });
+
+  it("recapitule les reconstitutions plutot que de repeter un avertissement", async () => {
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      normalizeOptions: { articleSynthese: "DIVERS18", articleSyntheseExonere: "DIVERSEXO" },
+    });
+
+    expect(result.reconstitutions).toHaveLength(1);
+    expect(result.reconstitutions[0]).toEqual({
+      reference: "1234567A26000000870",
+      tauxEffectif: 13.77,
+      htTaxable: 76500,
+      htExonere: 23500,
+      partExoneree: 23.5,
+    });
+
+    // Le detail vit dans le tableau : aucun avertissement par facture.
     expect(
-      result.issues.some(
-        (issue) => issue.code === "LECTURE" && issue.message.includes("melange plusieurs taux"),
-      ),
-    ).toBe(true);
+      result.issues.filter((issue) => issue.message.includes("melange plusieurs taux")),
+    ).toHaveLength(0);
   });
 
   it("avertit quand les deux parts partagent le meme article", async () => {
