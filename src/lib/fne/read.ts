@@ -1,7 +1,7 @@
 import Papa from "papaparse";
 import { cleanCell } from "@/lib/core/text";
 import { decodeText } from "@/lib/core/cp1252";
-import { ReadError, type SourceTable } from "./source";
+import { MESSAGE_PDF, ReadError, type SourceTable } from "./source";
 
 export { decodeText };
 export { ReadError, type SourceTable } from "./source";
@@ -169,6 +169,7 @@ export async function readSource(buffer: Buffer, filename: string, sheet?: strin
         "Le format .xls (Excel 97-2003) n'est pas pris en charge. Enregistrez le fichier en .xlsx ou en .csv depuis Excel.",
       );
     default:
+      if (extension === "pdf") throw new ReadError(MESSAGE_PDF);
       throw new ReadError(`Extension de fichier non reconnue : .${extension}`);
   }
 }

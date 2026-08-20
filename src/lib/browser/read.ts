@@ -1,6 +1,6 @@
 import { decodeText } from "@/lib/core/cp1252";
 import { cleanCell } from "@/lib/core/text";
-import { ReadError, type SourceTable } from "@/lib/fne/source";
+import { MESSAGE_PDF, ReadError, type SourceTable } from "@/lib/fne/source";
 import { listEntries, readEntry } from "./zip";
 
 /**
@@ -18,6 +18,7 @@ export async function readSourceBrowser(
   if (extension === "csv" || extension === "txt") return readCsv(bytes);
   if (extension === "xlsx" || extension === "xlsm") return readXlsx(bytes, sheet);
   if (extension === "json") return readJson(bytes);
+  if (extension === "pdf") throw new ReadError(MESSAGE_PDF);
   throw new ReadError(`Format non gere : .${extension}. Utilisez un fichier JSON, Excel ou CSV.`);
 }
 

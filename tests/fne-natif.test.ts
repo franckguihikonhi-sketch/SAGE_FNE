@@ -118,3 +118,13 @@ describe("lecture de l'export natif FNE", () => {
     expect(codes).not.toContain("TAUX_TVA_NON_CONFORME");
   });
 });
+
+describe("PDF de facture certifiee", () => {
+  it("est refuse avec l'explication du refus", async () => {
+    // Un PDF minimal suffit : le refus se joue sur l'extension, avant toute lecture.
+    const pdf = Buffer.from("%PDF-1.7\n", "latin1");
+    await expect(convert(pdf, "2304903U26000000889_20260811.pdf")).rejects.toThrow(
+      /montants y sont arrondis au franc/,
+    );
+  });
+});

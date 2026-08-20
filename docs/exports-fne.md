@@ -7,6 +7,7 @@ La plateforme FNE (Facture Normalisée Électronique, DGI Côte d'Ivoire) propos
 | --- | --- | --- |
 | **JSON** | Entêtes **et** détail des articles (`items`), avec le taux de TVA de chaque ligne | Oui, sans réserve |
 | **Tableur (.xlsx)** | Entêtes uniquement : 33 colonnes, une ligne par facture, aucun article | Partiellement (voir plus bas) |
+| **PDF** | La facture certifiée, une par fichier, montants arrondis au franc | Non (voir plus bas) |
 
 ## Export JSON — format natif
 
@@ -60,6 +61,29 @@ les bloque avec le code `TAUX_TVA_NON_CONFORME` plutôt que de produire une TVA 
 
 **En pratique : utiliser l'export JSON.** L'export tableur convient pour un rapprochement ou pour
 des lots mono-taux, pas pour un import comptable complet.
+
+## Export PDF — le document légal, pas une source d'import
+
+Le PDF d'une facture certifiée est techniquement lisible : ses polices Montserrat sous-ensemblées
+portent une table `ToUnicode`, et une extraction par police restitue proprement le texte.
+
+Il reste inutilisable pour alimenter Sage, pour une raison qui n'a rien de technique : **tous ses
+montants sont arrondis au franc à l'impression.** Sur la facture `2304903U26000000889` :
+
+| Donnée | PDF | JSON (valeur certifiée) | Écart |
+| --- | --- | --- | --- |
+| Prix unitaire HT | `1 077` | `1077,2763` | 0,2763 |
+| Total HT | `21 546` | `21545,526` | 0,474 |
+| TVA | `3 878` | `3878,19468` | 0,195 |
+| Total TTC | `25 424` | `25423,72068` | 0,279 |
+
+Sur une seule ligne l'écart est négligeable ; répété sur chaque ligne de chaque facture, il fait
+diverger la comptabilité de ce que la DGI a certifié. S'y ajoutent deux obstacles pratiques : un
+fichier par facture, et des cellules coupées par le retour à la ligne (la référence `6FF001`
+s'imprime sur deux lignes).
+
+Le connecteur refuse donc explicitement les PDF, avec le message qui renvoie vers l'export JSON,
+plutôt qu'une erreur de format générique.
 
 ## Codes de la nomenclature FNE
 

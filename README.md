@@ -33,6 +33,9 @@ erreur bloquante dès qu'une facture sort du taux normal.
 
 ### Quel export FNE utiliser
 
+FNE propose trois exports. Le **PDF** est la facture certifiée, à lire et à archiver : ses montants
+sont arrondis au franc, il est refusé à l'import avec un message qui l'explique.
+
 L'export **JSON** est le seul à contenir le détail des articles. L'export **tableur** ne porte que
 les entêtes de facture : le connecteur reconstitue alors une ligne de synthèse par facture, ce qui
 n'est exact que pour les factures à un seul taux de TVA. Sur l'export de contrôle fourni, 14 des
