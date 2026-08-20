@@ -13,3 +13,6 @@ coverage/
 
 # Exports FNE reels : donnees clients et cles API, ne jamais commiter
 samples/
+
+# Page web generee
+web/dist/

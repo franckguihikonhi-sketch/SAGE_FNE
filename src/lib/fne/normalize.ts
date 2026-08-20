@@ -11,7 +11,7 @@ import { ColumnMapping } from "./mapping";
 import { FneField, LINE_AMOUNT_FIELDS } from "./fields";
 import { findTaxCode, taxCodeFromRate } from "./taxes";
 import { numeroPiece } from "./native";
-import { SourceTable } from "./read";
+import type { SourceTable } from "./source";
 
 export interface NormalizeOptions {
   /**

@@ -7,7 +7,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { convert } from "@/lib/pipeline";
+import { convertFichier as convert } from "@/lib/node/convert";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { PROFILES } from "@/lib/sage/profile";

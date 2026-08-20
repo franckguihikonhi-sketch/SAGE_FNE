@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { convert } from "@/lib/pipeline";
+import { convertFichier as convert } from "@/lib/node/convert";
 import { detectMapping } from "@/lib/fne/mapping";
 import { readCsv } from "@/lib/fne/read";
 

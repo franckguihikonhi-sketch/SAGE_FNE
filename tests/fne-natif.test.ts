@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { convert } from "@/lib/pipeline";
+import { convertFichier as convert } from "@/lib/node/convert";
 import { isFneNativeExport, sequenceFromReference } from "@/lib/fne/native";
 
 const FIXTURE = new URL("./fixtures/fne-natif.json", import.meta.url);

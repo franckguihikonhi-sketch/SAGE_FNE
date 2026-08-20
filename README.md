@@ -116,6 +116,18 @@ docs/              documentation fonctionnelle
 
 La conversion se fait **entièrement en mémoire** : aucun fichier n'est stocké côté serveur.
 
+## Version web autonome
+
+`npm run build:web` compile le moteur pour le navigateur et produit une page unique,
+`web/dist/passerelle-fne-sage.html`, qui embarque tout le convertisseur : dépôt du fichier,
+contrôles, synthèse par article et génération du fichier Sage se font entièrement côté client,
+aucun fichier n'est transmis. `npm run verify:web` rejoue la conversion dans Chromium sur les deux
+formes d'export.
+
+Cette page ne dépend d'aucun module Node : le lecteur Excel (ZIP + XML via `DecompressionStream`)
+et l'encodeur Windows-1252 sont écrits dans `src/lib/browser/` et `src/lib/core/cp1252.ts`. Le
+pipeline reçoit son lecteur en paramètre, ce qui lui permet de tourner à l'identique des deux côtés.
+
 ## Confidentialité
 
 Les exports FNE contiennent des données clients et, pour l'export JSON, la **clé API** de
@@ -131,4 +143,5 @@ jamais y committer d'export réel. Les jeux de test de `tests/fixtures/` sont an
   `mappingOverrides`).
 - Persistance des tables de correspondance (clients, règlements), puis multi-société /
   multi-utilisateur.
+- Packaging en application Windows installable (.exe), une fois le convertisseur validé en ligne.
 - Lecture directe depuis l'API FNE (`/external/invoices`) pour supprimer l'étape d'export manuel.

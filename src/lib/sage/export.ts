@@ -1,12 +1,12 @@
-import iconv from "iconv-lite";
 import { Invoice, InvoiceLine } from "@/lib/core/model";
+import { encodeCp1252 } from "@/lib/core/cp1252";
 import { PaymentMapping } from "@/lib/fne/paiement";
 import { SageColumn, SageImportProfile } from "./profile";
 import { resolveToken, TokenContext } from "./tokens";
 
 export interface SageExportResult {
   /** Contenu encode, pret a etre ecrit sur disque ou telecharge. */
-  buffer: Buffer;
+  buffer: Uint8Array;
   /** Meme contenu en texte, pour l'apercu dans l'interface. */
   preview: string;
   filename: string;
@@ -47,8 +47,8 @@ export function buildSageFile(
   const content = rows.join(profile.eol) + (rows.length > 0 ? profile.eol : "");
   const buffer =
     profile.encoding === "windows-1252"
-      ? iconv.encode(content, "windows-1252")
-      : Buffer.from(content, "utf8");
+      ? encodeCp1252(content)
+      : new TextEncoder().encode(content);
 
   return {
     buffer,

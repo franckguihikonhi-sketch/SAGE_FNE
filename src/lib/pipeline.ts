@@ -1,4 +1,5 @@
 import { Invoice } from "@/lib/core/model";
+import { toBase64 } from "@/lib/core/cp1252";
 import { detectMapping, ColumnMapping, missingRequiredFields } from "@/lib/fne/mapping";
 import { normalize, DEFAULT_NORMALIZE_OPTIONS, NormalizeOptions } from "@/lib/fne/normalize";
 import {
@@ -7,7 +8,8 @@ import {
   isFneNativeExport,
   parseFneNative,
 } from "@/lib/fne/native";
-import { decodeText, readSource, ReadError, SourceTable } from "@/lib/fne/read";
+import { ReadError, type SourceTable } from "@/lib/fne/source";
+import { decodeText } from "@/lib/core/cp1252";
 import { PaymentMapping } from "@/lib/fne/paiement";
 import { applyCustomerMapping, CustomerMappingEntry, CustomerMappingOptions } from "@/lib/sage/customers";
 import { buildSageFile, summarize } from "@/lib/sage/export";
@@ -43,6 +45,12 @@ export interface ConvertOptions {
   filenameBase?: string;
   /** Feuille Excel a exploiter quand le classeur en contient plusieurs. */
   sheet?: string;
+  /**
+   * Lecteur de tableaux (CSV / Excel). Injecte par l'appelant : le serveur passe
+   * le lecteur Node, le navigateur le sien. Le pipeline reste ainsi utilisable
+   * des deux cotes, sans embarquer de dependance Node dans le bundle web.
+   */
+  reader?: (buffer: Uint8Array, filename: string, sheet?: string) => Promise<SourceTable>;
 }
 
 export interface ConvertResult {
@@ -73,7 +81,7 @@ export interface ConvertResult {
 
 /** Chaine complete : lecture du fichier FNE -> fichier d'import Sage. */
 export async function convert(
-  buffer: Buffer,
+  buffer: Uint8Array,
   filename: string,
   options: ConvertOptions = {},
 ): Promise<ConvertResult> {
@@ -107,7 +115,13 @@ export async function convert(
       synthese: parsed.every((invoice) => invoice.lignes.every((line) => !line.referenceArticle)),
     };
   } else {
-    const table: SourceTable = await readSource(buffer, filename, options.sheet);
+    if (!options.reader) {
+      throw new ReadError(
+        "Ce format demande un lecteur de tableaux. Utilisez convertFichier (serveur) " +
+          "ou convertNavigateur (web).",
+      );
+    }
+    const table: SourceTable = await options.reader(buffer, filename, options.sheet);
     const detected = detectMapping(table.columns);
     mapping = { ...detected.mapping, ...(options.mappingOverrides ?? {}) };
     unmapped = detected.unmapped;
@@ -173,7 +187,7 @@ export async function convert(
     file: {
       filename: file.filename,
       content: file.preview,
-      base64: file.buffer.toString("base64"),
+      base64: toBase64(file.buffer),
       lineCount: file.lineCount,
     },
     profile: { id: profile.id, label: profile.label },
@@ -213,7 +227,7 @@ function defaultParametres(): Record<string, string> {
  * Retourne la charge utile JSON quand le fichier est un export natif FNE,
  * `null` sinon (le fichier sera alors traite comme un tableau).
  */
-function readNativeExport(buffer: Buffer, filename: string): unknown | null {
+function readNativeExport(buffer: Uint8Array, filename: string): unknown | null {
   if (!/\.json$/i.test(filename)) return null;
   let payload: unknown;
   try {

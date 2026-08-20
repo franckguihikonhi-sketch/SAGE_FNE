@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { convert } from "@/lib/pipeline";
+import { convertFichier as convert } from "@/lib/node/convert";
 
 const FIXTURE = new URL("./fixtures/fne-tableau.csv", import.meta.url);
 const buffer = () => readFileSync(FIXTURE);

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import iconv from "iconv-lite";
 import { describe, expect, it } from "vitest";
-import { convert } from "@/lib/pipeline";
+import { convertFichier as convert } from "@/lib/node/convert";
 import { SAGE100_IMPORT_EXPORT } from "@/lib/sage/profile";
 
 const FIXTURE = new URL("./fixtures/fne-natif.json", import.meta.url);

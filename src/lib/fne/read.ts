@@ -1,31 +1,12 @@
 import Papa from "papaparse";
-import iconv from "iconv-lite";
 import { cleanCell } from "@/lib/core/text";
+import { decodeText } from "@/lib/core/cp1252";
+import { ReadError, type SourceTable } from "./source";
 
-export interface SourceTable {
-  /** Libelles de colonnes, dans l'ordre du fichier. */
-  columns: string[];
-  /** Lignes de donnees. Les cles correspondent a `columns`. */
-  rows: Array<Record<string, unknown>>;
-  /** Format detecte, affiche a l'utilisateur. */
-  format: "csv" | "xlsx" | "json";
-  /** Nom de la feuille Excel exploitee, le cas echeant. */
-  sheet?: string;
-}
+export { decodeText };
+export { ReadError, type SourceTable } from "./source";
 
-export class ReadError extends Error {}
 
-/** Decode un buffer texte en gerant BOM UTF-8 et fallback Windows-1252. */
-export function decodeText(buffer: Buffer): string {
-  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
-    return buffer.subarray(3).toString("utf8");
-  }
-  const utf8 = buffer.toString("utf8");
-  // U+FFFD indique un decodage UTF-8 rate : l'export est probablement en Windows-1252,
-  // encodage par defaut des exports Excel francophones.
-  if (utf8.includes("�")) return iconv.decode(buffer, "windows-1252");
-  return utf8;
-}
 
 export function readCsv(buffer: Buffer): SourceTable {
   const text = decodeText(buffer);

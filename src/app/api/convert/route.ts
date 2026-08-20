@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { convert } from "@/lib/pipeline";
+import { convertFichier as convert } from "@/lib/node/convert";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { ReadError } from "@/lib/fne/read";
