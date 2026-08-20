@@ -17,6 +17,15 @@ describe("parseAmount", () => {
     expect(parseAmount("1,23")).toBe(1.23);
   });
 
+  it("tranche l'ambiguite du separateur sur trois decimales", () => {
+    // "1.234" : 1 est un groupe de milliers valide -> 1234
+    expect(parseAmount("1.234")).toBe(1234);
+    // "21545.526" : 21545 n'est pas un groupe de milliers -> nombre decimal
+    expect(parseAmount("21545.526")).toBe(21545.526);
+    expect(parseAmount("-21545.526")).toBe(-21545.526);
+    expect(parseAmount("1.234.567")).toBe(1234567);
+  });
+
   it("gere les negatifs", () => {
     expect(parseAmount("-59 000")).toBe(-59000);
     expect(parseAmount("(1 200)")).toBe(-1200);

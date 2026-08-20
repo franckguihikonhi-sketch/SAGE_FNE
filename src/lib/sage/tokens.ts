@@ -1,12 +1,15 @@
 import { formatDate } from "@/lib/core/date";
 import { Invoice, InvoiceLine } from "@/lib/core/model";
 import { formatNumber } from "@/lib/core/text";
+import { codeReglementSage, libellePaiement, PaymentMapping } from "@/lib/fne/paiement";
 import { SageImportProfile } from "./profile";
 
 export interface TokenContext {
   invoice: Invoice;
   line: InvoiceLine | null;
   profile: SageImportProfile;
+  /** Correspondance mode de paiement FNE -> code reglement Sage. */
+  reglements?: PaymentMapping;
 }
 
 type TokenResolver = (ctx: TokenContext) => string;
@@ -27,6 +30,13 @@ export const TOKENS: Record<string, TokenResolver> = {
   "document.reference": (ctx) => ctx.invoice.reference,
   "document.devise": (ctx) => ctx.invoice.devise,
   "document.modeReglement": (ctx) => ctx.invoice.modeReglement,
+  "document.modeReglementLibelle": (ctx) => libellePaiement(ctx.invoice.modeReglement),
+  "document.codeReglement": (ctx) => codeReglementSage(ctx.invoice.modeReglement, ctx.reglements ?? {}),
+  "document.numeroParent": (ctx) => ctx.invoice.numeroParent,
+  "document.template": (ctx) => ctx.invoice.template,
+  "document.vendeur": (ctx) => ctx.invoice.vendeur,
+  "document.pointDeVente": (ctx) => ctx.invoice.pointDeVente,
+  "document.etablissement": (ctx) => ctx.invoice.etablissement,
   "document.commentaire": (ctx) => ctx.invoice.commentaire,
   "document.numeroFne": (ctx) => ctx.invoice.numeroFne,
   "document.codeVerification": (ctx) => ctx.invoice.codeVerification,
@@ -44,6 +54,8 @@ export const TOKENS: Record<string, TokenResolver> = {
   "totaux.ttc": (ctx) => num(ctx.invoice.totaux.totalTTC, ctx),
   "totaux.remise": (ctx) => num(ctx.invoice.totaux.totalRemise, ctx),
   "totaux.autresTaxes": (ctx) => num(ctx.invoice.totaux.autresTaxes, ctx),
+  "totaux.timbre": (ctx) => num(ctx.invoice.totaux.timbre, ctx),
+  "totaux.netAPayer": (ctx) => num(ctx.invoice.totaux.netAPayer, ctx),
 
   "ligne.numero": (ctx) => (ctx.line ? String(ctx.line.numero) : ""),
   "ligne.reference": (ctx) => ctx.line?.referenceArticle ?? "",

@@ -1,0 +1,108 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "parentId": null,
+    "parentReference": null,
+    "token": "019ff01b-0000-7006-a00d-000000000001",
+    "reference": "1234567A26000000123",
+    "type": "invoice",
+    "subtype": "normal",
+    "date": "2026-08-11T09:16:14.935Z",
+    "paymentMethod": "deferred",
+    "amount": 27423.72,
+    "vatAmount": 3878.19468,
+    "fiscalStamp": 0,
+    "discount": null,
+    "totalBeforeTaxes": 23545.526,
+    "totalDiscounted": 0,
+    "totalTaxes": 3878.19468,
+    "totalAfterTaxes": 27423.72068,
+    "totalCustomTaxes": 0,
+    "totalDue": 27423.72068,
+    "clientNcc": "7654321B",
+    "clientCompanyName": "CLIENT DE DEMONSTRATION",
+    "clientPhone": "2700000000",
+    "clientEmail": "demo@example.test",
+    "clientSellerName": "VENDEUR DEMO",
+    "clientEstablishment": "ETABLISSEMENT DEMO",
+    "clientPointOfSale": "SIEGE",
+    "status": "paid",
+    "template": "B2B",
+    "description": null,
+    "foreignCurrency": null,
+    "items": [
+      {
+        "quantity": 20,
+        "reference": "ART-001",
+        "description": "FRITES 7MM-PK (4*2.5kg)",
+        "amount": 1077.2763,
+        "discount": null,
+        "measurementUnit": "SAC",
+        "taxes": [
+          { "vatRateId": "x", "amount": 18, "name": "TVA normal - TVA sur HT 18,00% - A", "shortName": "TVA" }
+        ],
+        "customTaxes": []
+      },
+      {
+        "quantity": 4,
+        "reference": "ART-002",
+        "description": "PRODUIT EXONERE",
+        "amount": 500,
+        "discount": null,
+        "measurementUnit": "CARTON",
+        "taxes": [
+          { "vatRateId": "y", "amount": 0, "name": "TVA exec conv - 0,00%", "shortName": "TVAC" }
+        ],
+        "customTaxes": []
+      }
+    ],
+    "customTaxes": []
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "parentId": "00000000-0000-4000-8000-000000000003",
+    "parentReference": "1234567A26000000099",
+    "token": "019feb1e-0000-7004-b879-000000000002",
+    "reference": "A1234567A2600000004",
+    "type": "invoice",
+    "subtype": "refund",
+    "date": "2026-08-10T10:01:12.627Z",
+    "paymentMethod": "cash",
+    "amount": -25423.72068,
+    "vatAmount": -3878.19468,
+    "fiscalStamp": null,
+    "discount": null,
+    "totalBeforeTaxes": -21545.526,
+    "totalDiscounted": 0,
+    "totalTaxes": -3878.19468,
+    "totalAfterTaxes": -25423.72068,
+    "totalCustomTaxes": 0,
+    "totalDue": -25423.72068,
+    "clientNcc": "9988776C",
+    "clientCompanyName": "AUTRE CLIENT DEMO",
+    "clientPhone": "0700000000",
+    "clientEmail": "autre@example.test",
+    "clientSellerName": "VENDEUR DEMO",
+    "clientEstablishment": "ETABLISSEMENT DEMO",
+    "clientPointOfSale": "SIEGE",
+    "status": "paid",
+    "template": "B2B",
+    "description": null,
+    "foreignCurrency": null,
+    "items": [
+      {
+        "quantity": 20,
+        "reference": "ART-001",
+        "description": "FRITES 7MM-PK (4*2.5kg)",
+        "amount": -1077.2763,
+        "discount": null,
+        "measurementUnit": "SAC",
+        "taxes": [
+          { "vatRateId": "x", "amount": 18, "name": "TVA normal - TVA sur HT 18,00% - A", "shortName": "TVA" }
+        ],
+        "customTaxes": []
+      }
+    ],
+    "customTaxes": []
+  }
+]

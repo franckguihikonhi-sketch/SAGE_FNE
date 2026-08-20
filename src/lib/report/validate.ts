@@ -1,5 +1,6 @@
 import { Invoice } from "@/lib/core/model";
 import { round } from "@/lib/core/text";
+import { isTauxFne, TAUX_FNE } from "@/lib/fne/taxes";
 import { SAGE_LIMITS } from "@/lib/sage/limits";
 
 export type Severity = "erreur" | "avertissement";
@@ -21,12 +22,22 @@ export interface ValidationOptions {
   exigerCompteTiers: boolean;
   /** Exiger une reference article sur chaque ligne. */
   exigerReferenceArticle: boolean;
+  /**
+   * Verifier que chaque taux de TVA appartient a la nomenclature FNE
+   * (18 %, 9 %, 0 %). Un taux intermediaire revele une facture a plusieurs
+   * taux dont le detail a ete perdu.
+   */
+  verifierTauxFne: boolean;
+  /** Vrai quand les lignes proviennent d'une synthese : adapte le message. */
+  synthese: boolean;
 }
 
 export const DEFAULT_VALIDATION_OPTIONS: ValidationOptions = {
   toleranceTotaux: 1,
   exigerCompteTiers: true,
   exigerReferenceArticle: false,
+  verifierTauxFne: true,
+  synthese: false,
 };
 
 export function validateInvoices(
@@ -130,6 +141,21 @@ export function validateInvoices(
           facture: invoice.numero,
           sourceRow: line.sourceRow,
           message: `Ligne ${line.numero} sans reference article.`,
+        });
+      }
+
+      if (options.verifierTauxFne && !isTauxFne(line.tauxTva)) {
+        issues.push({
+          severity: "erreur",
+          code: "TAUX_TVA_NON_CONFORME",
+          facture: invoice.numero,
+          sourceRow: line.sourceRow,
+          message: options.synthese
+            ? `Taux de TVA reconstitue a ${line.tauxTva} %, hors nomenclature FNE ` +
+              `(${TAUX_FNE.join(" / ")} %) : cette facture melange plusieurs taux et l'export ` +
+              "tableur n'en porte pas le detail. Utilisez l'export JSON de FNE."
+            : `Ligne ${line.numero} : taux de TVA de ${line.tauxTva} %, hors nomenclature FNE ` +
+              `(${TAUX_FNE.join(" / ")} %).`,
         });
       }
 

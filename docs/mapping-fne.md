@@ -1,4 +1,7 @@
-# Reconnaissance des colonnes de l'export FNE
+# Reconnaissance des colonnes des exports tableur
+
+> Cette page concerne les exports **tableur** (Excel / CSV). L'export **JSON natif** de FNE est lu
+> directement par `src/lib/fne/native.ts`, sans détection de colonnes : voir `docs/exports-fne.md`.
 
 ## Fonctionnement
 
@@ -9,7 +12,9 @@ et les alias les plus longs sont testés en premier pour éviter qu'une colonne 
 « Montant TVA ligne ».
 
 Une colonne non reconnue n'est jamais devinée : elle apparaît dans `unmappedColumns` et peut être
-associée manuellement à un champ via `mappingOverrides`.
+associée manuellement à un champ via `mappingOverrides`. Les colonnes présentes dans l'export FNE
+mais sans usage côté Sage (RCCM, Terminal, Pied de page, Créé à…) sont listées séparément dans
+`ignoredColumns` : elles ne sont pas des anomalies.
 
 ## Champs du modèle pivot
 
@@ -42,26 +47,28 @@ Quand une donnée manque, elle est recalculée plutôt que laissée vide :
 Les écarts entre totaux déclarés et totaux recalculés sont signalés (`ECART_TOTAL_HT`,
 `ECART_TOTAL_TVA`) sans bloquer la conversion.
 
+## Mode synthèse
+
+L'export tableur FNE ne contient aucune ligne d'article. Quand aucune colonne de détail n'est
+reconnue, une ligne unique est reconstituée par facture depuis les totaux, et le taux de TVA est
+déduit (`total TVA ÷ total HT`). Un taux déduit hors nomenclature FNE fait échouer le contrôle
+`TAUX_TVA_NON_CONFORME` : la facture mélange plusieurs taux et seul l'export JSON permet de la
+reprendre correctement.
+
 ## Codes taxe
 
-`src/lib/fne/taxes.ts` fait la correspondance code taxe FNE → taux. Valeurs posées par défaut,
-**à confirmer sur un export réel** :
-
-| Code | Libellé | Taux |
-| --- | --- | --- |
-| `TVA` | TVA taux normal | 18 % |
-| `TVAB` | TVA taux réduit | 9 % |
-| `TVAC` | Exonération conventionnelle | 0 % |
-| `TVAD` | Exonération légale | 0 % |
-| `EXO` | Exonéré | 0 % |
-
-Un code inconnu accompagné d'aucun taux exploitable remonte une anomalie.
+`src/lib/fne/taxes.ts` fait la correspondance code taxe FNE → taux, conformément à l'annexe 1 de la
+documentation DGI : `TVA` 18 %, `TVAB` 9 %, `TVAC` 0 %, `TVAD` 0 %. Un code inconnu accompagné
+d'aucun taux exploitable remonte une anomalie.
 
 ## Factures d'avoir
 
-Une facture est traitée comme un avoir si la colonne « type de document » contient
-*avoir*, *refund*, *credit*, *annulation* ou *remboursement*, ou, à défaut de colonne de type,
-si toutes ses lignes portent des montants négatifs.
+Une facture est traitée comme un avoir si la colonne « Sous-type de facture » vaut `refund` (ou
+contient *avoir*, *credit*, *annulation*, *remboursement*), si une référence de facture d'origine
+est renseignée, ou, à défaut, si ses montants sont négatifs.
+
+Les montants d'un avoir sont ramenés en valeurs positives, le type de document Sage portant déjà le
+sens de l'opération (option `avoirEnValeurAbsolue`).
 
 ## Formats de fichier acceptés
 

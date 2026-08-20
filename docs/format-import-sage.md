@@ -39,11 +39,32 @@ le dossier cible :
 | Format de date | `DDMMYYYY` | `profile.dateFormat` |
 | Séparateur décimal | `.` | `profile.decimalSeparator` |
 | Marqueur entête / ligne | `E` / `L` | première colonne des layouts |
+| Numéro de pièce | année + numéro FNE (`26000000889`) | option `numeroPiece` |
+| Montants d'un avoir | valeurs positives | option `avoirEnValeurAbsolue` |
+| Codes règlement | aucun | table de correspondance à saisir |
 
 Nomenclature `DO_Type` de Sage 100 pour les ventes : `0` devis, `1` bon de commande,
 `2` préparation de livraison, `3` bon de livraison, `4` bon de retour, `5` bon d'avoir financier,
 `6` facture, `7` facture comptabilisée. Le choix entre `6` et `7` dépend du fait que la facture
 doit rester modifiable ou arriver déjà comptabilisée.
+
+## Numéro de pièce et référence FNE
+
+Une référence FNE fait 19 caractères (`2304903U26000000889`), au-delà de la zone `DO_Piece` de
+Sage. Par défaut seule la partie année + numéro d'ordre est transmise comme numéro de pièce
+(`26000000889`, 11 caractères) : le NCC en préfixe est constant pour une entreprise. La référence
+complète est toujours écrite dans la zone « Référence FNE » du fichier, pour la traçabilité et les
+contrôles de la DGI.
+
+Basculer sur `numeroPiece: "reference"` transmet la référence complète — à réserver aux dossiers
+dont la zone a été étendue, sinon Sage tronquera.
+
+## Modes de règlement
+
+FNE expose un code (`cash`, `card`, `check`, `mobile-money`, `transfer`, `deferred`) ; Sage attend
+un code de règlement propre au dossier. La correspondance se saisit dans l'interface ou via
+`--profil` en ligne de commande, sous la forme `deferred=CRED`. Sans correspondance, la zone est
+laissée vide plutôt que remplie d'une valeur inventée.
 
 ## Longueurs de zones
 

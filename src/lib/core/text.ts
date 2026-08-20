@@ -60,10 +60,9 @@ export function parseAmount(value: unknown): number | null {
   if (lastComma !== -1 && lastDot !== -1) {
     decimalSep = lastComma > lastDot ? "," : ".";
   } else if (lastComma !== -1) {
-    // "1,234" est ambigu. Trois chiffres apres le separateur => separateur de milliers.
-    decimalSep = raw.length - lastComma - 1 === 3 ? null : ",";
+    decimalSep = isThousandsGroup(raw, lastComma) ? null : ",";
   } else if (lastDot !== -1) {
-    decimalSep = raw.length - lastDot - 1 === 3 ? null : ".";
+    decimalSep = isThousandsGroup(raw, lastDot) ? null : ".";
   }
 
   let normalized: string;
@@ -89,6 +88,17 @@ export function parseRate(value: unknown): number | null {
   // Un taux exprime en fraction (0,18) est ramene en pourcentage.
   if (amount > 0 && amount < 1) return round(amount * 100, 4);
   return amount;
+}
+
+/**
+ * Un separateur unique est un separateur de milliers seulement s'il est suivi
+ * d'exactement trois chiffres *et* si ce qui le precede forme un groupe valide :
+ * "1,234" vaut 1234, mais "21545.526" vaut 21545,526 car 21545 n'est pas un
+ * groupe de milliers.
+ */
+function isThousandsGroup(raw: string, separatorIndex: number): boolean {
+  if (raw.length - separatorIndex - 1 !== 3) return false;
+  return /^\d{1,3}([.,]\d{3})*$/.test(raw.slice(0, separatorIndex));
 }
 
 export function round(value: number, decimals = 2): number {

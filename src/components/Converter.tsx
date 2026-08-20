@@ -17,6 +17,8 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
   const [profileId, setProfileId] = useState(profiles[0]?.id ?? "");
   const [customers, setCustomers] = useState("");
   const [compteParDefaut, setCompteParDefaut] = useState("");
+  const [reglements, setReglements] = useState("");
+  const [numeroPiece, setNumeroPiece] = useState("sequence");
   const [result, setResult] = useState<ConvertResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -39,6 +41,8 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
     form.set("profileId", profileId);
     form.set("customers", customers);
     form.set("compteParDefaut", compteParDefaut);
+    form.set("reglements", reglements);
+    form.set("numeroPiece", numeroPiece);
 
     try {
       const response = await fetch("/api/convert", { method: "POST", body: form });
@@ -128,6 +132,38 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
           </p>
         </div>
 
+        <div>
+          <label className="block text-sm font-semibold text-slate-800">
+            Correspondance modes de reglement
+          </label>
+          <textarea
+            value={reglements}
+            onChange={(event) => setReglements(event.target.value)}
+            rows={3}
+            placeholder={"deferred=CRED\ncash=ESP\ntransfer=VIR"}
+            className="mt-2 w-full rounded-lg border border-slate-300 p-2 font-mono text-xs"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Codes FNE : cash, card, check, mobile-money, transfer, deferred.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-slate-800">Numero de piece Sage</label>
+          <select
+            value={numeroPiece}
+            onChange={(event) => setNumeroPiece(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"
+          >
+            <option value="sequence">Annee + numero (26000000889) - 13 caracteres max</option>
+            <option value="reference">Reference FNE complete (2304903U26000000889)</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            La reference complete depasse la longueur du champ Sage : elle reste toujours ecrite dans
+            la zone &laquo; Reference FNE &raquo;.
+          </p>
+        </div>
+
         <button
           type="submit"
           disabled={loading}
@@ -164,14 +200,24 @@ function Results({ result, onDownload }: { result: ConvertResult; onDownload: ()
     () => Object.entries(result.mapping) as Array<[FneField, string]>,
     [result.mapping],
   );
+  const totaux = money.format(result.summary.totalTTC);
 
   return (
     <>
+      {result.source.synthese && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <strong>Export sans detail des articles.</strong> Une ligne de synthese a ete generee par
+          facture a partir des totaux. Les factures melangeant plusieurs taux de TVA ne peuvent pas
+          etre reconstituees : utilisez l&apos;export <strong>JSON</strong> de FNE, seul format qui
+          porte le detail des articles.
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Factures" value={String(result.summary.factures)} />
         <Stat label="Avoirs" value={String(result.summary.avoirs)} />
         <Stat label="Lignes" value={String(result.summary.lignes)} />
-        <Stat label="Total TTC" value={`${money.format(result.summary.totalTTC)} XOF`} />
+        <Stat label="Total TTC" value={`${totaux} XOF`} />
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -235,10 +281,16 @@ function Results({ result, onDownload }: { result: ConvertResult; onDownload: ()
       )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-slate-900">Colonnes reconnues</h2>
+        <h2 className="font-semibold text-slate-900">
+          {result.source.kind === "fne-json" ? "Source" : "Colonnes reconnues"}
+        </h2>
         <p className="text-sm text-slate-600">
-          Source : {result.table.format.toUpperCase()}
-          {result.table.sheet ? ` (feuille ${result.table.sheet})` : ""} &middot; {result.table.rowCount} lignes lues.
+          {result.source.kind === "fne-json"
+            ? "Export JSON natif FNE : les articles sont lus directement, sans mappage de colonnes."
+            : `Tableau ${result.source.format.toUpperCase()}${
+                result.source.sheet ? ` (feuille ${result.source.sheet})` : ""
+              }`}{" "}
+          &middot; {result.source.rowCount} enregistrements lus.
         </p>
         <ul className="mt-3 grid gap-1 text-sm sm:grid-cols-2">
           {mappedFields.map(([field, column]) => (
@@ -249,8 +301,13 @@ function Results({ result, onDownload }: { result: ConvertResult; onDownload: ()
           ))}
         </ul>
         {result.unmappedColumns.length > 0 && (
-          <p className="mt-3 text-sm text-slate-500">
-            Colonnes non utilisees : {result.unmappedColumns.join(", ")}
+          <p className="mt-3 text-sm text-amber-700">
+            Colonnes non reconnues : {result.unmappedColumns.join(", ")}
+          </p>
+        )}
+        {result.ignoredColumns.length > 0 && (
+          <p className="mt-2 text-sm text-slate-500">
+            Colonnes ignorees (sans usage cote Sage) : {result.ignoredColumns.join(", ")}
           </p>
         )}
       </div>

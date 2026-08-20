@@ -46,24 +46,37 @@ export interface InvoiceTotals {
   totalHT: number;
   totalRemise: number;
   totalTva: number;
-  /** Autres taxes (AIB, taxes specifiques) reprises telles quelles. */
+  /** Autres taxes declarees a la ligne `customTaxes` de FNE. */
   autresTaxes: number;
+  /** Timbre de quittance (fiscalStamp). */
+  timbre: number;
   totalTTC: number;
+  /** Net a payer (totalDue) : TTC + timbre. */
+  netAPayer: number;
 }
 
 export interface Invoice {
-  /** Numero de piece du vendeur (celui qui sera repris dans Sage). */
+  /** Numero de piece repris dans Sage (reference certifiee FNE). */
   numero: string;
-  /** Identifiant certifie renvoye par la plateforme FNE. */
+  /** Reference certifiee FNE (identique a `numero` sauf renumerotation). */
   numeroFne: string;
-  /** Code / cle de verification FNE (QR code). */
+  /** Reference de la facture d'origine, pour un avoir (parentReference). */
+  numeroParent: string;
+  /** URL / jeton de verification FNE (QR code). */
   codeVerification: string;
   date: string; // ISO yyyy-mm-dd
   kind: DocumentKind;
   client: Customer;
   devise: string;
   reference: string;
+  /** Mode de reglement, code FNE (cash, card, check, mobile-money, transfer, deferred). */
   modeReglement: string;
+  /** Type de facturation FNE : B2B, B2C, B2G, B2F. */
+  template: string;
+  /** Nom du vendeur, du point de vente et de l'etablissement (tracabilite FNE). */
+  vendeur: string;
+  pointDeVente: string;
+  etablissement: string;
   commentaire: string;
   lignes: InvoiceLine[];
   totaux: InvoiceTotals;
@@ -74,5 +87,35 @@ export function emptyCustomer(): Customer {
 }
 
 export function emptyTotals(): InvoiceTotals {
-  return { totalHT: 0, totalRemise: 0, totalTva: 0, autresTaxes: 0, totalTTC: 0 };
+  return {
+    totalHT: 0,
+    totalRemise: 0,
+    totalTva: 0,
+    autresTaxes: 0,
+    timbre: 0,
+    totalTTC: 0,
+    netAPayer: 0,
+  };
+}
+
+export function emptyInvoice(): Invoice {
+  return {
+    numero: "",
+    numeroFne: "",
+    numeroParent: "",
+    codeVerification: "",
+    date: "",
+    kind: "FACTURE",
+    client: emptyCustomer(),
+    devise: "XOF",
+    reference: "",
+    modeReglement: "",
+    template: "",
+    vendeur: "",
+    pointDeVente: "",
+    etablissement: "",
+    commentaire: "",
+    lignes: [],
+    totaux: emptyTotals(),
+  };
 }

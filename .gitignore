@@ -10,3 +10,6 @@ next-env.d.ts
 .DS_Store
 coverage/
 /tmp/
+
+# Exports FNE reels : donnees clients et cles API, ne jamais commiter
+samples/

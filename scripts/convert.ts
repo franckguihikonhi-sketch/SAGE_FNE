@@ -21,7 +21,8 @@ async function main() {
     console.error("  --clients=<csv>    Table de correspondance NCC/nom -> compte tiers Sage");
     console.error("  --defaut=<compte>  Compte tiers par defaut");
     console.error("  --sortie=<fichier> Chemin du fichier genere");
-    console.error("  --feuille=<nom>    Feuille Excel a lire\n");
+    console.error("  --feuille=<nom>    Feuille Excel a lire");
+    console.error("  --detail=<n>       Nombre d'anomalies detaillees (defaut 10)\n");
     console.error("Profils disponibles :");
     for (const profile of PROFILES) console.error(`  ${profile.id.padEnd(28)} ${profile.label}`);
     process.exit(1);
@@ -42,19 +43,30 @@ async function main() {
   const output = option("sortie") ?? result.file.filename;
   writeFileSync(output, Buffer.from(result.file.base64, "base64"));
 
-  console.log(`Source        : ${result.table.format.toUpperCase()} - ${result.table.rowCount} lignes lues`);
+  const nature = result.source.kind === "fne-json" ? "export JSON natif FNE" : "tableau";
+  console.log(
+    `Source        : ${result.source.format.toUpperCase()} (${nature}) - ${result.source.rowCount} enregistrements lus`,
+  );
+  if (result.source.synthese) {
+    console.log("                detail des articles absent : lignes de synthese generees");
+  }
   console.log(`Profil Sage   : ${result.profile.label}`);
   console.log(
     `Documents     : ${result.summary.factures} facture(s), ${result.summary.avoirs} avoir(s), ` +
       `${result.summary.lignes} ligne(s)`,
   );
+  const fmt = (value: number) => value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
   console.log(
-    `Totaux        : HT ${result.summary.totalHT} | TVA ${result.summary.totalTva} | TTC ${result.summary.totalTTC}`,
+    `Totaux        : HT ${fmt(result.summary.totalHT)} | TVA ${fmt(result.summary.totalTva)} | ` +
+      `TTC ${fmt(result.summary.totalTTC)}`,
   );
   console.log(`Fichier genere: ${output} (${result.file.lineCount} enregistrements)`);
 
   if (result.unmappedColumns.length > 0) {
     console.log(`\nColonnes non reconnues : ${result.unmappedColumns.join(", ")}`);
+  }
+  if (result.ignoredColumns.length > 0) {
+    console.log(`Colonnes ignorees (sans usage Sage) : ${result.ignoredColumns.join(", ")}`);
   }
   if (result.missingFields.length > 0) {
     console.log(`Champs obligatoires manquants : ${result.missingFields.join(", ")}`);
@@ -62,13 +74,22 @@ async function main() {
 
   const erreurs = result.issues.filter((issue) => issue.severity === "erreur");
   const avertissements = result.issues.filter((issue) => issue.severity === "avertissement");
-  if (erreurs.length > 0) {
-    console.log(`\n${erreurs.length} erreur(s) bloquante(s) :`);
-    for (const issue of erreurs.slice(0, 50)) console.log(`  [${issue.facture ?? "-"}] ${issue.message}`);
+
+  if (result.issues.length > 0) {
+    const parCode = new Map<string, number>();
+    for (const issue of result.issues) parCode.set(issue.code, (parCode.get(issue.code) ?? 0) + 1);
+    console.log(`\nControles : ${erreurs.length} erreur(s), ${avertissements.length} avertissement(s)`);
+    for (const [code, count] of [...parCode].sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${String(count).padStart(4)} x ${code}`);
+    }
   }
-  if (avertissements.length > 0) {
-    console.log(`\n${avertissements.length} avertissement(s) :`);
-    for (const issue of avertissements.slice(0, 50)) console.log(`  [${issue.facture ?? "-"}] ${issue.message}`);
+
+  const detail = Number(option("detail") ?? 10);
+  for (const [titre, liste] of [["Erreurs", erreurs], ["Avertissements", avertissements]] as const) {
+    if (liste.length === 0) continue;
+    console.log(`\n${titre} :`);
+    for (const issue of liste.slice(0, detail)) console.log(`  [${issue.facture ?? "-"}] ${issue.message}`);
+    if (liste.length > detail) console.log(`  ... et ${liste.length - detail} autres (--detail=N pour en voir plus)`);
   }
   if (erreurs.length > 0) process.exitCode = 2;
 }

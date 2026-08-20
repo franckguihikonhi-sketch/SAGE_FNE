@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { convert } from "@/lib/pipeline";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
+import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { ReadError } from "@/lib/fne/read";
 
 export const runtime = "nodejs";
@@ -35,12 +36,16 @@ export async function POST(request: NextRequest) {
   const customersCsv = asString(form.get("customers"));
   const compteParDefaut = asString(form.get("compteParDefaut"));
   const exigerCompteTiers = asString(form.get("exigerCompteTiers")) !== "false";
+  const reglements = asString(form.get("reglements"));
+  const numeroPiece = asString(form.get("numeroPiece")) === "reference" ? "reference" : "sequence";
 
   try {
     const result = await convert(buffer, file.name, {
       profileId: profileId || undefined,
       customers: customersCsv ? parseCustomerMappingCsv(customersCsv) : [],
       customerOptions: { compteParDefaut: compteParDefaut || undefined, utiliserCodeSource: true },
+      reglements: reglements ? parsePaymentMappingText(reglements) : {},
+      normalizeOptions: { numeroPiece },
       validationOptions: { exigerCompteTiers },
     });
     return NextResponse.json(result);

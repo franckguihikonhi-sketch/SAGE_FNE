@@ -1,7 +1,14 @@
 import { Invoice } from "@/lib/core/model";
 import { detectMapping, ColumnMapping, missingRequiredFields } from "@/lib/fne/mapping";
 import { normalize, DEFAULT_NORMALIZE_OPTIONS, NormalizeOptions } from "@/lib/fne/normalize";
-import { readSource, SourceTable } from "@/lib/fne/read";
+import {
+  DEFAULT_NATIVE_OPTIONS,
+  FneNativeOptions,
+  isFneNativeExport,
+  parseFneNative,
+} from "@/lib/fne/native";
+import { decodeText, readSource, ReadError, SourceTable } from "@/lib/fne/read";
+import { PaymentMapping } from "@/lib/fne/paiement";
 import { applyCustomerMapping, CustomerMappingEntry, CustomerMappingOptions } from "@/lib/sage/customers";
 import { buildSageFile, summarize } from "@/lib/sage/export";
 import { findProfile, SAGE100_DOCUMENTS_VENTES, SageImportProfile } from "@/lib/sage/profile";
@@ -20,6 +27,8 @@ export interface ConvertOptions {
   mappingOverrides?: ColumnMapping;
   customers?: CustomerMappingEntry[];
   customerOptions?: CustomerMappingOptions;
+  /** Correspondance mode de paiement FNE -> code reglement Sage. */
+  reglements?: PaymentMapping;
   normalizeOptions?: Partial<NormalizeOptions>;
   validationOptions?: Partial<ValidationOptions>;
   filenameBase?: string;
@@ -28,9 +37,20 @@ export interface ConvertOptions {
 }
 
 export interface ConvertResult {
-  table: Pick<SourceTable, "columns" | "format" | "sheet"> & { rowCount: number };
+  source: {
+    /** "fne-json" : export natif FNE avec le detail des articles. */
+    kind: "fne-json" | "tableau";
+    format: string;
+    sheet?: string;
+    rowCount: number;
+    columns: string[];
+    /** Vrai quand les lignes ont ete reconstituees depuis les totaux. */
+    synthese: boolean;
+  };
   mapping: ColumnMapping;
   unmappedColumns: string[];
+  /** Colonnes FNE connues mais sans usage cote Sage. */
+  ignoredColumns: string[];
   missingFields: FneField[];
   invoices: Invoice[];
   clientsInconnus: Array<{ nom: string; ncc: string; factures: string[] }>;
@@ -46,18 +66,59 @@ export async function convert(
   filename: string,
   options: ConvertOptions = {},
 ): Promise<ConvertResult> {
-  const table = await readSource(buffer, filename, options.sheet);
-  const detected = detectMapping(table.columns);
-  const mapping: ColumnMapping = { ...detected.mapping, ...(options.mappingOverrides ?? {}) };
-
   const normalizeOptions: NormalizeOptions = { ...DEFAULT_NORMALIZE_OPTIONS, ...options.normalizeOptions };
-  const { invoices: parsed, warnings } = normalize(table, mapping, normalizeOptions);
+  const nativeOptions: FneNativeOptions = {
+    ...DEFAULT_NATIVE_OPTIONS,
+    numeroPiece: normalizeOptions.numeroPiece,
+    avoirEnValeurAbsolue: normalizeOptions.avoirEnValeurAbsolue,
+    decimales: normalizeOptions.decimales,
+  };
 
-  const { invoices, inconnus } = applyCustomerMapping(
-    parsed,
-    options.customers ?? [],
-    { utiliserCodeSource: true, ...options.customerOptions },
-  );
+  const native = readNativeExport(buffer, filename);
+
+  let parsed: Invoice[];
+  let warnings: string[];
+  let mapping: ColumnMapping = {};
+  let unmapped: string[] = [];
+  let ignored: string[] = [];
+  let missing: FneField[] = [];
+  let source: ConvertResult["source"];
+
+  if (native) {
+    const result = parseFneNative(native, nativeOptions);
+    parsed = result.invoices;
+    warnings = result.warnings;
+    source = {
+      kind: "fne-json",
+      format: "json",
+      rowCount: parsed.length,
+      columns: [],
+      synthese: parsed.every((invoice) => invoice.lignes.every((line) => !line.referenceArticle)),
+    };
+  } else {
+    const table: SourceTable = await readSource(buffer, filename, options.sheet);
+    const detected = detectMapping(table.columns);
+    mapping = { ...detected.mapping, ...(options.mappingOverrides ?? {}) };
+    unmapped = detected.unmapped;
+    ignored = detected.ignored;
+    missing = missingRequiredFields(mapping);
+    const result = normalize(table, mapping, normalizeOptions);
+    parsed = result.invoices;
+    warnings = result.warnings;
+    source = {
+      kind: "tableau",
+      format: table.format,
+      sheet: table.sheet,
+      rowCount: table.rows.length,
+      columns: table.columns,
+      synthese: result.synthese,
+    };
+  }
+
+  const { invoices, inconnus } = applyCustomerMapping(parsed, options.customers ?? [], {
+    utiliserCodeSource: true,
+    ...options.customerOptions,
+  });
 
   const profile =
     options.profile ??
@@ -66,6 +127,7 @@ export async function convert(
 
   const validationOptions: ValidationOptions = {
     ...DEFAULT_VALIDATION_OPTIONS,
+    synthese: source.synthese,
     ...options.validationOptions,
   };
   const issues: Issue[] = [
@@ -74,18 +136,14 @@ export async function convert(
   ];
 
   const base = options.filenameBase ?? filename.replace(/\.[^.]+$/, "");
-  const file = buildSageFile(invoices, profile, `${base}-sage`);
+  const file = buildSageFile(invoices, profile, `${base}-sage`, options.reglements ?? {});
 
   return {
-    table: {
-      columns: table.columns,
-      format: table.format,
-      sheet: table.sheet,
-      rowCount: table.rows.length,
-    },
+    source,
     mapping,
-    unmappedColumns: detected.unmapped,
-    missingFields: missingRequiredFields(mapping),
+    unmappedColumns: unmapped,
+    ignoredColumns: ignored,
+    missingFields: missing,
     invoices,
     clientsInconnus: inconnus,
     issues,
@@ -98,4 +156,19 @@ export async function convert(
     },
     profile: { id: profile.id, label: profile.label },
   };
+}
+
+/**
+ * Retourne la charge utile JSON quand le fichier est un export natif FNE,
+ * `null` sinon (le fichier sera alors traite comme un tableau).
+ */
+function readNativeExport(buffer: Buffer, filename: string): unknown | null {
+  if (!/\.json$/i.test(filename)) return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(decodeText(buffer));
+  } catch {
+    throw new ReadError("Le fichier JSON est illisible.");
+  }
+  return isFneNativeExport(payload) ? payload : null;
 }

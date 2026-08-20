@@ -1,5 +1,6 @@
 import iconv from "iconv-lite";
 import { Invoice, InvoiceLine } from "@/lib/core/model";
+import { PaymentMapping } from "@/lib/fne/paiement";
 import { SageColumn, SageImportProfile } from "./profile";
 import { resolveToken, TokenContext } from "./tokens";
 
@@ -16,6 +17,7 @@ export function buildSageFile(
   invoices: Invoice[],
   profile: SageImportProfile,
   filenameBase = "import-sage",
+  reglements: PaymentMapping = {},
 ): SageExportResult {
   const rows: string[] = [];
 
@@ -26,10 +28,10 @@ export function buildSageFile(
 
   for (const invoice of invoices) {
     if (profile.entete.length > 0) {
-      rows.push(renderRow(profile.entete, { invoice, line: null, profile }, profile));
+      rows.push(renderRow(profile.entete, { invoice, line: null, profile, reglements }, profile));
     }
     for (const line of invoice.lignes) {
-      rows.push(renderRow(profile.ligne, { invoice, line, profile }, profile));
+      rows.push(renderRow(profile.ligne, { invoice, line, profile, reglements }, profile));
     }
   }
 

@@ -14,6 +14,12 @@ export type FneField =
   | "codeVerification"
   | "dateFacture"
   | "typeDocument"
+  | "sousTypeDocument"
+  | "referenceParent"
+  | "template"
+  | "vendeur"
+  | "pointDeVente"
+  | "etablissement"
   | "clientCode"
   | "clientNom"
   | "clientNcc"
@@ -40,22 +46,46 @@ export type FneField =
   | "totalRemise"
   | "totalTva"
   | "autresTaxes"
-  | "totalTTC";
+  | "timbre"
+  | "totalTTC"
+  | "netAPayer";
+
+/**
+ * Colonnes presentes dans l'export tableur FNE mais sans usage pour un import
+ * Sage : elles sont signalees comme ignorees plutot que comme non reconnues.
+ */
+export const IGNORED_COLUMNS: string[] = [
+  "terminal", "rccm", "regime d imposition", "autres mentions", "pied de page",
+  "est rne", "rne", "cree a", "mise a jour a", "taux de change", "createdat", "updatedat",
+  "id", "parentid", "statut", "status", "source", "nom du commercant", "clientmerchantname",
+];
 
 /** Un champ est soit au niveau facture (entete), soit au niveau ligne. */
 export const HEADER_FIELDS: ReadonlySet<FneField> = new Set<FneField>([
   "numeroFacture", "numeroFne", "codeVerification", "dateFacture", "typeDocument",
-  "clientCode", "clientNom", "clientNcc", "clientAdresse", "clientTelephone",
-  "clientEmail", "devise", "reference", "modeReglement",
-  "totalHT", "totalRemise", "totalTva", "autresTaxes", "totalTTC",
+  "sousTypeDocument", "referenceParent", "template", "vendeur", "pointDeVente",
+  "etablissement", "clientCode", "clientNom", "clientNcc", "clientAdresse",
+  "clientTelephone", "clientEmail", "devise", "reference", "modeReglement",
+  "totalHT", "totalRemise", "totalTva", "autresTaxes", "timbre", "totalTTC", "netAPayer",
 ]);
+
+/** Champs porteurs du detail des articles : leur absence declenche le mode synthese. */
+export const LINE_AMOUNT_FIELDS: FneField[] = [
+  "articleDesignation", "articleReference", "quantite", "prixUnitaireHT", "montantHT",
+];
 
 export const FIELD_LABELS: Record<FneField, string> = {
   numeroFacture: "Numero de facture",
   numeroFne: "Numero FNE / identifiant certifie",
   codeVerification: "Code de verification (QR)",
   dateFacture: "Date de facture",
-  typeDocument: "Type de document (facture / avoir)",
+  typeDocument: "Type de facture (vente / achat)",
+  sousTypeDocument: "Sous-type de facture (normal / avoir)",
+  referenceParent: "Reference de la facture d'origine",
+  template: "Type de facturation (B2B, B2C, B2G, B2F)",
+  vendeur: "Nom du vendeur",
+  pointDeVente: "Point de vente",
+  etablissement: "Etablissement",
   clientCode: "Code client",
   clientNom: "Nom / raison sociale du client",
   clientNcc: "NCC du client",
@@ -81,8 +111,10 @@ export const FIELD_LABELS: Record<FneField, string> = {
   totalHT: "Total HT de la facture",
   totalRemise: "Total remise de la facture",
   totalTva: "Total TVA de la facture",
-  autresTaxes: "Autres taxes (AIB, ...)",
+  autresTaxes: "Total autres taxes",
+  timbre: "Timbre de quittance",
   totalTTC: "Total TTC de la facture",
+  netAPayer: "Net a payer",
 };
 
 /**
@@ -91,6 +123,8 @@ export const FIELD_LABELS: Record<FneField, string> = {
  */
 export const FIELD_ALIASES: Record<FneField, string[]> = {
   numeroFacture: [
+    // Libelle de l'export tableur FNE
+    "reference",
     "numero facture", "numero de facture", "n facture", "no facture", "num facture",
     "numero piece", "numero du document", "invoice number", "reference facture", "facture",
   ],
@@ -99,6 +133,7 @@ export const FIELD_ALIASES: Record<FneField, string[]> = {
     "numero certifie", "fne number", "invoice id", "id fne", "numero normalise",
   ],
   codeVerification: [
+    "token",
     "code verification", "cle de verification", "code de verification", "qr code",
     "qr", "verification code", "sticker", "code securite",
   ],
@@ -107,27 +142,40 @@ export const FIELD_ALIASES: Record<FneField, string[]> = {
     "date d emission", "invoice date", "date",
   ],
   typeDocument: [
-    "type document", "type de document", "type de piece", "nature du document",
-    "type facture", "invoice type", "type",
+    "type de facture", "type document", "type de document", "type de piece",
+    "nature du document", "type facture", "invoice type", "type",
   ],
+  sousTypeDocument: [
+    "sous type de facture", "sous type facture", "sous type", "subtype", "soustype",
+  ],
+  referenceParent: [
+    "reference initial", "reference initiale", "reference d origine", "parent reference",
+    "facture d origine",
+  ],
+  template: ["type de facturation", "template", "type facturation"],
+  vendeur: ["nom du vendeur", "vendeur", "seller name", "commercial"],
+  pointDeVente: ["point de vente", "pointofsale", "point vente"],
+  etablissement: ["etablissement", "establishment"],
   clientCode: [
     "code client", "compte client", "numero client", "customer code", "client code",
     "code tiers", "compte tiers",
   ],
   clientNom: [
+    "nom de la societe du client", "nom de la societe client", "nom du client",
     "nom client", "raison sociale", "client nom", "nom du client", "denomination",
     "customer name", "client name", "designation client", "client",
   ],
   clientNcc: [
-    "ncc client", "ncc du client", "numero compte contribuable", "compte contribuable",
+    "ncc du client", "ncc client", "numero compte contribuable", "compte contribuable",
     "ncc", "nif", "identifiant fiscal", "taxpayer number",
   ],
   clientAdresse: ["adresse client", "adresse du client", "adresse", "customer address"],
   clientTelephone: ["telephone client", "telephone", "tel", "contact", "phone"],
   clientEmail: ["email client", "email", "mail", "courriel"],
-  devise: ["devise", "currency", "monnaie"],
+  devise: ["devises etrangeres", "devise etrangere", "devise", "currency", "monnaie"],
   reference: ["reference document", "reference", "votre reference", "ref"],
   modeReglement: [
+    "mode de paiement",
     "mode reglement", "mode de reglement", "mode de paiement", "moyen de paiement",
     "payment method", "reglement",
   ],
@@ -161,9 +209,11 @@ export const FIELD_ALIASES: Record<FneField, string[]> = {
   totalHT: ["total ht facture", "total ht", "total hors taxe", "montant total ht", "sous total"],
   totalRemise: ["total remise", "remise globale", "remise totale"],
   totalTva: ["total tva facture", "total tva", "montant total tva", "total taxes"],
-  autresTaxes: ["autres taxes", "aib", "acompte impot", "taxe specifique", "timbre", "droit timbre"],
+  autresTaxes: ["total autres taxes", "autres taxes", "aib", "acompte impot", "taxe specifique"],
+  timbre: ["timbre de quittance", "timbre", "droit de timbre", "fiscal stamp"],
+  netAPayer: ["net a payer", "total du", "montant du", "total due"],
   totalTTC: [
-    "total ttc facture", "total ttc", "montant total ttc", "net a payer", "total a payer",
+    "total ttc facture", "total ttc", "montant total ttc", "total a payer",
     "montant total", "total",
   ],
 };
