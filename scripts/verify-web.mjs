@@ -43,14 +43,50 @@ async function main() {
 
   for (const cas of CAS) {
     await page.setInputFiles("#fichier", cas.fichier);
-    await page.waitForSelector("#apercu", { timeout: 15000 });
-    const apercu = (await page.textContent("#apercu")) ?? "";
+    await page.waitForSelector(".verdict", { timeout: 15000 });
+    const apercu = (await page.textContent("pre")) ?? "";
     if (!apercu.includes(cas.attendu)) {
       throw new Error(`${cas.fichier} : "${cas.attendu}" absent du fichier genere.`);
     }
     const stats = (await page.textContent(".stats"))?.replace(/\s+/g, " ").trim();
     console.log(`  ${cas.fichier.split("/").pop()} : ${stats}`);
   }
+
+  // Le PDF de facture certifiee doit etre refuse avec son explication.
+  await page.setInputFiles("#fichier", resolve("tests/fixtures/facture.pdf"));
+  await page.waitForSelector(".alerte.erreur", { timeout: 8000 });
+  const refus = (await page.textContent(".alerte.erreur")) ?? "";
+  if (!refus.includes("arrondis au franc")) throw new Error("Le refus du PDF n'est pas explique.");
+  console.log("  facture.pdf : refuse avec explication");
+
+  // Affectation d'un compte tiers depuis l'ecran, puis memorisation.
+  // Sans compte par defaut, les clients de l'export remontent comme a affecter.
+  await page.fill("#compteDefaut", "");
+  await page.fill("#clients", "");
+  await page.setInputFiles("#fichier", CAS[0].fichier);
+  await page.waitForSelector(".compte-client", { timeout: 15000 });
+  const clients = await page.locator(".compte-client").count();
+  for (let i = 0; i < clients; i += 1) {
+    await page.locator(".compte-client").nth(i).fill(`411TEST${i}`);
+  }
+  await page.click("#appliquer-clients");
+  await page.waitForSelector(".verdict.ok", { timeout: 15000 });
+  if ((await page.locator(".compte-client").count()) !== 0) {
+    throw new Error("Des clients restent sans compte tiers apres affectation.");
+  }
+  console.log(`  affectation de ${clients} compte(s) tiers : import pret`);
+
+  // Les reglages doivent survivre au rechargement de la page.
+  await page.reload();
+  const memorise = await page.inputValue("#clients");
+  if (!memorise.includes("411TEST0")) throw new Error("Les reglages ne sont pas conserves.");
+  if ((await page.inputValue("#depot")) !== "DEPOT PRINCIPAL") {
+    throw new Error("Le depot n'est pas conserve.");
+  }
+  if ((await page.inputValue("#compteDefaut")) !== "") {
+    throw new Error("Le compte par defaut vide n'est pas conserve.");
+  }
+  console.log("  reglages conserves apres rechargement");
 
   await browser.close();
   if (erreurs.length > 0) {

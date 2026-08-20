@@ -260,6 +260,55 @@
     flex-wrap: wrap;
   }
 
+  .pied-rail {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-top: 1px solid var(--bord);
+    padding-top: 14px;
+  }
+
+  .pied-rail .aide { margin: 0; }
+
+  .actions.compactes { gap: 6px; }
+
+  .bouton-fichier {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 7px;
+    border: 1px solid var(--bord-fort);
+    background: var(--surface);
+    color: var(--encre);
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .bouton-fichier:hover { border-color: var(--accent); color: var(--accent); }
+
+  #import-clients { display: none; }
+
+  /* Verdict */
+  .verdict {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 18px;
+    border-radius: var(--rayon);
+    border: 1px solid;
+    border-left-width: 4px;
+  }
+
+  .verdict strong { font-size: 16px; }
+  .verdict span { font-size: 13.5px; color: var(--encre-douce); }
+
+  .verdict.ok { background: var(--accent-voile); border-color: var(--accent); }
+  .verdict.ok strong { color: var(--accent); }
+  .verdict.bloque { background: var(--alerte-voile); border-color: var(--alerte); }
+  .verdict.bloque strong { color: var(--alerte); }
+
   /* Resultats */
   .colonne-resultat { display: flex; flex-direction: column; gap: 20px; }
 
@@ -322,6 +371,7 @@
     border-bottom: 1px solid var(--bord);
   }
   tbody td { padding: 7px 8px; border-bottom: 1px solid var(--bord); }
+  tbody td input[type="text"] { padding: 5px 8px; font-size: 13px; min-width: 120px; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr.conflit { background: var(--alerte-voile); }
   .droite { text-align: right; font-variant-numeric: tabular-nums; }
@@ -418,6 +468,11 @@
         <div class="champ">
           <label for="clients">Correspondance clients</label>
           <textarea id="clients" rows="4" placeholder="ncc;nom;compte&#10;5011806N;PROSUMA;411PROSUMA"></textarea>
+          <div class="actions compactes">
+            <label for="import-clients" class="bouton-fichier">Importer un CSV</label>
+            <input type="file" id="import-clients" accept=".csv,.txt">
+            <button type="button" id="exporter-clients" class="secondaire">Exporter</button>
+          </div>
           <p class="aide">Une ligne par client : NCC, nom, compte tiers Sage.</p>
         </div>
 
@@ -427,8 +482,9 @@
           <p class="aide">Codes FNE : cash, card, check, mobile-money, transfer, deferred.</p>
         </div>
 
-        <div class="actions">
-          <button type="button" id="relancer">Reconvertir</button>
+        <div class="pied-rail">
+          <p class="aide" id="etat-reglages">Reglages conserves sur ce poste</p>
+          <button type="button" id="reinitialiser" class="secondaire">Reinitialiser</button>
         </div>
       </div>
     </div>

@@ -1,9 +1,17 @@
 /**
- * Demonstration web autonome : tout le moteur de conversion tourne dans le
+ * Passerelle FNE vers Sage : tout le moteur de conversion tourne dans le
  * navigateur, aucun fichier n'est envoye sur un serveur.
  */
 import { convert, type ConvertResult } from "@/lib/pipeline";
 import { readSourceBrowser } from "@/lib/browser/read";
+import {
+  ecrireReglages,
+  fusionnerClients,
+  lireReglages,
+  oublierReglages,
+  REGLAGES_PAR_DEFAUT,
+  type Reglages,
+} from "@/lib/browser/reglages";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { PROFILES } from "@/lib/sage/profile";
@@ -16,41 +24,22 @@ declare global {
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-const state: { result: ConvertResult | null; filename: string } = { result: null, filename: "" };
+const CHAMPS: Array<keyof Reglages> = [
+  "profil",
+  "depot",
+  "souche",
+  "numeroPiece",
+  "compteDefaut",
+  "clients",
+  "reglements",
+];
 
 const money = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 
-function option(id: string): string {
-  return ($(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value.trim();
-}
-
-async function lancer(file: File): Promise<void> {
-  const zone = $("resultat");
-  zone.innerHTML = `<p class="attente">Conversion de ${escape(file.name)}…</p>`;
-
-  try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const numero = option("numeroPiece");
-    const result = await convert(bytes, file.name, {
-      reader: readSourceBrowser,
-      profileId: option("profil"),
-      customers: parseCustomerMappingCsv(option("clients")),
-      customerOptions: { compteParDefaut: option("compteDefaut"), utiliserCodeSource: true },
-      reglements: parsePaymentMappingText(option("reglements")),
-      parametres: { depot: option("depot"), souche: option("souche") || "1" },
-      normalizeOptions:
-        numero === "reference" || numero === "vide" ? { numeroPiece: numero } : {},
-    });
-
-    state.result = result;
-    state.filename = file.name;
-    afficher(result);
-  } catch (error) {
-    zone.innerHTML = `<div class="alerte erreur"><strong>Lecture impossible.</strong> ${escape(
-      error instanceof Error ? error.message : String(error),
-    )}</div>`;
-  }
-}
+const state: { fichier: File | null; resultat: ConvertResult | null } = {
+  fichier: null,
+  resultat: null,
+};
 
 function escape(value: string): string {
   return value.replace(
@@ -59,11 +48,110 @@ function escape(value: string): string {
   );
 }
 
-function afficher(result: ConvertResult): void {
+// --- Reglages -------------------------------------------------------------
+
+function champ(nom: keyof Reglages): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
+  return $(nom);
+}
+
+function reglagesCourants(): Reglages {
+  return Object.fromEntries(CHAMPS.map((nom) => [nom, champ(nom).value])) as unknown as Reglages;
+}
+
+function appliquerReglages(reglages: Reglages): void {
+  for (const nom of CHAMPS) champ(nom).value = reglages[nom];
+}
+
+let memoire = true;
+
+function enregistrer(): void {
+  memoire = ecrireReglages(reglagesCourants());
+  $("etat-reglages").textContent = memoire
+    ? "Reglages conserves sur ce poste"
+    : "Reglages non conserves : stockage du navigateur indisponible";
+}
+
+// --- Conversion -----------------------------------------------------------
+
+async function convertir(fichier: File): Promise<void> {
+  state.fichier = fichier;
+  $("resultat").innerHTML = `<div class="bloc"><p class="attente">Conversion de ${escape(
+    fichier.name,
+  )}&hellip;</p></div>`;
+
+  const reglages = reglagesCourants();
+  try {
+    const bytes = new Uint8Array(await fichier.arrayBuffer());
+    state.resultat = await convert(bytes, fichier.name, {
+      reader: readSourceBrowser,
+      profileId: reglages.profil,
+      customers: parseCustomerMappingCsv(reglages.clients),
+      customerOptions: { compteParDefaut: reglages.compteDefaut, utiliserCodeSource: true },
+      reglements: parsePaymentMappingText(reglages.reglements),
+      parametres: { depot: reglages.depot, souche: reglages.souche || "1" },
+      normalizeOptions:
+        reglages.numeroPiece === "reference" || reglages.numeroPiece === "vide"
+          ? { numeroPiece: reglages.numeroPiece }
+          : {},
+    });
+    afficher(state.resultat, fichier.name);
+  } catch (error) {
+    state.resultat = null;
+    $("resultat").innerHTML = `<div class="bloc"><div class="alerte erreur">
+      <strong>Lecture impossible.</strong> ${escape(
+        error instanceof Error ? error.message : String(error),
+      )}</div></div>`;
+  }
+}
+
+function relancer(): void {
+  if (state.fichier) void convertir(state.fichier);
+}
+
+// --- Affichage ------------------------------------------------------------
+
+function afficher(result: ConvertResult, nomFichier: string): void {
   const erreurs = result.issues.filter((issue) => issue.severity === "erreur");
   const avertissements = result.issues.filter((issue) => issue.severity !== "erreur");
+  // Le panneau des comptes tiers traite deja ces anomalies : les relister
+  // au-dessous ne ferait que repeter le meme travail.
+  const restantes =
+    result.clientsInconnus.length > 0
+      ? erreurs.filter((issue) => issue.code !== "COMPTE_TIERS_MANQUANT")
+      : erreurs;
 
-  const stats = [
+  $("resultat").innerHTML = `
+    ${verdict(erreurs.length, avertissements.length, nomFichier)}
+    ${resume(result)}
+    ${clientsInconnus(result)}
+    ${listeAnomalies("Anomalies bloquantes", restantes, "erreur")}
+    ${listeAnomalies("Avertissements", avertissements, "attention")}
+    ${tableauArticles(result)}
+    ${fichierGenere(result)}
+  `;
+
+  $("telecharger")?.addEventListener("click", () => telecharger(result));
+  $("copier")?.addEventListener("click", () => copier(result));
+  $("appliquer-clients")?.addEventListener("click", appliquerComptes);
+}
+
+function verdict(erreurs: number, avertissements: number, nomFichier: string): string {
+  const pret = erreurs === 0;
+  const detail = pret
+    ? avertissements > 0
+      ? `${avertissements} point${avertissements > 1 ? "s" : ""} de vigilance ci-dessous.`
+      : "Aucune anomalie detectee."
+    : `${erreurs} anomalie${erreurs > 1 ? "s" : ""} a traiter avant l'import.`;
+
+  return `
+    <div class="verdict ${pret ? "ok" : "bloque"}">
+      <strong>${pret ? "Pret a importer dans Sage" : "Import a corriger"}</strong>
+      <span>${escape(nomFichier)} &middot; ${detail}</span>
+    </div>`;
+}
+
+function resume(result: ConvertResult): string {
+  const stats: Array<[string, string]> = [
     ["Factures", String(result.summary.factures)],
     ["Avoirs", String(result.summary.avoirs)],
     ["Lignes", String(result.summary.lignes)],
@@ -72,12 +160,12 @@ function afficher(result: ConvertResult): void {
 
   const source =
     result.source.kind === "fne-json"
-      ? "Export JSON natif FNE — le detail des articles est lu directement."
-      : `Tableau ${result.source.format.toUpperCase()} — ${result.source.rowCount} enregistrements.`;
+      ? "Export JSON natif FNE &mdash; le detail des articles est lu directement."
+      : `Tableau ${result.source.format.toUpperCase()} &mdash; ${result.source.rowCount} enregistrements.`;
 
-  $("resultat").innerHTML = `
+  return `
     <div class="bloc">
-      <p class="source">${escape(source)}</p>
+      <p class="source">${source}</p>
       ${
         result.source.synthese
           ? `<div class="alerte attention"><strong>Export sans detail des articles.</strong>
@@ -88,41 +176,76 @@ function afficher(result: ConvertResult): void {
       <div class="stats">${stats
         .map(([label, valeur]) => `<div class="stat"><span>${label}</span><strong>${valeur}</strong></div>`)
         .join("")}</div>
-    </div>
+    </div>`;
+}
 
-    ${listeAnomalies("Erreurs bloquantes", erreurs, "erreur")}
-    ${listeAnomalies("Avertissements", avertissements, "attention")}
-    ${tableauArticles(result)}
+/**
+ * Les clients sans compte tiers sont la premiere cause de blocage d'un import.
+ * Plutot que de les lister comme des erreurs, on les presente comme un travail
+ * a faire : un compte a saisir par client, memorise pour les fois suivantes.
+ */
+function clientsInconnus(result: ConvertResult): string {
+  if (result.clientsInconnus.length === 0) return "";
 
+  return `
     <div class="bloc">
       <div class="entete-bloc">
-        <h2>Fichier d'import Sage</h2>
+        <h2>Comptes tiers a affecter <span class="compte">${result.clientsInconnus.length}</span></h2>
         <div class="actions">
-          <button type="button" id="copier" class="secondaire">Copier</button>
-          <button type="button" id="telecharger">Telecharger</button>
+          <button type="button" id="appliquer-clients">Enregistrer et reconvertir</button>
         </div>
       </div>
-      <p class="source">${escape(result.profile.label)} — ${result.file.lineCount} enregistrement(s),
-        encodage Windows-1252.</p>
-      <pre id="apercu">${escape(apercu(result.file.content))}</pre>
-    </div>
-  `;
-
-  $("telecharger").addEventListener("click", () => telecharger(result));
-  $("copier").addEventListener("click", () => copier(result));
+      <p class="source">
+        Saisissez le compte tiers Sage de chaque client. Il sera conserve sur ce poste et
+        applique automatiquement aux prochaines conversions.
+      </p>
+      <div class="table-large">
+        <table>
+          <thead>
+            <tr><th>NCC</th><th>Client</th><th class="droite">Factures</th><th>Compte tiers Sage</th></tr>
+          </thead>
+          <tbody>
+            ${result.clientsInconnus
+              .map(
+                (client, index) => `<tr>
+                  <td><code>${escape(client.ncc || "—")}</code></td>
+                  <td>${escape(client.nom)}</td>
+                  <td class="droite">${client.factures.length}</td>
+                  <td>
+                    <input type="text" class="compte-client" data-index="${index}"
+                      data-ncc="${escape(client.ncc)}" data-nom="${escape(client.nom)}"
+                      placeholder="411..." autocomplete="off">
+                  </td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
-function apercu(content: string): string {
-  const lignes = content.split("\r\n").filter(Boolean);
-  const visible = lignes.slice(0, 40).join("\n");
-  return lignes.length > 40 ? `${visible}\n… ${lignes.length - 40} enregistrement(s) de plus` : visible;
+function appliquerComptes(): void {
+  const saisies = [...document.querySelectorAll<HTMLInputElement>(".compte-client")]
+    .map((entree) => ({
+      ncc: entree.dataset.ncc ?? "",
+      nom: entree.dataset.nom ?? "",
+      compte: entree.value.trim(),
+    }))
+    .filter((entree) => entree.compte !== "");
+
+  if (saisies.length === 0) {
+    $("appliquer-clients").textContent = "Saisissez au moins un compte";
+    setTimeout(() => ($("appliquer-clients").textContent = "Enregistrer et reconvertir"), 2000);
+    return;
+  }
+
+  champ("clients").value = fusionnerClients(champ("clients").value, saisies);
+  enregistrer();
+  relancer();
 }
 
-function listeAnomalies(
-  titre: string,
-  issues: ConvertResult["issues"],
-  ton: string,
-): string {
+function listeAnomalies(titre: string, issues: ConvertResult["issues"], ton: string): string {
   if (issues.length === 0) return "";
   const parCode = new Map<string, number>();
   for (const issue of issues) parCode.set(issue.code, (parCode.get(issue.code) ?? 0) + 1);
@@ -132,8 +255,8 @@ function listeAnomalies(
       <h2>${titre} <span class="compte">${issues.length}</span></h2>
       <p class="source">${[...parCode]
         .sort((a, b) => b[1] - a[1])
-        .map(([code, nombre]) => `${nombre} × ${escape(code)}`)
-        .join(" · ")}</p>
+        .map(([code, nombre]) => `${nombre} &times; ${escape(code)}`)
+        .join(" &middot; ")}</p>
       <ul class="anomalies ${ton}">
         ${issues
           .slice(0, 8)
@@ -144,7 +267,7 @@ function listeAnomalies(
               )}</li>`,
           )
           .join("")}
-        ${issues.length > 8 ? `<li class="reste">… et ${issues.length - 8} autres</li>` : ""}
+        ${issues.length > 8 ? `<li class="reste">&hellip; et ${issues.length - 8} autres</li>` : ""}
       </ul>
     </div>`;
 }
@@ -156,77 +279,154 @@ function tableauArticles(result: ConvertResult): string {
       <h2>TVA par article</h2>
       <p class="source">Le format d'import ne transporte pas la taxe : c'est le regime de la fiche
         article Sage qui s'applique. Un article vu a deux taux differents est signale en rouge.</p>
-      <div class="table-large"><table>
-        <thead><tr><th>Reference</th><th>Designation</th><th>Taux FNE</th><th>Code</th><th class="droite">Lignes</th></tr></thead>
-        <tbody>
-          ${result.articles
-            .slice(0, 20)
-            .map(
-              (article) => `<tr class="${article.taux.length > 1 ? "conflit" : ""}">
-                <td><code>${escape(article.reference || "—")}</code></td>
-                <td>${escape(article.designation)}</td>
-                <td>${article.taux.map((taux) => `${taux} %`).join(" / ")}</td>
-                <td>${escape(article.codesTaxe.join(", "))}</td>
-                <td class="droite">${article.lignes}</td>
-              </tr>`,
-            )
-            .join("")}
-        </tbody>
-      </table></div>
+      <div class="table-large">
+        <table>
+          <thead>
+            <tr><th>Reference</th><th>Designation</th><th>Taux FNE</th><th>Code</th><th class="droite">Lignes</th></tr>
+          </thead>
+          <tbody>
+            ${result.articles
+              .slice(0, 20)
+              .map(
+                (article) => `<tr class="${article.taux.length > 1 ? "conflit" : ""}">
+                  <td><code>${escape(article.reference || "—")}</code></td>
+                  <td>${escape(article.designation)}</td>
+                  <td>${article.taux.map((taux) => `${taux} %`).join(" / ")}</td>
+                  <td>${escape(article.codesTaxe.join(", "))}</td>
+                  <td class="droite">${article.lignes}</td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
     </div>`;
 }
 
-function octets(result: ConvertResult): Uint8Array {
-  const binaire = atob(result.file.base64);
+function fichierGenere(result: ConvertResult): string {
+  return `
+    <div class="bloc">
+      <div class="entete-bloc">
+        <h2>Fichier d'import Sage</h2>
+        <div class="actions">
+          <button type="button" id="copier" class="secondaire">Copier</button>
+          <button type="button" id="telecharger">Telecharger</button>
+        </div>
+      </div>
+      <p class="source">${escape(result.profile.label)} &mdash; ${result.file.lineCount}
+        enregistrement(s), encodage Windows-1252.</p>
+      <pre>${escape(apercu(result.file.content))}</pre>
+    </div>`;
+}
+
+function apercu(content: string): string {
+  const lignes = content.split("\r\n").filter(Boolean);
+  const visible = lignes.slice(0, 40).join("\n");
+  return lignes.length > 40
+    ? `${visible}\n… ${lignes.length - 40} enregistrement(s) de plus`
+    : visible;
+}
+
+// --- Sortie de fichiers ---------------------------------------------------
+
+function octets(base64: string): Uint8Array {
+  const binaire = atob(base64);
   const bytes = new Uint8Array(binaire.length);
   for (let i = 0; i < binaire.length; i += 1) bytes[i] = binaire.charCodeAt(i);
   return bytes;
 }
 
-async function telecharger(result: ConvertResult): Promise<void> {
-  const bouton = $("telecharger") as HTMLButtonElement;
-  // La visionneuse d'artefact bloque les telechargements que la page declenche
-  // elle-meme : seule la capacite `downloads` permet de proposer un fichier.
+async function enregistrerFichier(filename: string, data: Uint8Array): Promise<boolean | null> {
+  // La visionneuse bloque les telechargements que la page declenche elle-meme :
+  // seule la capacite `downloads` permet de proposer un fichier.
   const downloads = (await window.claude?.use?.("downloads")) as
     | { save: (input: { filename: string; data: Uint8Array }) => Promise<unknown> }
     | null
     | undefined;
-
-  if (!downloads) {
-    bouton.textContent = "Indisponible ici — utilisez Copier";
-    return;
-  }
+  if (!downloads) return null;
 
   try {
-    await downloads.save({ filename: result.file.filename, data: octets(result) });
-    bouton.textContent = "Enregistre";
+    await downloads.save({ filename, data });
+    return true;
   } catch {
-    bouton.textContent = "Annule";
+    return false;
   }
-  setTimeout(() => (bouton.textContent = "Telecharger"), 2500);
+}
+
+function signaler(bouton: HTMLButtonElement, texte: string, initial: string): void {
+  bouton.textContent = texte;
+  setTimeout(() => (bouton.textContent = initial), 2500);
+}
+
+async function telecharger(result: ConvertResult): Promise<void> {
+  const bouton = $("telecharger") as HTMLButtonElement;
+  const etat = await enregistrerFichier(result.file.filename, octets(result.file.base64));
+  if (etat === null) signaler(bouton, "Indisponible ici, utilisez Copier", "Telecharger");
+  else signaler(bouton, etat ? "Enregistre" : "Annule", "Telecharger");
 }
 
 async function copier(result: ConvertResult): Promise<void> {
   const bouton = $("copier") as HTMLButtonElement;
   try {
     await navigator.clipboard.writeText(result.file.content);
-    bouton.textContent = "Copie";
+    signaler(bouton, "Copie", "Copier");
   } catch {
-    bouton.textContent = "Echec";
+    signaler(bouton, "Echec de la copie", "Copier");
   }
-  setTimeout(() => (bouton.textContent = "Copier"), 2000);
 }
 
+async function exporterClients(): Promise<void> {
+  const bouton = $("exporter-clients") as HTMLButtonElement;
+  const texte = champ("clients").value.trim();
+  if (!texte) {
+    signaler(bouton, "Table vide", "Exporter");
+    return;
+  }
+
+  const contenu = `ncc;nom;compte\n${texte}\n`;
+  const etat = await enregistrerFichier("clients-sage.csv", new TextEncoder().encode(contenu));
+  if (etat !== null) {
+    signaler(bouton, etat ? "Enregistre" : "Annule", "Exporter");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(contenu);
+    signaler(bouton, "Copie dans le presse-papiers", "Exporter");
+  } catch {
+    signaler(bouton, "Indisponible", "Exporter");
+  }
+}
+
+async function importerClients(fichier: File): Promise<void> {
+  const texte = await fichier.text();
+  champ("clients").value = texte.trim();
+  enregistrer();
+  relancer();
+}
+
+// --- Mise en place --------------------------------------------------------
+
 function init(): void {
-  const select = $("profil") as HTMLSelectElement;
-  select.innerHTML = PROFILES.map(
+  const selecteur = $("profil") as HTMLSelectElement;
+  selecteur.innerHTML = PROFILES.map(
     (profile) => `<option value="${profile.id}">${escape(profile.label)}</option>`,
   ).join("");
 
-  const input = $("fichier") as HTMLInputElement;
-  input.addEventListener("change", () => {
-    const file = input.files?.[0];
-    if (file) void lancer(file);
+  appliquerReglages(lireReglages());
+  enregistrer();
+
+  for (const nom of CHAMPS) {
+    champ(nom).addEventListener("change", () => {
+      enregistrer();
+      // Un changement de parametre Sage doit se voir tout de suite sur le fichier.
+      relancer();
+    });
+  }
+
+  const entree = $("fichier") as HTMLInputElement;
+  entree.addEventListener("change", () => {
+    const fichier = entree.files?.[0];
+    if (fichier) void convertir(fichier);
   });
 
   const zone = $("depot-fichier");
@@ -237,22 +437,31 @@ function init(): void {
     });
   }
   zone.addEventListener("drop", (event) => {
-    const file = (event as DragEvent).dataTransfer?.files?.[0];
-    if (file) void lancer(file);
+    const fichier = (event as DragEvent).dataTransfer?.files?.[0];
+    if (fichier) void convertir(fichier);
   });
-
-  // Le depot est un label : au clavier, Entree et Espace doivent ouvrir le selecteur.
+  // Le depot est un label : au clavier, Entree et Espace ouvrent le selecteur.
   zone.addEventListener("keydown", (event) => {
     const touche = (event as KeyboardEvent).key;
     if (touche === "Enter" || touche === " ") {
       event.preventDefault();
-      input.click();
+      entree.click();
     }
   });
 
-  $("relancer").addEventListener("click", () => {
-    const file = input.files?.[0];
-    if (file) void lancer(file);
+  const importClients = $("import-clients") as HTMLInputElement;
+  importClients.addEventListener("change", () => {
+    const fichier = importClients.files?.[0];
+    if (fichier) void importerClients(fichier);
+  });
+
+  $("exporter-clients").addEventListener("click", () => void exporterClients());
+
+  $("reinitialiser").addEventListener("click", () => {
+    oublierReglages();
+    appliquerReglages({ ...REGLAGES_PAR_DEFAUT });
+    enregistrer();
+    relancer();
   });
 }
 

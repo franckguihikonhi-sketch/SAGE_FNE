@@ -124,8 +124,17 @@ La conversion se fait **entièrement en mémoire** : aucun fichier n'est stocké
 `npm run build:web` compile le moteur pour le navigateur et produit une page unique,
 `web/dist/passerelle-fne-sage.html`, qui embarque tout le convertisseur : dépôt du fichier,
 contrôles, synthèse par article et génération du fichier Sage se font entièrement côté client,
-aucun fichier n'est transmis. `npm run verify:web` rejoue la conversion dans Chromium sur les deux
-formes d'export.
+aucun fichier n'est transmis.
+
+Le poste garde ses réglages d'une session à l'autre (`localStorage`) : format d'import, dépôt,
+souche, mode de numérotation, compte tiers par défaut, table de correspondance clients et modes de
+règlement. Les clients sans compte tiers ne sont pas listés comme des erreurs mais présentés comme
+un travail à faire — un champ par client, mémorisé pour les conversions suivantes. La table clients
+s'importe et s'exporte en CSV.
+
+`npm run verify:web` rejoue dans Chromium l'ensemble du parcours : conversion des deux formes
+d'export, refus du PDF, affectation des comptes tiers et persistance des réglages après
+rechargement.
 
 Cette page ne dépend d'aucun module Node : le lecteur Excel (ZIP + XML via `DecompressionStream`)
 et l'encodeur Windows-1252 sont écrits dans `src/lib/browser/` et `src/lib/core/cp1252.ts`. Le
