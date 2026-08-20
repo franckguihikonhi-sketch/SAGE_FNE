@@ -76,15 +76,25 @@ async function main() {
   }
   console.log(`  affectation de ${clients} compte(s) tiers : import pret`);
 
+  // Un parametre saisi au clavier doit s'appliquer sans quitter le champ :
+  // `change` seul ne se declenche qu'au blur, et l'ecran semblerait fige.
+  await page.fill("#clients", "");
+  await page.setInputFiles("#fichier", CAS[0].fichier);
+  await page.waitForSelector(".compte-client", { timeout: 15000 });
+  await page.locator("#compteDefaut").pressSequentially("411DIVERS", { delay: 40 });
+  await page.waitForSelector(".verdict.ok", { timeout: 15000 });
+  if ((await page.locator(".compte-client").count()) !== 0) {
+    throw new Error("Le compte par defaut saisi au clavier n'est pas applique.");
+  }
+  console.log("  compte par defaut applique sans quitter le champ");
+
   // Les reglages doivent survivre au rechargement de la page.
   await page.reload();
-  const memorise = await page.inputValue("#clients");
-  if (!memorise.includes("411TEST0")) throw new Error("Les reglages ne sont pas conserves.");
   if ((await page.inputValue("#depot")) !== "DEPOT PRINCIPAL") {
     throw new Error("Le depot n'est pas conserve.");
   }
-  if ((await page.inputValue("#compteDefaut")) !== "") {
-    throw new Error("Le compte par defaut vide n'est pas conserve.");
+  if ((await page.inputValue("#compteDefaut")) !== "411DIVERS") {
+    throw new Error("Le compte par defaut n'est pas conserve.");
   }
   console.log("  reglages conserves apres rechargement");
 

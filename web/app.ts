@@ -121,7 +121,7 @@ function afficher(result: ConvertResult, nomFichier: string): void {
       : erreurs;
 
   $("resultat").innerHTML = `
-    ${verdict(erreurs.length, avertissements.length, nomFichier)}
+    ${verdict(result, restantes.length, avertissements.length, nomFichier)}
     ${resume(result)}
     ${clientsInconnus(result)}
     ${listeAnomalies("Anomalies bloquantes", restantes, "erreur")}
@@ -135,17 +135,53 @@ function afficher(result: ConvertResult, nomFichier: string): void {
   $("appliquer-clients")?.addEventListener("click", appliquerComptes);
 }
 
-function verdict(erreurs: number, avertissements: number, nomFichier: string): string {
-  const pret = erreurs === 0;
-  const detail = pret
-    ? avertissements > 0
-      ? `${avertissements} point${avertissements > 1 ? "s" : ""} de vigilance ci-dessous.`
-      : "Aucune anomalie detectee."
-    : `${erreurs} anomalie${erreurs > 1 ? "s" : ""} a traiter avant l'import.`;
+/**
+ * Le verdict distingue trois situations, la deuxieme etant la plus frequente a
+ * la premiere utilisation : le fichier est bon, c'est le parametrage du poste
+ * qui n'est pas encore fait. L'annoncer comme une anomalie du fichier serait
+ * faux et decourageant.
+ *
+ * Les nombres annonces sont ceux que l'ecran montre : des clients distincts a
+ * affecter, et des anomalies restantes - jamais un total qui ne correspond a
+ * aucune des listes affichees.
+ */
+function verdict(
+  result: ConvertResult,
+  anomalies: number,
+  avertissements: number,
+  nomFichier: string,
+): string {
+  const comptes = result.clientsInconnus.length;
+  const pluriel = (nombre: number) => (nombre > 1 ? "s" : "");
+
+  let ton: string;
+  let titre: string;
+  let detail: string;
+
+  if (anomalies === 0 && comptes === 0) {
+    ton = "ok";
+    titre = "Pret a importer dans Sage";
+    detail =
+      avertissements > 0
+        ? `${avertissements} point${pluriel(avertissements)} de vigilance ci-dessous.`
+        : "Aucune anomalie detectee.";
+  } else if (anomalies === 0) {
+    ton = "attente";
+    titre = "Comptes tiers a renseigner";
+    detail =
+      `${comptes} client${pluriel(comptes)} sans compte tiers Sage : renseignez-les ci-dessous, ` +
+      "ou indiquez un compte par defaut a gauche. Le fichier lui-meme est correct.";
+  } else {
+    ton = "bloque";
+    titre = "Import a corriger";
+    detail =
+      `${anomalies} anomalie${pluriel(anomalies)} dans le fichier` +
+      (comptes > 0 ? `, et ${comptes} client${pluriel(comptes)} sans compte tiers.` : ".");
+  }
 
   return `
-    <div class="verdict ${pret ? "ok" : "bloque"}">
-      <strong>${pret ? "Pret a importer dans Sage" : "Import a corriger"}</strong>
+    <div class="verdict ${ton}">
+      <strong>${titre}</strong>
       <span>${escape(nomFichier)} &middot; ${detail}</span>
     </div>`;
 }
@@ -415,12 +451,24 @@ function init(): void {
   appliquerReglages(lireReglages());
   enregistrer();
 
+  // `change` ne se declenche qu'en quittant le champ : un utilisateur qui tape
+  // un compte par defaut et regarde l'ecran ne verrait rien se produire.
+  // On reagit donc a la frappe, apres une courte pause, et immediatement
+  // lorsque le champ est quitte ou qu'une liste deroulante change.
+  let minuteur: ReturnType<typeof setTimeout> | undefined;
+  const appliquer = () => {
+    clearTimeout(minuteur);
+    enregistrer();
+    relancer();
+  };
+
   for (const nom of CHAMPS) {
-    champ(nom).addEventListener("change", () => {
-      enregistrer();
-      // Un changement de parametre Sage doit se voir tout de suite sur le fichier.
-      relancer();
+    const element = champ(nom);
+    element.addEventListener("input", () => {
+      clearTimeout(minuteur);
+      minuteur = setTimeout(appliquer, 500);
     });
+    element.addEventListener("change", appliquer);
   }
 
   const entree = $("fichier") as HTMLInputElement;
