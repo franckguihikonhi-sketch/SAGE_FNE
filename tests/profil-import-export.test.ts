@@ -122,6 +122,20 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
     // Un article a un regime fixe : melanger 18 % et exonere entre articles est normal.
     expect(issue.severity).toBe("avertissement");
     expect(issue.message).toContain("18 / 0");
+    expect(issue.message).toContain("la TVA importee sera fausse");
+  });
+
+  it("ne reclame aucune action quand tout est au taux normal", async () => {
+    // Meme jeu d'essai, ampute de sa ligne exoneree.
+    const source = JSON.parse(readFileSync(FIXTURE, "utf8"));
+    source[0].items = [source[0].items[0]];
+    const result = await convert(Buffer.from(JSON.stringify(source)), "fne-natif.json", {
+      customers: CLIENTS,
+    });
+    const issue = result.issues.find((entry) => entry.code === "TAXE_ABSENTE_DU_FORMAT")!;
+
+    expect(issue.message).toContain("Rien d'autre a faire");
+    expect(issue.message).not.toContain("fausse");
   });
 
   it("resume les taux FNE article par article", async () => {

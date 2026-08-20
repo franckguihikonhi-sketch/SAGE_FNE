@@ -231,14 +231,26 @@ function controleTaxe(invoices: Invoice[], profile: SageImportProfile): Issue[] 
   const taux = [...new Set(invoices.flatMap((invoice) => invoice.lignes.map((line) => line.tauxTva)))];
   if (taux.length === 0) return [];
 
+  const rencontres = taux.sort((a, b) => b - a);
+  const tauxNormalSeul = rencontres.length === 1 && rencontres[0] === 18;
+
+  // Un fichier entierement au taux normal ne demande aucune action tant que
+  // les articles Sage sont eux-memes au taux normal. Des qu'un autre taux
+  // apparait, la fiche article devient decisive et l'ecart possible.
+  const consequence = tauxNormalSeul
+    ? "Toutes les lignes sont au taux normal : l'import sera juste si les articles Sage " +
+      "correspondants le sont aussi. Rien d'autre a faire."
+    : `Taux rencontres : ${rencontres.join(" / ")} %. Les articles exoneres ou a taux reduit ` +
+      "doivent porter ce regime dans leur fiche Sage, faute de quoi la TVA importee sera fausse. " +
+      "Verifiez la synthese par article.";
+
   return [
     {
       severity: "avertissement",
       code: "TAXE_ABSENTE_DU_FORMAT",
       message:
         `Le format "${profile.label}" ne comporte aucune zone de taxe : c'est le regime de TVA de ` +
-        `la fiche article Sage qui s'appliquera. Taux rencontres dans l'export : ` +
-        `${taux.sort((a, b) => b - a).join(" / ")} %. Verifiez la synthese par article.`,
+        `la fiche article Sage qui s'appliquera. ${consequence}`,
     },
   ];
 }
