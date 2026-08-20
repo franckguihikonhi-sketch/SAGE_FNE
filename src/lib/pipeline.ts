@@ -17,6 +17,7 @@ import { ReadError, type SourceTable } from "@/lib/fne/source";
 import { decodeText } from "@/lib/core/cp1252";
 import { PaymentMapping } from "@/lib/fne/paiement";
 import { applyCustomerMapping, CustomerMappingEntry, CustomerMappingOptions } from "@/lib/sage/customers";
+import { applyArticleMapping, ArticleMappingEntry, ArticleMappingOptions } from "@/lib/sage/articles";
 import { buildSageFile, summarize } from "@/lib/sage/export";
 import { PARAMETRES_CONNUS } from "@/lib/sage/tokens";
 import {
@@ -41,6 +42,9 @@ export interface ConvertOptions {
   mappingOverrides?: ColumnMapping;
   customers?: CustomerMappingEntry[];
   customerOptions?: CustomerMappingOptions;
+  /** Correspondance reference article FNE -> reference article Sage. */
+  articles?: ArticleMappingEntry[];
+  articleOptions?: ArticleMappingOptions;
   /** Correspondance mode de paiement FNE -> code reglement Sage. */
   reglements?: PaymentMapping;
   /** Valeurs propres au dossier Sage : depot, souche... (jetons `parametre.<nom>`). */
@@ -80,6 +84,8 @@ export interface ConvertResult {
   /** Factures partagees entre part taxable et part exoneree, a verifier. */
   reconstitutions: Reconstitution[];
   clientsInconnus: Array<{ nom: string; ncc: string; factures: string[] }>;
+  /** Articles FNE sans equivalent dans le dossier Sage. */
+  articlesInconnus: Array<{ referenceFne: string; designation: string; lignes: number }>;
   issues: Issue[];
   summary: ReturnType<typeof summarize>;
   file: { filename: string; content: string; base64: string; lineCount: number };
@@ -149,10 +155,17 @@ export async function convert(
     };
   }
 
-  const { invoices, inconnus } = applyCustomerMapping(parsed, options.customers ?? [], {
+  const clients = applyCustomerMapping(parsed, options.customers ?? [], {
     utiliserCodeSource: true,
     ...options.customerOptions,
   });
+  // Les references d'article de FNE et de Sage n'ont aucune raison de coincider.
+  const articlesMappes = applyArticleMapping(clients.invoices, options.articles ?? [], {
+    conserverReferenceFne: true,
+    ...options.articleOptions,
+  });
+  const invoices = articlesMappes.invoices;
+  const inconnus = clients.inconnus;
 
   const profile =
     options.profile ??
@@ -192,6 +205,7 @@ export async function convert(
     articles,
     reconstitutions,
     clientsInconnus: inconnus,
+    articlesInconnus: articlesMappes.inconnus,
     issues,
     summary: summarize(invoices),
     file: {

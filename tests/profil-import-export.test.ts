@@ -66,7 +66,7 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
   });
 
   it("ecrit les zones dans l'ordre du format du dossier client", async () => {
-    const result = await convertir();
+    const result = await convertir({ normalizeOptions: { numeroPiece: "sequence" } });
     const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
     const cells = decoded.split("\r\n")[0]!.split("\t");
 
@@ -99,14 +99,14 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
   });
 
   it("marque l'avoir avec le type de document Sage", async () => {
-    const result = await convertir();
+    const result = await convertir({ normalizeOptions: { numeroPiece: "sequence" } });
     const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
     const avoir = decoded.split("\r\n").find((row) => row.includes("A2600000004"))!;
     expect(avoir.split("\t")[4]).toBe("5");
   });
 
-  it("laisse la zone numero vide sous numerotation Sage", async () => {
-    const result = await convertir({ normalizeOptions: { numeroPiece: "vide" } });
+  it("laisse la zone numero vide par defaut, comme l'exemplaire reel", async () => {
+    const result = await convertir();
     const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
 
     expect(decoded.split("\r\n")[0]!.split("\t")[1]).toBe("");

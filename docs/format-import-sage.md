@@ -43,11 +43,26 @@ Trois zones restent à confirmer auprès du client : la 1 (constante `0`, interp
 domaine Vente), la 6 (`1` dans un fichier de référence, `2` dans l'autre — d'où l'interprétation
 « souche », et le fait qu'elle soit paramétrable) et la 14, vide dans les deux exemples.
 
-**La zone 2 mérite une vérification particulière.** Elle est vide dans les deux fichiers de
-référence, y compris sur des documents qui existent dans Sage — un numéro de pièce y serait
-attendu. Elle porte peut-être autre chose (une référence libre, par exemple). Le connecteur y écrit
-le numéro FNE ; en cas de doute, le mode de numérotation `vide` reproduit exactement les fichiers de
-référence.
+**La zone 2 est laissée vide par défaut.** Elle l'est dans les deux fichiers de référence, dont un
+exemplaire réellement importé : c'est donc le seul comportement dont on sache qu'il est accepté, et
+le connecteur le reproduit. Sage numérote alors lui-même les documents.
+
+Le revers est que **la référence FNE n'apparaît nulle part dans le document importé** : ce format à
+15 zones ne comporte aucune zone qui pourrait la porter. Les modes `sequence` et `reference`
+l'écrivent dans la zone 2, au prix d'un comportement non éprouvé à l'import. Pour une traçabilité
+solide, mieux vaut ajouter une zone dédiée au format d'import dans Sage.
+
+### Les références d'article ne coïncident pas
+
+L'exemplaire réel du dossier porte des références d'article **numériques** — `1147005`, `1149001`,
+`1149002` — là où FNE certifie des références alphanumériques comme `6FF001`. Les deux nomenclatures
+sont indépendantes : transmettre la référence FNE telle quelle ferait rejeter la ligne par Sage, ou
+créerait un article inconnu.
+
+Le connecteur porte donc une **table de correspondance articles** (`référence FNE ; référence Sage`),
+sur le modèle de celle des comptes tiers : les articles sans correspondance sont listés à l'écran
+avec un champ de saisie, et la table est conservée d'une conversion à l'autre. Sans correspondance,
+la référence FNE est transmise telle quelle et l'article est signalé.
 
 ### La ligne de clôture
 

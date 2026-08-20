@@ -45,7 +45,10 @@ export interface NormalizeOptions {
 export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
   tauxTvaParDefaut: 18,
   decimales: 2,
-  numeroPiece: "sequence",
+  // L'exemplaire reel du client laisse la zone du numero de piece vide :
+  // Sage numerote lui-meme. C'est donc le defaut, le seul comportement
+  // dont on sait qu'il est accepte a l'import.
+  numeroPiece: "vide",
   avoirEnValeurAbsolue: true,
   libelleSynthese: "Facture FNE {reference}",
   articleSynthese: "",

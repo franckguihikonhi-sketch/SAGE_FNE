@@ -5,6 +5,8 @@ import { convertFichier as convert } from "@/lib/node/convert";
 const FIXTURE = new URL("./fixtures/fne-tableau.csv", import.meta.url);
 const buffer = () => readFileSync(FIXTURE);
 
+const SEQUENCE = { numeroPiece: "sequence" as const };
+
 const CLIENTS = [
   { ncc: "7654321B", codeSage: "411DEMO" },
   { ncc: "9988776C", codeSage: "411AUTRE" },
@@ -41,7 +43,10 @@ describe("export tableur FNE (entetes seuls)", () => {
   });
 
   it("laisse une facture mono-taux sur une seule ligne", async () => {
-    const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      normalizeOptions: SEQUENCE,
+    });
     const exoneree = result.invoices.find((invoice) => invoice.numero === "26000000863")!;
     const normale = result.invoices.find((invoice) => invoice.numero === "26000000890")!;
 
@@ -54,7 +59,7 @@ describe("export tableur FNE (entetes seuls)", () => {
   it("reconstitue une facture a plusieurs taux en part taxable et part exoneree", async () => {
     const result = await convert(buffer(), "fne-tableau.csv", {
       customers: CLIENTS,
-      normalizeOptions: { articleSynthese: "DIVERS18", articleSyntheseExonere: "DIVERSEXO" },
+      normalizeOptions: { ...SEQUENCE, articleSynthese: "DIVERS18", articleSyntheseExonere: "DIVERSEXO" },
     });
     // 100 000 HT pour 13 770 de TVA : taux effectif de 13,77 %, hors nomenclature.
     const melangee = result.invoices.find((invoice) => invoice.numero === "26000000870")!;
@@ -109,7 +114,10 @@ describe("export tableur FNE (entetes seuls)", () => {
   });
 
   it("identifie l'avoir par le sous-type et retablit les montants positifs", async () => {
-    const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      normalizeOptions: SEQUENCE,
+    });
     const avoir = result.invoices.find((invoice) => invoice.kind === "AVOIR")!;
 
     expect(avoir.numero).toBe("A2600000038");

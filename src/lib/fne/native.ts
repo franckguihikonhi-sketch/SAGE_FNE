@@ -30,7 +30,7 @@ export interface FneNativeOptions {
 }
 
 export const DEFAULT_NATIVE_OPTIONS: FneNativeOptions = {
-  numeroPiece: "sequence",
+  numeroPiece: "vide",
   avoirEnValeurAbsolue: true,
   decimales: 2,
 };

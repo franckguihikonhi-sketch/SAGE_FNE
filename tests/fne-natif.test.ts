@@ -11,6 +11,11 @@ const CLIENTS = [
   { ncc: "9988776C", codeSage: "411AUTRE" },
 ];
 
+// Le defaut laisse la zone du numero de piece vide, comme les fichiers de
+// reference du dossier client. Les controles qui portent sur ce numero
+// demandent donc explicitement la numerotation par sequence.
+const SEQUENCE = { normalizeOptions: { numeroPiece: "sequence" as const } };
+
 describe("reconnaissance de l'export natif", () => {
   it("distingue un export FNE d'un tableau JSON quelconque", () => {
     expect(isFneNativeExport(JSON.parse(buffer().toString()))).toBe(true);
@@ -27,7 +32,7 @@ describe("reconnaissance de l'export natif", () => {
 
 describe("lecture de l'export natif FNE", () => {
   it("lit les articles, les unites et les taux de chaque ligne", async () => {
-    const result = await convert(buffer(), "fne-natif.json", { customers: CLIENTS });
+    const result = await convert(buffer(), "fne-natif.json", { customers: CLIENTS, ...SEQUENCE });
 
     expect(result.source.kind).toBe("fne-json");
     expect(result.invoices).toHaveLength(2);
@@ -68,7 +73,7 @@ describe("lecture de l'export natif FNE", () => {
   });
 
   it("ramene les avoirs en valeurs positives et conserve la facture d'origine", async () => {
-    const result = await convert(buffer(), "fne-natif.json", { customers: CLIENTS });
+    const result = await convert(buffer(), "fne-natif.json", { customers: CLIENTS, ...SEQUENCE });
     const avoir = result.invoices[1]!;
 
     expect(avoir.kind).toBe("AVOIR");
@@ -126,5 +131,28 @@ describe("PDF de facture certifiee", () => {
     await expect(convert(pdf, "2304903U26000000889_20260811.pdf")).rejects.toThrow(
       /montants y sont arrondis au franc/,
     );
+  });
+});
+
+describe("correspondance des articles", () => {
+  it("traduit la reference FNE en reference Sage", async () => {
+    const result = await convert(buffer(), "fne-natif.json", {
+      customers: CLIENTS,
+      articles: [{ referenceFne: "ART-001", referenceSage: "1147005" }],
+    });
+
+    expect(result.invoices[0]!.lignes[0]!.referenceArticle).toBe("1147005");
+    // ART-002 n'a pas de correspondance : signale, et transmis tel quel.
+    expect(result.invoices[0]!.lignes[1]!.referenceArticle).toBe("ART-002");
+    expect(result.articlesInconnus.map((article) => article.referenceFne)).toEqual(["ART-002"]);
+  });
+
+  it("compte les lignes concernees par chaque article inconnu", async () => {
+    const result = await convert(buffer(), "fne-natif.json", { customers: CLIENTS });
+    const frites = result.articlesInconnus.find((a) => a.referenceFne === "ART-001")!;
+
+    // L'article figure sur la facture et sur l'avoir.
+    expect(frites.lignes).toBe(2);
+    expect(frites.designation).toBe("FRITES 7MM-PK (4*2.5kg)");
   });
 });

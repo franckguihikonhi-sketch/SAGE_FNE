@@ -25,7 +25,9 @@ describe("detection des colonnes", () => {
 
 describe("conversion complete", () => {
   it("regroupe les lignes par facture et calcule les totaux", async () => {
-    const result = await convert(buffer(), "export-fne-exemple.csv");
+    const result = await convert(buffer(), "export-fne-exemple.csv", {
+      normalizeOptions: { numeroPiece: "sequence" },
+    });
 
     expect(result.invoices).toHaveLength(3);
     const premiere = result.invoices[0]!;
@@ -41,13 +43,17 @@ describe("conversion complete", () => {
   });
 
   it("identifie les avoirs", async () => {
-    const result = await convert(buffer(), "export-fne-exemple.csv");
+    const result = await convert(buffer(), "export-fne-exemple.csv", {
+      normalizeOptions: { numeroPiece: "sequence" },
+    });
     const avoir = result.invoices.find((invoice) => invoice.numero === "AV-2026-0007");
     expect(avoir?.kind).toBe("AVOIR");
   });
 
   it("applique le taux reduit a partir du code taxe FNE", async () => {
-    const result = await convert(buffer(), "export-fne-exemple.csv");
+    const result = await convert(buffer(), "export-fne-exemple.csv", {
+      normalizeOptions: { numeroPiece: "sequence" },
+    });
     const facture = result.invoices.find((invoice) => invoice.numero === "FA-2026-0002");
     expect(facture?.lignes[0]!.tauxTva).toBe(9);
     expect(facture?.lignes[0]!.remisePourcent).toBe(5);
@@ -78,6 +84,7 @@ describe("fichier d'import Sage", () => {
     const result = await convert(buffer(), "export-fne-exemple.csv", {
       profileId: "sage100-documents-ventes",
       customers: [{ ncc: "1234567 A", codeSage: "411KOUAME" }],
+      normalizeOptions: { numeroPiece: "sequence" },
     });
 
     const rows = result.file.content.split("\r\n").filter(Boolean);
@@ -101,6 +108,7 @@ describe("fichier d'import Sage", () => {
   it("marque l'avoir avec le code document dedie", async () => {
     const result = await convert(buffer(), "export-fne-exemple.csv", {
       profileId: "sage100-documents-ventes",
+      normalizeOptions: { numeroPiece: "sequence" },
     });
     const entete = result.file.content
       .split("\r\n")

@@ -164,7 +164,7 @@ jamais y committer d'export réel. Les jeux de test de `tests/fixtures/` sont an
 - Confirmer la sémantique du champ `discount` de FNE (pourcentage ou montant).
 - Interface de mappage manuel des colonnes non reconnues (l'API l'accepte déjà via
   `mappingOverrides`).
-- Persistance des tables de correspondance (clients, règlements), puis multi-société /
+- Persistance des tables de correspondance (clients, articles, règlements), puis multi-société /
   multi-utilisateur.
 - Packaging en application Windows installable (.exe), une fois le convertisseur validé en ligne.
 - Lecture directe depuis l'API FNE (`/external/invoices`) pour supprimer l'étape d'export manuel.

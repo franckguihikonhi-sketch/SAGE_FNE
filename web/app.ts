@@ -6,6 +6,7 @@ import { convert, type ConvertResult } from "@/lib/pipeline";
 import { readSourceBrowser } from "@/lib/browser/read";
 import {
   ecrireReglages,
+  fusionnerArticles,
   fusionnerClients,
   lireReglages,
   oublierReglages,
@@ -13,6 +14,7 @@ import {
   type Reglages,
 } from "@/lib/browser/reglages";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
+import { parseArticleMappingCsv } from "@/lib/sage/articles";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { PROFILES } from "@/lib/sage/profile";
 
@@ -30,6 +32,7 @@ const CHAMPS: Array<keyof Reglages> = [
   "souche",
   "numeroPiece",
   "compteDefaut",
+  "articles",
   "articleSynthese",
   "articleSyntheseExonere",
   "clients",
@@ -94,6 +97,7 @@ async function convertir(fichier: File): Promise<void> {
       reader: readSourceBrowser,
       profileId: reglages.profil,
       customers: parseCustomerMappingCsv(reglages.clients),
+      articles: parseArticleMappingCsv(reglages.articles),
       customerOptions: { compteParDefaut: reglages.compteDefaut, utiliserCodeSource: true },
       reglements: parsePaymentMappingText(reglages.reglements),
       parametres: { depot: reglages.depot, souche: reglages.souche || "1" },
@@ -135,6 +139,7 @@ function afficher(result: ConvertResult, nomFichier: string): void {
     ${verdict(result, restantes.length, avertissements.length, nomFichier)}
     ${resume(result)}
     ${clientsInconnus(result)}
+    ${articlesInconnus(result)}
     ${listeAnomalies("Anomalies bloquantes", restantes, "erreur")}
     ${listeAnomalies("Avertissements", avertissements, "attention")}
     ${tableauReconstitutions(result)}
@@ -145,6 +150,7 @@ function afficher(result: ConvertResult, nomFichier: string): void {
   $("telecharger")?.addEventListener("click", () => telecharger(result));
   $("copier")?.addEventListener("click", () => copier(result));
   $("appliquer-clients")?.addEventListener("click", appliquerComptes);
+  $("appliquer-articles")?.addEventListener("click", appliquerArticles);
 }
 
 /**
@@ -291,6 +297,70 @@ function appliquerComptes(): void {
   }
 
   champ("clients").value = fusionnerClients(champ("clients").value, saisies);
+  enregistrer();
+  relancer();
+}
+
+/**
+ * Les references d'article de FNE ne sont pas celles du dossier Sage : la table
+ * se complete ici, comme celle des comptes tiers, et se conserve d'une
+ * conversion a l'autre.
+ */
+function articlesInconnus(result: ConvertResult): string {
+  if (result.articlesInconnus.length === 0) return "";
+
+  return `
+    <div class="bloc">
+      <div class="entete-bloc">
+        <h2>Articles a faire correspondre <span class="compte">${result.articlesInconnus.length}</span></h2>
+        <div class="actions">
+          <button type="button" id="appliquer-articles">Enregistrer et reconvertir</button>
+        </div>
+      </div>
+      <p class="source">
+        Indiquez la reference de chaque article dans votre dossier Sage. Sans correspondance, la
+        reference FNE est transmise telle quelle et Sage risque de refuser la ligne.
+      </p>
+      <div class="table-large">
+        <table>
+          <thead>
+            <tr><th>Reference FNE</th><th>Designation</th><th class="droite">Lignes</th><th>Reference Sage</th></tr>
+          </thead>
+          <tbody>
+            ${result.articlesInconnus
+              .map(
+                (article) => `<tr>
+                  <td><code>${escape(article.referenceFne)}</code></td>
+                  <td>${escape(article.designation)}</td>
+                  <td class="droite">${article.lignes}</td>
+                  <td>
+                    <input type="text" class="reference-article"
+                      data-fne="${escape(article.referenceFne)}" placeholder="1147005" autocomplete="off">
+                  </td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function appliquerArticles(): void {
+  const saisies = [...document.querySelectorAll<HTMLInputElement>(".reference-article")]
+    .map((entree) => ({
+      referenceFne: entree.dataset.fne ?? "",
+      referenceSage: entree.value.trim(),
+    }))
+    .filter((entree) => entree.referenceSage !== "");
+
+  if (saisies.length === 0) {
+    $("appliquer-articles").textContent = "Saisissez au moins une reference";
+    setTimeout(() => ($("appliquer-articles").textContent = "Enregistrer et reconvertir"), 2000);
+    return;
+  }
+
+  champ("articles").value = fusionnerArticles(champ("articles").value, saisies);
   enregistrer();
   relancer();
 }

@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { convertFichier as convert } from "@/lib/node/convert";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
+import { parseArticleMappingCsv } from "@/lib/sage/articles";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { PROFILES } from "@/lib/sage/profile";
 
@@ -27,6 +28,7 @@ async function main() {
     console.error("  --depot=<nom>      Depot Sage porte par les documents");
     console.error("  --souche=<n>       Souche Sage (defaut 1)");
     console.error("  --reglements=<f>   Fichier de correspondance des modes de reglement");
+    console.error("  --articles=<f>     Fichier de correspondance des articles FNE -> Sage");
     console.error("  --numero=<mode>    sequence (defaut), reference ou vide\n");
     console.error("Profils disponibles :");
     for (const profile of PROFILES) console.error(`  ${profile.id.padEnd(28)} ${profile.label}`);
@@ -39,6 +41,7 @@ async function main() {
   const buffer = readFileSync(resolve(input));
   const clientsPath = option("clients");
   const reglementsPath = option("reglements");
+  const articlesPath = option("articles");
   const numero = option("numero");
   const parametres: Record<string, string> = {};
   const depot = option("depot");
@@ -50,6 +53,7 @@ async function main() {
     profileId: option("profil"),
     sheet: option("feuille"),
     customers: clientsPath ? parseCustomerMappingCsv(readFileSync(resolve(clientsPath), "utf8")) : [],
+    articles: articlesPath ? parseArticleMappingCsv(readFileSync(resolve(articlesPath), "utf8")) : [],
     customerOptions: { compteParDefaut: option("defaut"), utiliserCodeSource: true },
     reglements: reglementsPath
       ? parsePaymentMappingText(readFileSync(resolve(reglementsPath), "utf8"))
@@ -83,6 +87,15 @@ async function main() {
       `TTC ${fmt(result.summary.totalTTC)}`,
   );
   console.log(`Fichier genere: ${output} (${result.file.lineCount} enregistrements)`);
+
+  if (result.articlesInconnus.length > 0) {
+    console.log(`\n${result.articlesInconnus.length} article(s) sans correspondance Sage :`);
+    for (const article of result.articlesInconnus.slice(0, 15)) {
+      console.log(
+        `  ${article.referenceFne.padEnd(14)} ${String(article.lignes).padStart(4)} ligne(s)  ${article.designation}`,
+      );
+    }
+  }
 
   if (result.reconstitutions.length > 0) {
     console.log(`\n${result.reconstitutions.length} facture(s) reconstituees (part taxable / part exoneree) :`);

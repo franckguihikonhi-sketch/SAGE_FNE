@@ -21,6 +21,8 @@ export interface Reglages {
   articleSyntheseExonere: string;
   /** Table de correspondance clients, au format CSV `ncc;nom;compte`. */
   clients: string;
+  /** Correspondance des articles, au format CSV `referenceFne;referenceSage`. */
+  articles: string;
   /** Correspondance des modes de reglement, une ligne par code FNE. */
   reglements: string;
 }
@@ -29,11 +31,12 @@ export const REGLAGES_PAR_DEFAUT: Reglages = {
   profil: "sage100-import-export",
   depot: "",
   souche: "1",
-  numeroPiece: "sequence",
+  numeroPiece: "vide",
   compteDefaut: "",
   articleSynthese: "",
   articleSyntheseExonere: "",
   clients: "",
+  articles: "",
   reglements: "",
 };
 
@@ -66,6 +69,27 @@ export function oublierReglages(): void {
   } catch {
     // Rien a faire : il n'y avait rien a oublier.
   }
+}
+
+/**
+ * Ajoute des correspondances article a la table existante, en remplacant celles
+ * qui portent deja la meme reference FNE.
+ */
+export function fusionnerArticles(
+  csv: string,
+  ajouts: Array<{ referenceFne: string; referenceSage: string }>,
+): string {
+  const lignes = csv.split(/\r?\n/).filter((ligne) => ligne.trim() !== "");
+  const cle = (ligne: string) => (ligne.split(/[;,\t]/)[0] ?? "").trim().toLowerCase();
+
+  const conserves = lignes.filter(
+    (ligne) => !ajouts.some((ajout) => ajout.referenceFne.toLowerCase() === cle(ligne)),
+  );
+  const nouvelles = ajouts
+    .filter((ajout) => ajout.referenceSage.trim() !== "")
+    .map((ajout) => `${ajout.referenceFne};${ajout.referenceSage.trim()}`);
+
+  return [...conserves, ...nouvelles].join("\n");
 }
 
 /**
