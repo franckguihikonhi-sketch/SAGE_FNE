@@ -100,6 +100,8 @@ describe("lecture de l'export natif FNE", () => {
 
   it("ecrit le code reglement Sage a partir du mode de paiement FNE", async () => {
     const result = await convert(buffer(), "fne-natif.json", {
+      // Le profil du dossier client ne porte pas de zone reglement.
+      profileId: "sage100-documents-ventes",
       customers: CLIENTS,
       reglements: { deferred: "CRED", cash: "ESP" },
     });

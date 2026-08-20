@@ -30,6 +30,12 @@ export interface ValidationOptions {
   verifierTauxFne: boolean;
   /** Vrai quand les lignes proviennent d'une synthese : adapte le message. */
   synthese: boolean;
+  /**
+   * Vrai quand la zone numero de piece est volontairement laissee vide pour
+   * que Sage numerote lui-meme : l'unicite est alors controlee sur la
+   * reference FNE et l'absence de numero n'est plus une anomalie.
+   */
+  numerotationSage: boolean;
 }
 
 export const DEFAULT_VALIDATION_OPTIONS: ValidationOptions = {
@@ -38,6 +44,7 @@ export const DEFAULT_VALIDATION_OPTIONS: ValidationOptions = {
   exigerReferenceArticle: false,
   verifierTauxFne: true,
   synthese: false,
+  numerotationSage: false,
 };
 
 export function validateInvoices(
@@ -48,14 +55,20 @@ export function validateInvoices(
   const seen = new Map<string, number>();
 
   for (const invoice of invoices) {
-    const count = (seen.get(invoice.numero) ?? 0) + 1;
-    seen.set(invoice.numero, count);
-    if (count === 2) {
+    // Sous numerotation Sage, la piece est vide : l'unicite se controle sur la
+    // reference FNE, qui reste le seul identifiant du document.
+    const cle = options.numerotationSage ? invoice.numeroFne : invoice.numero;
+    const libelle = invoice.numeroFne || invoice.numero;
+    const count = (seen.get(cle) ?? 0) + 1;
+    seen.set(cle, count);
+    if (count === 2 && cle) {
       issues.push({
         severity: "erreur",
         code: "PIECE_DUPLIQUEE",
-        facture: invoice.numero,
-        message: `Le numero de piece ${invoice.numero} apparait plusieurs fois. Sage refusera le doublon.`,
+        facture: libelle,
+        message: options.numerotationSage
+          ? `La facture ${libelle} apparait plusieurs fois dans l'export.`
+          : `Le numero de piece ${cle} apparait plusieurs fois. Sage refusera le doublon.`,
       });
     }
 
@@ -63,12 +76,12 @@ export function validateInvoices(
       issues.push({
         severity: "erreur",
         code: "DATE_MANQUANTE",
-        facture: invoice.numero,
+        facture: libelle,
         message: "Date du document absente ou illisible.",
       });
     }
 
-    if (!invoice.numero) {
+    if (!invoice.numero && !options.numerotationSage) {
       issues.push({
         severity: "erreur",
         code: "PIECE_MANQUANTE",
@@ -78,7 +91,7 @@ export function validateInvoices(
       issues.push({
         severity: "avertissement",
         code: "PIECE_TROP_LONGUE",
-        facture: invoice.numero,
+        facture: libelle,
         message:
           `Numero de piece de ${invoice.numero.length} caracteres : Sage en accepte ` +
           `${SAGE_LIMITS.numeroPiece}. Il sera tronque a l'export.`,
@@ -89,7 +102,7 @@ export function validateInvoices(
       issues.push({
         severity: "erreur",
         code: "COMPTE_TIERS_MANQUANT",
-        facture: invoice.numero,
+        facture: libelle,
         message:
           `Aucun compte tiers Sage pour "${invoice.client.nom || "client inconnu"}"` +
           `${invoice.client.ncc ? ` (NCC ${invoice.client.ncc})` : ""}. ` +
@@ -99,7 +112,7 @@ export function validateInvoices(
       issues.push({
         severity: "avertissement",
         code: "COMPTE_TIERS_TROP_LONG",
-        facture: invoice.numero,
+        facture: libelle,
         message: `Compte tiers "${invoice.client.code}" trop long (max ${SAGE_LIMITS.compteTiers}).`,
       });
     }
@@ -108,7 +121,7 @@ export function validateInvoices(
       issues.push({
         severity: "erreur",
         code: "FACTURE_SANS_LIGNE",
-        facture: invoice.numero,
+        facture: libelle,
         message: "Facture sans aucune ligne d'article.",
       });
     }
@@ -118,7 +131,7 @@ export function validateInvoices(
         issues.push({
           severity: "avertissement",
           code: "DESIGNATION_MANQUANTE",
-          facture: invoice.numero,
+          facture: libelle,
           sourceRow: line.sourceRow,
           message: `Ligne ${line.numero} sans designation.`,
         });
@@ -126,7 +139,7 @@ export function validateInvoices(
         issues.push({
           severity: "avertissement",
           code: "DESIGNATION_TRONQUEE",
-          facture: invoice.numero,
+          facture: libelle,
           sourceRow: line.sourceRow,
           message:
             `Ligne ${line.numero} : designation de ${line.designation.length} caracteres, ` +
@@ -138,7 +151,7 @@ export function validateInvoices(
         issues.push({
           severity: "erreur",
           code: "ARTICLE_MANQUANT",
-          facture: invoice.numero,
+          facture: libelle,
           sourceRow: line.sourceRow,
           message: `Ligne ${line.numero} sans reference article.`,
         });
@@ -148,7 +161,7 @@ export function validateInvoices(
         issues.push({
           severity: "erreur",
           code: "TAUX_TVA_NON_CONFORME",
-          facture: invoice.numero,
+          facture: libelle,
           sourceRow: line.sourceRow,
           message: options.synthese
             ? `Taux de TVA reconstitue a ${line.tauxTva} %, hors nomenclature FNE ` +
@@ -163,7 +176,7 @@ export function validateInvoices(
         issues.push({
           severity: "avertissement",
           code: "QUANTITE_NULLE",
-          facture: invoice.numero,
+          facture: libelle,
           sourceRow: line.sourceRow,
           message: `Ligne ${line.numero} : quantite nulle.`,
         });
@@ -179,7 +192,7 @@ export function validateInvoices(
       issues.push({
         severity: "avertissement",
         code: "ECART_TOTAL_HT",
-        facture: invoice.numero,
+        facture: libelle,
         message:
           `Total HT declare ${invoice.totaux.totalHT} contre ${sommeHT} recalcule ` +
           `depuis les lignes (ecart ${ecartHT}).`,
@@ -189,7 +202,7 @@ export function validateInvoices(
       issues.push({
         severity: "avertissement",
         code: "ECART_TOTAL_TVA",
-        facture: invoice.numero,
+        facture: libelle,
         message:
           `Total TVA declare ${invoice.totaux.totalTva} contre ${sommeTva} recalcule ` +
           `depuis les lignes (ecart ${ecartTva}).`,

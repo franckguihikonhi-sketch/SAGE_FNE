@@ -45,7 +45,8 @@ describe("export tableur FNE (entetes seuls)", () => {
     expect(exoneree.lignes[0]!.tauxTva).toBe(0);
     expect(
       result.issues.some(
-        (issue) => issue.code === "TAUX_TVA_NON_CONFORME" && issue.facture === "26000000863",
+        (issue) =>
+          issue.code === "TAUX_TVA_NON_CONFORME" && issue.facture === "1234567A26000000863",
       ),
     ).toBe(false);
   });
@@ -55,7 +56,8 @@ describe("export tableur FNE (entetes seuls)", () => {
     const issue = result.issues.find((entry) => entry.code === "TAUX_TVA_NON_CONFORME");
 
     expect(issue?.severity).toBe("erreur");
-    expect(issue?.facture).toBe("26000000870");
+    // Les anomalies designent la facture par sa reference FNE.
+    expect(issue?.facture).toBe("1234567A26000000870");
     expect(issue?.message).toContain("13.77");
     expect(issue?.message).toContain("export JSON");
   });
@@ -69,10 +71,11 @@ describe("export tableur FNE (entetes seuls)", () => {
     expect(avoir.totaux.totalHT).toBe(21545.53);
     expect(avoir.totaux.totalTTC).toBe(25423.72);
 
-    const entete = result.file.content
+    const ligne = result.file.content
       .split("\r\n")
       .find((row) => row.includes("A2600000038"))!
       .split("\t");
-    expect(entete[1]).toBe("5");
+    // Zone 5 du format du dossier client : type de document, 5 = avoir.
+    expect(ligne[4]).toBe("5");
   });
 });

@@ -1,52 +1,62 @@
 # Format d'import Sage 100 Gestion Commerciale
 
-## Principe
+## Le format du dossier client (profil par défaut)
 
-Sage 100 importe des documents de vente via **Fichier > Importer > Format paramétrable**. Le
-format lui-même se définit dans **Fichier > Format import/export** et se matérialise par un
-fichier `.imp`. Ce fichier décrit, zone par zone :
+Le profil `sage100-import-export` reproduit le format paramétrable
+**FORMAT IMPORT_EXPORT** du dossier client, relevé sur son fichier `.egc` et sur un fichier
+d'exemple réellement échangé avec Sage.
 
-- le type de fichier (texte délimité ou longueur fixe) et le séparateur ;
-- l'ordre des zones et leur longueur ;
-- le format des dates et des nombres ;
-- la distinction entre l'enregistrement d'entête du document et ses lignes.
+| Caractéristique | Valeur |
+| --- | --- |
+| Séparateur | tabulation |
+| Fin de ligne | CRLF |
+| Encodage | Windows-1252 |
+| Séparateur décimal | virgule |
+| Format de date | `jjmmaa` (`200826` = 20/08/2026) |
+| Structure | **à plat** : une ligne par article, zones d'entête répétées |
+| Nombre de zones | 15 |
 
-Le connecteur reproduit ce paramétrage sous forme de **profil** (`src/lib/sage/profile.ts`).
-Un profil est du pur JSON : il n'y a pas de logique métier à modifier pour s'adapter à un
-nouveau client.
+Le fichier `.egc` déclare 19 zones dont 15 retenues, dans l'ordre `0-6`, `11-16`, `20`, `21` —
+exactement le nombre de colonnes du fichier d'exemple. Les zones 7, 8, 17 et 18 ne sont pas reprises.
 
-## Éléments à récupérer chez le client
+### Les 15 zones
 
-1. Le fichier `.imp` du format d'import des documents de vente (ou une copie d'écran des zones
-   paramétrées, dans l'ordre).
-2. Un fichier d'import déjà utilisé et accepté par Sage, même sur une seule facture. C'est la
-   référence la plus fiable.
-3. La liste des comptes tiers (`CT_Num`) pour construire la table de correspondance clients.
-4. La souche / le journal de vente à utiliser, s'ils doivent figurer dans le fichier.
+| # | Zone | Source | Exemple |
+| --- | --- | --- | --- |
+| 1 | Domaine | constante `0` (vente) | `0` |
+| 2 | Numéro de pièce | numéro FNE, ou vide | `26000000889` |
+| 3 | Date du document | date FNE en `jjmmaa` | `110826` |
+| 4 | Dépôt | paramètre `depot` | `DEPÔT PRINCIPAL SOGEL` |
+| 5 | Type de document | `6` facture, `5` avoir | `6` |
+| 6 | Souche | paramètre `souche` | `1` |
+| 7 | Date de livraison | date FNE | `110826` |
+| 8 | Compte tiers | table de correspondance clients | `411PROSUMA` |
+| 9 | Référence article | `items[].reference` | `6FF001` |
+| 10 | Désignation | `items[].description` | `FRITES 7MM-PK` |
+| 11 | Prix unitaire HT | `items[].amount`, 6 décimales | `1077,276300` |
+| 12 | Quantité | `items[].quantity`, 4 décimales | `20,0000` |
+| 13 | Unité | `items[].measurementUnit` | `SAC` |
+| 14 | *(non identifiée)* | vide dans le fichier d'exemple | |
+| 15 | Remise | remise de ligne, 4 décimales | `0,0000` |
 
-## Points à valider
+Trois zones restent à confirmer auprès du client : la 1 (constante `0`, interprétée comme le
+domaine Vente), la 6 (constante `1`, interprétée comme la souche) et la 14, vide dans l'exemple.
+Elles sont écrites à l'identique de l'échantillon, donc sans risque, mais leur libellé exact
+mériterait d'être vérifié dans l'écran de paramétrage du format.
 
-Les valeurs suivantes sont posées par défaut dans le profil et **doivent être confirmées** sur
-le dossier cible :
+### Ce que ce format ne transporte pas
 
-| Élément | Valeur par défaut | Où |
-| --- | --- | --- |
-| Type de document facture (`DO_Type`) | `6` | `profile.documentTypes.facture` |
-| Type de document avoir | `5` | `profile.documentTypes.avoir` |
-| Séparateur de zones | tabulation | `profile.delimiter` |
-| Encodage | Windows-1252 | `profile.encoding` |
-| Fin de ligne | CRLF | `profile.eol` |
-| Format de date | `DDMMYYYY` | `profile.dateFormat` |
-| Séparateur décimal | `.` | `profile.decimalSeparator` |
-| Marqueur entête / ligne | `E` / `L` | première colonne des layouts |
-| Numéro de pièce | année + numéro FNE (`26000000889`) | option `numeroPiece` |
-| Montants d'un avoir | valeurs positives | option `avoirEnValeurAbsolue` |
-| Codes règlement | aucun | table de correspondance à saisir |
+**Aucune zone de taxe.** Sage appliquera le régime de TVA paramétré sur chaque article, et non le
+code taxe porté par la facture FNE (`TVA` 18 %, `TVAB` 9 %, `TVAC`/`TVAD` 0 %). Sans effet tant que
+tout est au taux normal, cela **fausse les exonérations et le taux réduit**.
 
-Nomenclature `DO_Type` de Sage 100 pour les ventes : `0` devis, `1` bon de commande,
-`2` préparation de livraison, `3` bon de livraison, `4` bon de retour, `5` bon d'avoir financier,
-`6` facture, `7` facture comptabilisée. Le choix entre `6` et `7` dépend du fait que la facture
-doit rester modifiable ou arriver déjà comptabilisée.
+Le connecteur le signale (`TAXE_ABSENTE_DU_FORMAT`) : simple avertissement si toutes les lignes sont
+à 18 %, erreur bloquante dès qu'un autre taux apparaît. Deux issues : ajouter une zone de taxe au
+format d'import dans Sage (recommandé), ou s'assurer que les articles exonérés sont paramétrés comme
+tels dans la fiche article.
+
+Ce format ne transporte pas non plus les totaux (HT, TVA, TTC) : Sage les recalcule depuis prix
+unitaire × quantité. Les totaux FNE servent alors uniquement aux contrôles du connecteur.
 
 ## Numéro de pièce et référence FNE
 
@@ -57,7 +67,9 @@ complète est toujours écrite dans la zone « Référence FNE » du fichier, po
 contrôles de la DGI.
 
 Basculer sur `numeroPiece: "reference"` transmet la référence complète — à réserver aux dossiers
-dont la zone a été étendue, sinon Sage tronquera.
+dont la zone a été étendue, sinon Sage tronquera. Le mode `vide` laisse la zone vide pour que Sage
+numérote lui-même, comme dans le fichier d'exemple du client ; l'unicité est alors contrôlée sur la
+référence FNE.
 
 ## Modes de règlement
 

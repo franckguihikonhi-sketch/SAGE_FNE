@@ -10,7 +10,7 @@ import { cleanCell, normalizeKey, parseAmount, parseRate, round } from "@/lib/co
 import { ColumnMapping } from "./mapping";
 import { FneField, LINE_AMOUNT_FIELDS } from "./fields";
 import { findTaxCode, taxCodeFromRate } from "./taxes";
-import { sequenceFromReference } from "./native";
+import { numeroPiece } from "./native";
 import { SourceTable } from "./read";
 
 export interface NormalizeOptions {
@@ -22,7 +22,7 @@ export interface NormalizeOptions {
   /** Nombre de decimales des montants. */
   decimales: number;
   /** Voir `FneNativeOptions.numeroPiece`. */
-  numeroPiece: "sequence" | "reference";
+  numeroPiece: "sequence" | "reference" | "vide";
   /** Voir `FneNativeOptions.avoirEnValeurAbsolue`. */
   avoirEnValeurAbsolue: boolean;
   /**
@@ -125,7 +125,7 @@ function buildInvoice(
   const d = options.decimales;
 
   const invoice = emptyInvoice();
-  invoice.numero = options.numeroPiece === "reference" ? reference : sequenceFromReference(reference);
+  invoice.numero = numeroPiece(reference, options.numeroPiece);
   invoice.numeroFne = text(first, mapping, "numeroFne") || reference;
   invoice.numeroParent = text(first, mapping, "referenceParent");
   invoice.codeVerification = text(first, mapping, "codeVerification");

@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { convert } from "@/lib/pipeline";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
+import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { PROFILES } from "@/lib/sage/profile";
 
 async function main() {
@@ -22,7 +23,11 @@ async function main() {
     console.error("  --defaut=<compte>  Compte tiers par defaut");
     console.error("  --sortie=<fichier> Chemin du fichier genere");
     console.error("  --feuille=<nom>    Feuille Excel a lire");
-    console.error("  --detail=<n>       Nombre d'anomalies detaillees (defaut 10)\n");
+    console.error("  --detail=<n>       Nombre d'anomalies detaillees (defaut 10)");
+    console.error("  --depot=<nom>      Depot Sage porte par les documents");
+    console.error("  --souche=<n>       Souche Sage (defaut 1)");
+    console.error("  --reglements=<f>   Fichier de correspondance des modes de reglement");
+    console.error("  --numero=<mode>    sequence (defaut), reference ou vide\n");
     console.error("Profils disponibles :");
     for (const profile of PROFILES) console.error(`  ${profile.id.padEnd(28)} ${profile.label}`);
     process.exit(1);
@@ -33,11 +38,27 @@ async function main() {
 
   const buffer = readFileSync(resolve(input));
   const clientsPath = option("clients");
+  const reglementsPath = option("reglements");
+  const numero = option("numero");
+  const parametres: Record<string, string> = {};
+  const depot = option("depot");
+  const souche = option("souche");
+  if (depot !== undefined) parametres.depot = depot;
+  if (souche !== undefined) parametres.souche = souche;
+
   const result = await convert(buffer, basename(input), {
     profileId: option("profil"),
     sheet: option("feuille"),
     customers: clientsPath ? parseCustomerMappingCsv(readFileSync(resolve(clientsPath), "utf8")) : [],
     customerOptions: { compteParDefaut: option("defaut"), utiliserCodeSource: true },
+    reglements: reglementsPath
+      ? parsePaymentMappingText(readFileSync(resolve(reglementsPath), "utf8"))
+      : {},
+    parametres,
+    normalizeOptions:
+      numero === "reference" || numero === "vide" || numero === "sequence"
+        ? { numeroPiece: numero }
+        : {},
   });
 
   const output = option("sortie") ?? result.file.filename;

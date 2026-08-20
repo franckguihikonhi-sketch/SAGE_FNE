@@ -18,6 +18,8 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
   const [customers, setCustomers] = useState("");
   const [compteParDefaut, setCompteParDefaut] = useState("");
   const [reglements, setReglements] = useState("");
+  const [depot, setDepot] = useState("");
+  const [souche, setSouche] = useState("1");
   const [numeroPiece, setNumeroPiece] = useState("sequence");
   const [result, setResult] = useState<ConvertResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,8 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
     form.set("customers", customers);
     form.set("compteParDefaut", compteParDefaut);
     form.set("reglements", reglements);
+    form.set("depot", depot);
+    form.set("souche", souche);
     form.set("numeroPiece", numeroPiece);
 
     try {
@@ -132,6 +136,26 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
           </p>
         </div>
 
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm font-semibold text-slate-800">Depot</label>
+            <input
+              value={depot}
+              onChange={(event) => setDepot(event.target.value)}
+              placeholder="DEPOT PRINCIPAL"
+              className="mt-2 w-full rounded-lg border border-slate-300 p-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-800">Souche</label>
+            <input
+              value={souche}
+              onChange={(event) => setSouche(event.target.value)}
+              className="mt-2 w-full rounded-lg border border-slate-300 p-2 text-sm"
+            />
+          </div>
+        </div>
+
         <div>
           <label className="block text-sm font-semibold text-slate-800">
             Correspondance modes de reglement
@@ -157,6 +181,7 @@ export function Converter({ profiles }: { profiles: ProfileOption[] }) {
           >
             <option value="sequence">Annee + numero (26000000889) - 13 caracteres max</option>
             <option value="reference">Reference FNE complete (2304903U26000000889)</option>
+            <option value="vide">Zone vide - numerotation automatique par Sage</option>
           </select>
           <p className="mt-1 text-xs text-slate-500">
             La reference complete depasse la longueur du champ Sage : elle reste toujours ecrite dans

@@ -141,6 +141,70 @@ export const SAGE100_LIGNE_A_PLAT: SageImportProfile = {
   ],
 };
 
+
+/**
+ * Profil calque sur le format d'import/export du dossier client
+ * ("FORMAT IMPORT_EXPORT", fichier .egc) et sur le fichier d'exemple fourni.
+ *
+ * Caracteristiques relevees sur le fichier reel :
+ * - texte tabule, fins de ligne CRLF, encodage Windows-1252 ;
+ * - 15 zones, format *a plat* : les zones d'entete sont repetees sur chaque
+ *   ligne d'article, Sage regroupant les lignes en documents ;
+ * - dates au format jjmmaa (200826 = 20/08/2026), conformement au format ;
+ * - separateur decimal virgule, prix unitaire a 6 decimales, quantite et
+ *   remise a 4 decimales.
+ *
+ * Le format .egc declare 19 zones dont 15 retenues, dans l'ordre
+ * 0-6, 11-16, 20, 21 : c'est exactement le nombre de colonnes du fichier
+ * d'exemple. Les zones 7, 8, 17 et 18 ne sont pas reprises.
+ *
+ * ATTENTION : ce format ne comporte aucune zone de taxe. Sage appliquera le
+ * regime de TVA parametre sur chaque article, et non le code taxe FNE porte
+ * par la facture. Voir docs/format-import-sage.md.
+ */
+export const SAGE100_IMPORT_EXPORT: SageImportProfile = {
+  id: "sage100-import-export",
+  label: "Sage 100 GesCom - FORMAT IMPORT_EXPORT (15 zones, tabule)",
+  description:
+    "Reproduction du format parametrable du dossier client : 15 zones tabulees, format a plat, " +
+    "dates jjmmaa, separateur decimal virgule, encodage Windows-1252.",
+  extension: "txt",
+  layout: "delimited",
+  delimiter: "\t",
+  quote: "",
+  encoding: "windows-1252",
+  eol: "\r\n",
+  decimalSeparator: ",",
+  decimals: 2,
+  dateFormat: "DDMMYY",
+  includeHeaderRow: false,
+  documentTypes: { facture: "6", avoir: "5" },
+  // Format a plat : aucune ligne d'entete distincte.
+  entete: [],
+  ligne: [
+    // 1 - Constante 0 dans le fichier d'exemple : domaine Vente.
+    { label: "Domaine", source: { kind: "const", value: "0" } },
+    // 2 - Vide dans l'exemple (numerotation automatique par Sage). Le numero
+    //     FNE est ecrit ici pour garder le lien avec la facture certifiee.
+    { label: "Numero de piece", source: { kind: "token", token: "document.numero" } },
+    { label: "Date du document", source: { kind: "token", token: "document.date" } },
+    { label: "Depot", source: { kind: "token", token: "parametre.depot" } },
+    { label: "Type de document", source: { kind: "token", token: "document.type" } },
+    // 6 - Constante 1 dans l'exemple : souche du document.
+    { label: "Souche", source: { kind: "token", token: "parametre.souche" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.date" } },
+    { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
+    { label: "Reference article", source: { kind: "token", token: "ligne.reference" } },
+    { label: "Designation", source: { kind: "token", token: "ligne.designation" } },
+    { label: "Prix unitaire HT", source: { kind: "token", token: "ligne.prixUnitaire" }, decimals: 6 },
+    { label: "Quantite", source: { kind: "token", token: "ligne.quantite" }, decimals: 4 },
+    { label: "Unite", source: { kind: "token", token: "ligne.unite" } },
+    // 14 - Zone vide dans le fichier d'exemple, non identifiee.
+    { label: "Zone 14", source: { kind: "empty" } },
+    { label: "Remise", source: { kind: "token", token: "ligne.remise" }, decimals: 4 },
+  ],
+};
+
 /** Profil CSV point-virgule, utile pour verifier le mappage dans Excel. */
 export const SAGE100_CSV_CONTROLE: SageImportProfile = {
   ...SAGE100_LIGNE_A_PLAT,
@@ -156,10 +220,20 @@ export const SAGE100_CSV_CONTROLE: SageImportProfile = {
 };
 
 export const PROFILES: SageImportProfile[] = [
+  SAGE100_IMPORT_EXPORT,
   SAGE100_DOCUMENTS_VENTES,
   SAGE100_LIGNE_A_PLAT,
   SAGE100_CSV_CONTROLE,
 ];
+
+/** Jetons de taxe : un profil qui n'en porte aucun laisse Sage appliquer le regime de l'article. */
+const TAX_TOKENS = ["ligne.tauxTva", "ligne.codeTaxe", "ligne.montantTva", "totaux.tva"];
+
+export function porteLaTaxe(profile: SageImportProfile): boolean {
+  return [...profile.entete, ...profile.ligne].some(
+    (column) => column.source.kind === "token" && TAX_TOKENS.includes(column.source.token),
+  );
+}
 
 export function findProfile(id: string): SageImportProfile | null {
   return PROFILES.find((profile) => profile.id === id) ?? null;

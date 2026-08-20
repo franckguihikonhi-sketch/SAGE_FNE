@@ -22,9 +22,14 @@ et sur la documentation officielle *Procédure de certification des factures des
 (DGI, mai 2025) : codes taxe, modes de paiement, types de facturation et structure des références
 sont conformes à la nomenclature publiée. Voir `docs/exports-fne.md`.
 
-**Il reste un point à caler : le format d'import Sage.** `src/lib/sage/profile.ts` décrit l'ordre
-des zones, les codes `DO_Type` et les séparateurs ; il doit être aligné sur le format d'import
-(`.imp`) défini dans le dossier Sage cible. Voir `docs/format-import-sage.md`.
+Le côté Sage est calé lui aussi : le profil par défaut `sage100-import-export` **reproduit le format
+paramétrable du dossier client** (fichier `FORMAT IMPORT_EXPORT.egc` et fichier d'exemple réellement
+échangé avec Sage) — 15 zones tabulées, format à plat, dates `jjmmaa`, séparateur décimal virgule,
+encodage Windows-1252. Voir `docs/format-import-sage.md`.
+
+**Le point d'attention restant est la TVA.** Ce format ne comporte aucune zone de taxe : Sage
+applique le régime de TVA de la fiche article, pas le code taxe FNE. Le connecteur le signale, en
+erreur bloquante dès qu'une facture sort du taux normal.
 
 ### Quel export FNE utiliser
 
@@ -83,6 +88,7 @@ La liste complète des jetons est dans `src/lib/sage/tokens.ts`.
 | `DATE_MANQUANTE` | erreur | Date absente ou illisible |
 | `COMPTE_TIERS_MANQUANT` | erreur | Client sans compte tiers Sage |
 | `FACTURE_SANS_LIGNE` | erreur | Facture sans ligne d'article |
+| `TAXE_ABSENTE_DU_FORMAT` | erreur / avertissement | Le format d'import ne transporte pas la TVA ; Sage appliquera celle de l'article |
 | `TAUX_TVA_NON_CONFORME` | erreur | Taux hors nomenclature FNE (18 / 9 / 0 %), typiquement une facture à plusieurs taux reconstituée depuis un export sans articles |
 | `PIECE_TROP_LONGUE` | avertissement | Numéro de pièce au-delà de la longueur Sage |
 | `DESIGNATION_TRONQUEE` | avertissement | Désignation au-delà de la longueur Sage |
@@ -118,7 +124,8 @@ jamais y committer d'export réel. Les jeux de test de `tests/fixtures/` sont an
 
 ## Prochaines étapes
 
-- Reproduire à l'identique le format d'import (`.imp`) du dossier Sage cible.
+- Faire confirmer par le client les zones 1, 6 et 14 du format (constantes reprises de l'échantillon).
+- Ajouter une zone de taxe au format d'import Sage pour porter le code taxe FNE.
 - Confirmer la sémantique du champ `discount` de FNE (pourcentage ou montant).
 - Interface de mappage manuel des colonnes non reconnues (l'API l'accepte déjà via
   `mappingOverrides`).

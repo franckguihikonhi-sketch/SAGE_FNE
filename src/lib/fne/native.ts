@@ -16,9 +16,10 @@ export interface FneNativeOptions {
    * Numero de piece transmis a Sage :
    * - "sequence" : partie annee + numero de la reference FNE (ex. 2304903U26000000889 -> 26000000889),
    *   compatible avec la longueur du champ DO_Piece de Sage ;
-   * - "reference" : reference FNE complete, a n'utiliser que si le champ Sage a ete etendu.
+   * - "reference" : reference FNE complete, a n'utiliser que si le champ Sage a ete etendu ;
+   * - "vide" : zone laissee vide pour que Sage numerote lui-meme le document.
    */
-  numeroPiece: "sequence" | "reference";
+  numeroPiece: "sequence" | "reference" | "vide";
   /**
    * Les avoirs FNE portent des montants negatifs. Sage exprime l'avoir par le
    * type de document et attend des montants positifs : true retablit le signe.
@@ -153,7 +154,7 @@ function buildInvoice(
   );
 
   const invoice = emptyInvoice();
-  invoice.numero = options.numeroPiece === "reference" ? reference : sequenceFromReference(reference);
+  invoice.numero = numeroPiece(reference, options.numeroPiece);
   invoice.numeroFne = reference;
   invoice.numeroParent = cleanCell(source.parentReference);
   invoice.codeVerification = cleanCell(source.token);
@@ -275,6 +276,12 @@ function syntheseLine(source: FneInvoice, signe: number, options: FneNativeOptio
  * Le NCC etant constant pour une entreprise, seule la partie annee + numero
  * est reprise comme numero de piece Sage (13 caracteres au maximum).
  */
+export function numeroPiece(reference: string, mode: FneNativeOptions["numeroPiece"]): string {
+  if (mode === "vide") return "";
+  if (mode === "reference") return reference;
+  return sequenceFromReference(reference);
+}
+
 export function sequenceFromReference(reference: string): string {
   const match = reference.match(/^(A?)([0-9]{7}[A-Z])(.+)$/);
   if (!match) return reference;

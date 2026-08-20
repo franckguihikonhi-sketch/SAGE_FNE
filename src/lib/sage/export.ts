@@ -13,12 +13,19 @@ export interface SageExportResult {
   lineCount: number;
 }
 
+export interface SageExportContext {
+  reglements?: PaymentMapping;
+  /** Valeurs propres au dossier Sage : depot, souche... */
+  parametres?: Record<string, string>;
+}
+
 export function buildSageFile(
   invoices: Invoice[],
   profile: SageImportProfile,
   filenameBase = "import-sage",
-  reglements: PaymentMapping = {},
+  context: SageExportContext = {},
 ): SageExportResult {
+  const { reglements = {}, parametres = {} } = context;
   const rows: string[] = [];
 
   if (profile.includeHeaderRow) {
@@ -28,10 +35,12 @@ export function buildSageFile(
 
   for (const invoice of invoices) {
     if (profile.entete.length > 0) {
-      rows.push(renderRow(profile.entete, { invoice, line: null, profile, reglements }, profile));
+      rows.push(
+        renderRow(profile.entete, { invoice, line: null, profile, reglements, parametres }, profile),
+      );
     }
     for (const line of invoice.lignes) {
-      rows.push(renderRow(profile.ligne, { invoice, line, profile, reglements }, profile));
+      rows.push(renderRow(profile.ligne, { invoice, line, profile, reglements, parametres }, profile));
     }
   }
 
@@ -57,7 +66,11 @@ function renderRow(columns: SageColumn[], ctx: TokenContext, profile: SageImport
       case "empty":
         return "";
       case "token":
-        return resolveToken(column.source.token, { ...ctx, profile: withDecimals(profile, column) });
+        return resolveToken(column.source.token, {
+          ...ctx,
+          profile: withDecimals(profile, column),
+          decimalsOverride: column.decimals,
+        });
     }
   });
   return joinRow(values, profile, columns);

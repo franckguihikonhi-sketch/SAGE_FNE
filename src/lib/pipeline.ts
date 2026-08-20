@@ -11,7 +11,13 @@ import { decodeText, readSource, ReadError, SourceTable } from "@/lib/fne/read";
 import { PaymentMapping } from "@/lib/fne/paiement";
 import { applyCustomerMapping, CustomerMappingEntry, CustomerMappingOptions } from "@/lib/sage/customers";
 import { buildSageFile, summarize } from "@/lib/sage/export";
-import { findProfile, SAGE100_DOCUMENTS_VENTES, SageImportProfile } from "@/lib/sage/profile";
+import { PARAMETRES_CONNUS } from "@/lib/sage/tokens";
+import {
+  findProfile,
+  porteLaTaxe,
+  SAGE100_IMPORT_EXPORT,
+  SageImportProfile,
+} from "@/lib/sage/profile";
 import {
   DEFAULT_VALIDATION_OPTIONS,
   Issue,
@@ -29,6 +35,8 @@ export interface ConvertOptions {
   customerOptions?: CustomerMappingOptions;
   /** Correspondance mode de paiement FNE -> code reglement Sage. */
   reglements?: PaymentMapping;
+  /** Valeurs propres au dossier Sage : depot, souche... (jetons `parametre.<nom>`). */
+  parametres?: Record<string, string>;
   normalizeOptions?: Partial<NormalizeOptions>;
   validationOptions?: Partial<ValidationOptions>;
   filenameBase?: string;
@@ -123,20 +131,25 @@ export async function convert(
   const profile =
     options.profile ??
     (options.profileId ? findProfile(options.profileId) : null) ??
-    SAGE100_DOCUMENTS_VENTES;
+    SAGE100_IMPORT_EXPORT;
 
   const validationOptions: ValidationOptions = {
     ...DEFAULT_VALIDATION_OPTIONS,
     synthese: source.synthese,
+    numerotationSage: normalizeOptions.numeroPiece === "vide",
     ...options.validationOptions,
   };
   const issues: Issue[] = [
     ...warnings.map((message) => ({ severity: "avertissement" as const, code: "LECTURE", message })),
     ...validateInvoices(invoices, validationOptions),
+    ...controleTaxe(invoices, profile),
   ];
 
   const base = options.filenameBase ?? filename.replace(/\.[^.]+$/, "");
-  const file = buildSageFile(invoices, profile, `${base}-sage`, options.reglements ?? {});
+  const file = buildSageFile(invoices, profile, `${base}-sage`, {
+    reglements: options.reglements ?? {},
+    parametres: { ...defaultParametres(), ...(options.parametres ?? {}) },
+  });
 
   return {
     source,
@@ -156,6 +169,34 @@ export async function convert(
     },
     profile: { id: profile.id, label: profile.label },
   };
+}
+
+/**
+ * Le format d'import peut ne comporter aucune zone de taxe : Sage applique
+ * alors le regime de TVA parametre sur chaque article, et non le code taxe
+ * porte par la facture FNE. C'est sans effet si tout est au taux normal, mais
+ * cela fausse les exonerations et le taux reduit.
+ */
+function controleTaxe(invoices: Invoice[], profile: SageImportProfile): Issue[] {
+  if (porteLaTaxe(profile)) return [];
+  const taux = [...new Set(invoices.flatMap((invoice) => invoice.lignes.map((line) => line.tauxTva)))];
+  if (taux.length === 0) return [];
+
+  const detail = taux.length > 1 ? `plusieurs taux presents (${taux.sort((a, b) => b - a).join(" / ")} %)` : `taux unique de ${taux[0]} %`;
+  return [
+    {
+      severity: taux.length > 1 || taux[0] !== 18 ? "erreur" : "avertissement",
+      code: "TAXE_ABSENTE_DU_FORMAT",
+      message:
+        `Le format "${profile.label}" ne comporte aucune zone de taxe : Sage appliquera le regime ` +
+        `de TVA parametre sur chaque article, et non le code taxe FNE (${detail}). Ajoutez une zone ` +
+        "de taxe au format d'import Sage, ou verifiez le parametrage TVA des articles concernes.",
+    },
+  ];
+}
+
+function defaultParametres(): Record<string, string> {
+  return Object.fromEntries(PARAMETRES_CONNUS.map((entry) => [entry.nom, entry.defaut]));
 }
 
 /**

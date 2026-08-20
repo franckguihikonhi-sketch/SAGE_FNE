@@ -76,6 +76,7 @@ describe("conversion complete", () => {
 describe("fichier d'import Sage", () => {
   it("produit un enregistrement d'entete puis les lignes", async () => {
     const result = await convert(buffer(), "export-fne-exemple.csv", {
+      profileId: "sage100-documents-ventes",
       customers: [{ ncc: "1234567 A", codeSage: "411KOUAME" }],
     });
 
@@ -98,7 +99,9 @@ describe("fichier d'import Sage", () => {
   });
 
   it("marque l'avoir avec le code document dedie", async () => {
-    const result = await convert(buffer(), "export-fne-exemple.csv");
+    const result = await convert(buffer(), "export-fne-exemple.csv", {
+      profileId: "sage100-documents-ventes",
+    });
     const entete = result.file.content
       .split("\r\n")
       .find((row) => row.includes("AV-2026-0007"))!

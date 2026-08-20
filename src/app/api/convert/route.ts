@@ -37,7 +37,13 @@ export async function POST(request: NextRequest) {
   const compteParDefaut = asString(form.get("compteParDefaut"));
   const exigerCompteTiers = asString(form.get("exigerCompteTiers")) !== "false";
   const reglements = asString(form.get("reglements"));
-  const numeroPiece = asString(form.get("numeroPiece")) === "reference" ? "reference" : "sequence";
+  const numeroSaisi = asString(form.get("numeroPiece"));
+  const numeroPiece =
+    numeroSaisi === "reference" || numeroSaisi === "vide" ? numeroSaisi : "sequence";
+  const parametres = {
+    depot: asString(form.get("depot")),
+    souche: asString(form.get("souche")) || "1",
+  };
 
   try {
     const result = await convert(buffer, file.name, {
@@ -45,6 +51,7 @@ export async function POST(request: NextRequest) {
       customers: customersCsv ? parseCustomerMappingCsv(customersCsv) : [],
       customerOptions: { compteParDefaut: compteParDefaut || undefined, utiliserCodeSource: true },
       reglements: reglements ? parsePaymentMappingText(reglements) : {},
+      parametres,
       normalizeOptions: { numeroPiece },
       validationOptions: { exigerCompteTiers },
     });

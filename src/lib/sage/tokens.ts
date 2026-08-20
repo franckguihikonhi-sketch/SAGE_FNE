@@ -10,12 +10,27 @@ export interface TokenContext {
   profile: SageImportProfile;
   /** Correspondance mode de paiement FNE -> code reglement Sage. */
   reglements?: PaymentMapping;
+  /**
+   * Valeurs propres au dossier Sage (depot, souche, code affaire...),
+   * referencees par les jetons `parametre.<nom>`.
+   */
+  parametres?: Record<string, string>;
+  /**
+   * Nombre de decimales impose par la colonne du profil. Prioritaire sur la
+   * valeur par defaut du jeton : une zone "quantite a 4 decimales" doit
+   * l'emporter sur les 3 decimales usuelles.
+   */
+  decimalsOverride?: number;
 }
 
 type TokenResolver = (ctx: TokenContext) => string;
 
 function num(value: number, ctx: TokenContext, decimals?: number): string {
-  return formatNumber(value, decimals ?? ctx.profile.decimals, ctx.profile.decimalSeparator);
+  return formatNumber(
+    value,
+    ctx.decimalsOverride ?? decimals ?? ctx.profile.decimals,
+    ctx.profile.decimalSeparator,
+  );
 }
 
 /**
@@ -73,8 +88,21 @@ export const TOKENS: Record<string, TokenResolver> = {
 
 export const TOKEN_NAMES = Object.keys(TOKENS).sort();
 
+/** Jeton `parametre.<nom>` : valeur saisie par l'utilisateur pour son dossier Sage. */
+function resolveParametre(token: string, ctx: TokenContext): string {
+  const nom = token.slice("parametre.".length);
+  return ctx.parametres?.[nom] ?? "";
+}
+
 export function resolveToken(token: string, ctx: TokenContext): string {
+  if (token.startsWith("parametre.")) return resolveParametre(token, ctx);
   const resolver = TOKENS[token];
   if (!resolver) throw new Error(`Jeton inconnu dans le profil d'import : "${token}"`);
   return resolver(ctx);
 }
+
+/** Jetons `parametre.<nom>` attendus par les profils livres. */
+export const PARAMETRES_CONNUS: Array<{ nom: string; libelle: string; defaut: string }> = [
+  { nom: "depot", libelle: "Depot", defaut: "" },
+  { nom: "souche", libelle: "Souche", defaut: "1" },
+];
