@@ -38,8 +38,17 @@ function num(value: number, ctx: TokenContext, decimals?: number): string {
  * Ajouter une zone au fichier Sage = referencer un jeton, pas ecrire du code.
  */
 export const TOKENS: Record<string, TokenResolver> = {
-  "document.type": (ctx) =>
-    ctx.invoice.kind === "AVOIR" ? ctx.profile.documentTypes.avoir : ctx.profile.documentTypes.facture,
+  // Le code du type de document depend du dossier Sage : tous n'emettent pas
+  // les avoirs de vente sous le meme type. Un parametre le remplace donc,
+  // sans quoi un dossier qui attend un autre code refuse tout le fichier.
+  "document.type": (ctx) => {
+    const parDefaut =
+      ctx.invoice.kind === "AVOIR"
+        ? ctx.profile.documentTypes.avoir
+        : ctx.profile.documentTypes.facture;
+    const parametre = ctx.invoice.kind === "AVOIR" ? "typeAvoir" : "typeFacture";
+    return ctx.parametres?.[parametre] || parDefaut;
+  },
   "document.numero": (ctx) => ctx.invoice.numero,
   "document.date": (ctx) => (ctx.invoice.date ? formatDate(ctx.invoice.date, ctx.profile.dateFormat) : ""),
   "document.reference": (ctx) => ctx.invoice.reference,
@@ -105,4 +114,7 @@ export function resolveToken(token: string, ctx: TokenContext): string {
 export const PARAMETRES_CONNUS: Array<{ nom: string; libelle: string; defaut: string }> = [
   { nom: "depot", libelle: "Depot", defaut: "" },
   { nom: "souche", libelle: "Souche", defaut: "1" },
+  // Vides : le profil fournit alors ses propres codes (6 facture, 5 avoir).
+  { nom: "typeFacture", libelle: "Type de document facture", defaut: "" },
+  { nom: "typeAvoir", libelle: "Type de document avoir", defaut: "" },
 ];

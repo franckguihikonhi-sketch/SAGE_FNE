@@ -14,6 +14,9 @@ export interface Reglages {
   depot: string;
   souche: string;
   numeroPiece: string;
+  /** Code Sage du type de document, vide pour garder celui du profil. */
+  typeFacture: string;
+  typeAvoir: string;
   compteDefaut: string;
   /** Reference de l'article de synthese taxable, pour les exports sans detail. */
   articleSynthese: string;
@@ -32,6 +35,8 @@ export const REGLAGES_PAR_DEFAUT: Reglages = {
   depot: "",
   souche: "1",
   numeroPiece: "vide",
+  typeFacture: "",
+  typeAvoir: "",
   compteDefaut: "",
   articleSynthese: "",
   articleSyntheseExonere: "",

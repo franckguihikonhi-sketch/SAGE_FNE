@@ -162,3 +162,17 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
     expect(SAGE100_IMPORT_EXPORT.pied).toHaveLength(15);
   });
 });
+
+describe("codes de type de document", () => {
+  it("laisse le dossier imposer ses propres codes", async () => {
+    const result = await convert(buffer(), "fne-natif.json", {
+      customers: CLIENTS,
+      // Un dossier qui emet ses avoirs de vente sous un autre type.
+      parametres: { depot: "D", souche: "1", typeFacture: "6", typeAvoir: "4" },
+    });
+    const zones = result.file.content.split("\r\n").filter(Boolean).map((row) => row.split("\t"));
+
+    expect(zones[0]![4]).toBe("6");
+    expect(zones.find((row) => row[7] === "411AUTRE")![4]).toBe("4");
+  });
+});

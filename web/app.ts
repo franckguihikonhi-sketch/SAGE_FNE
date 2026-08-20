@@ -31,6 +31,8 @@ const CHAMPS: Array<keyof Reglages> = [
   "depot",
   "souche",
   "numeroPiece",
+  "typeFacture",
+  "typeAvoir",
   "compteDefaut",
   "articles",
   "articleSynthese",
@@ -100,7 +102,12 @@ async function convertir(fichier: File): Promise<void> {
       articles: parseArticleMappingCsv(reglages.articles),
       customerOptions: { compteParDefaut: reglages.compteDefaut, utiliserCodeSource: true },
       reglements: parsePaymentMappingText(reglages.reglements),
-      parametres: { depot: reglages.depot, souche: reglages.souche || "1" },
+      parametres: {
+        depot: reglages.depot,
+        souche: reglages.souche || "1",
+        typeFacture: reglages.typeFacture,
+        typeAvoir: reglages.typeAvoir,
+      },
       normalizeOptions: {
         articleSynthese: reglages.articleSynthese,
         articleSyntheseExonere: reglages.articleSyntheseExonere,

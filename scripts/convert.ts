@@ -27,6 +27,8 @@ async function main() {
     console.error("  --detail=<n>       Nombre d'anomalies detaillees (defaut 10)");
     console.error("  --depot=<nom>      Depot Sage porte par les documents");
     console.error("  --souche=<n>       Souche Sage (defaut 1)");
+    console.error("  --type-facture=<n> Code du type de document facture (defaut 6)");
+    console.error("  --type-avoir=<n>   Code du type de document avoir (defaut 5)");
     console.error("  --reglements=<f>   Fichier de correspondance des modes de reglement");
     console.error("  --articles=<f>     Fichier de correspondance des articles FNE -> Sage");
     console.error("  --numero=<mode>    sequence (defaut), reference ou vide\n");
@@ -48,6 +50,10 @@ async function main() {
   const souche = option("souche");
   if (depot !== undefined) parametres.depot = depot;
   if (souche !== undefined) parametres.souche = souche;
+  const typeFacture = option("type-facture");
+  const typeAvoir = option("type-avoir");
+  if (typeFacture !== undefined) parametres.typeFacture = typeFacture;
+  if (typeAvoir !== undefined) parametres.typeAvoir = typeAvoir;
 
   const result = await convert(buffer, basename(input), {
     profileId: option("profil"),
