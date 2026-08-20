@@ -186,7 +186,9 @@ export async function convert(
     ...warnings.map((message) => ({ severity: "avertissement" as const, code: "LECTURE", message })),
     ...validateInvoices(invoices, validationOptions),
     ...controleTaxe(invoices, profile),
-    ...(taxeDansLeFormat ? [] : controleArticles(articles)),
+    // Le controle des articles vaut quel que soit le format : une reference qui
+    // est en realite un compte tiers fait echouer l'import dans tous les cas.
+    ...controleArticles(articles, taxeDansLeFormat),
   ];
 
   const base = options.filenameBase ?? filename.replace(/\.[^.]+$/, "");

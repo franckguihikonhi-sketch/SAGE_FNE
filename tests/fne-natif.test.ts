@@ -156,3 +156,27 @@ describe("correspondance des articles", () => {
     expect(frites.designation).toBe("FRITES 7MM-PK (4*2.5kg)");
   });
 });
+
+describe("garde-fou sur les references d'article", () => {
+  it("bloque un compte tiers saisi comme reference d'article", async () => {
+    // L'erreur constatee chez le client : 411SEDF, un compte client, mappe
+    // comme article. Sage chercherait un article de ce nom et refuserait tout.
+    const result = await convert(buffer(), "fne-natif.json", {
+      customers: CLIENTS,
+      articles: [{ referenceFne: "ART-001", referenceSage: "411SEDF" }],
+    });
+
+    const issue = result.issues.find((e) => e.code === "ARTICLE_EST_UN_COMPTE_TIERS")!;
+    expect(issue.severity).toBe("erreur");
+    expect(issue.message).toContain("411SEDF");
+    expect(issue.message).toContain("compte tiers");
+  });
+
+  it("laisse passer une vraie reference d'article numerique", async () => {
+    const result = await convert(buffer(), "fne-natif.json", {
+      customers: CLIENTS,
+      articles: [{ referenceFne: "ART-001", referenceSage: "1147005" }],
+    });
+    expect(result.issues.some((e) => e.code === "ARTICLE_EST_UN_COMPTE_TIERS")).toBe(false);
+  });
+});

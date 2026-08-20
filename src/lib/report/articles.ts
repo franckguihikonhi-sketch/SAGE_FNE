@@ -62,18 +62,44 @@ export function resumeArticles(invoices: Invoice[]): ArticleResume[] {
 }
 
 /**
+ * Une reference d'article commencant par 401 ou 411 est un compte tiers du plan
+ * comptable, pas un article : la confusion vient de la table de correspondance,
+ * ou une valeur a ete saisie dans la mauvaise colonne. Sage chercherait un
+ * article de ce nom et refuserait la ligne.
+ */
+const COMPTE_TIERS = /^4[01]1/;
+
+/**
  * Un article vu avec plusieurs taux dans le meme export ne peut pas etre repris
  * par un format sans zone de taxe : la fiche article ne porte qu'un regime.
  */
-export function controleArticles(articles: ArticleResume[]): Issue[] {
-  return articles
-    .filter((article) => article.taux.length > 1)
-    .map((article) => ({
-      severity: "erreur" as const,
-      code: "ARTICLE_MULTI_TAUX",
-      message:
-        `L'article ${article.reference || article.designation} apparait avec plusieurs taux de TVA ` +
-        `(${article.taux.join(" / ")} %). La fiche article Sage ne portant qu'un seul regime, ce cas ` +
-        "impose d'ajouter une zone de taxe au format d'import.",
-    }));
+export function controleArticles(articles: ArticleResume[], taxeDansLeFormat = false): Issue[] {
+  const issues: Issue[] = [];
+
+  for (const article of articles) {
+    if (COMPTE_TIERS.test(article.reference)) {
+      issues.push({
+        severity: "erreur",
+        code: "ARTICLE_EST_UN_COMPTE_TIERS",
+        message:
+          `La reference d'article "${article.reference}" (${article.designation}) est un compte ` +
+          "tiers, pas un article : les comptes en 401 et 411 designent des fournisseurs et des " +
+          "clients. Elle a sans doute ete saisie dans la table des articles au lieu de celle des " +
+          "clients. Sage chercherait un article de ce nom et refuserait la ligne.",
+      });
+    }
+
+    if (article.taux.length > 1 && !taxeDansLeFormat) {
+      issues.push({
+        severity: "erreur",
+        code: "ARTICLE_MULTI_TAUX",
+        message:
+          `L'article ${article.reference || article.designation} apparait avec plusieurs taux de TVA ` +
+          `(${article.taux.join(" / ")} %). La fiche article Sage ne portant qu'un seul regime, ce cas ` +
+          "impose d'ajouter une zone de taxe au format d'import.",
+      });
+    }
+  }
+
+  return issues;
 }
