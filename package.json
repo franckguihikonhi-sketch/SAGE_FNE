@@ -1,0 +1,36 @@
+{
+  "name": "sage-fne",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Transforme les exports de factures FNE (DGI Cote d'Ivoire) en fichier d'import Sage 100 Gestion Commerciale (format parametrable).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "convert": "tsx scripts/convert.ts"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "iconv-lite": "^0.6.3",
+    "next": "^15.5.4",
+    "papaparse": "^5.5.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.15.3",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.13",
+    "tsx": "^4.23.12",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
