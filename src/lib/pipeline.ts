@@ -25,6 +25,7 @@ import {
   validateInvoices,
 } from "@/lib/report/validate";
 import { FneField } from "@/lib/fne/fields";
+import { ArticleResume, controleArticles, resumeArticles } from "@/lib/report/articles";
 
 export interface ConvertOptions {
   profileId?: string;
@@ -61,6 +62,8 @@ export interface ConvertResult {
   ignoredColumns: string[];
   missingFields: FneField[];
   invoices: Invoice[];
+  /** Synthese des taux de TVA par article, pour verifier le parametrage Sage. */
+  articles: ArticleResume[];
   clientsInconnus: Array<{ nom: string; ncc: string; factures: string[] }>;
   issues: Issue[];
   summary: ReturnType<typeof summarize>;
@@ -139,10 +142,15 @@ export async function convert(
     numerotationSage: normalizeOptions.numeroPiece === "vide",
     ...options.validationOptions,
   };
+  // En mode synthese, chaque "article" est une facture reconstituee : la
+  // synthese par article n'aurait aucun sens.
+  const articles = source.synthese ? [] : resumeArticles(invoices);
+  const taxeDansLeFormat = porteLaTaxe(profile);
   const issues: Issue[] = [
     ...warnings.map((message) => ({ severity: "avertissement" as const, code: "LECTURE", message })),
     ...validateInvoices(invoices, validationOptions),
     ...controleTaxe(invoices, profile),
+    ...(taxeDansLeFormat ? [] : controleArticles(articles)),
   ];
 
   const base = options.filenameBase ?? filename.replace(/\.[^.]+$/, "");
@@ -158,6 +166,7 @@ export async function convert(
     ignoredColumns: ignored,
     missingFields: missing,
     invoices,
+    articles,
     clientsInconnus: inconnus,
     issues,
     summary: summarize(invoices),
@@ -173,24 +182,25 @@ export async function convert(
 
 /**
  * Le format d'import peut ne comporter aucune zone de taxe : Sage applique
- * alors le regime de TVA parametre sur chaque article, et non le code taxe
- * porte par la facture FNE. C'est sans effet si tout est au taux normal, mais
- * cela fausse les exonerations et le taux reduit.
+ * alors le regime de TVA de la fiche article. Ce n'est pas une anomalie en soi
+ * - c'est meme le fonctionnement normal quand chaque article a un regime fixe -
+ * mais cela demande que le parametrage Sage corresponde a ce que FNE certifie.
+ * Le cas reellement bloquant, un meme article vu a plusieurs taux, est traite
+ * par `controleArticles`.
  */
 function controleTaxe(invoices: Invoice[], profile: SageImportProfile): Issue[] {
   if (porteLaTaxe(profile)) return [];
   const taux = [...new Set(invoices.flatMap((invoice) => invoice.lignes.map((line) => line.tauxTva)))];
   if (taux.length === 0) return [];
 
-  const detail = taux.length > 1 ? `plusieurs taux presents (${taux.sort((a, b) => b - a).join(" / ")} %)` : `taux unique de ${taux[0]} %`;
   return [
     {
-      severity: taux.length > 1 || taux[0] !== 18 ? "erreur" : "avertissement",
+      severity: "avertissement",
       code: "TAXE_ABSENTE_DU_FORMAT",
       message:
-        `Le format "${profile.label}" ne comporte aucune zone de taxe : Sage appliquera le regime ` +
-        `de TVA parametre sur chaque article, et non le code taxe FNE (${detail}). Ajoutez une zone ` +
-        "de taxe au format d'import Sage, ou verifiez le parametrage TVA des articles concernes.",
+        `Le format "${profile.label}" ne comporte aucune zone de taxe : c'est le regime de TVA de ` +
+        `la fiche article Sage qui s'appliquera. Taux rencontres dans l'export : ` +
+        `${taux.sort((a, b) => b - a).join(" / ")} %. Verifiez la synthese par article.`,
     },
   ];
 }

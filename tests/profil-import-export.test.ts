@@ -85,12 +85,38 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
     expect(result.issues.some((issue) => issue.code === "PIECE_DUPLIQUEE")).toBe(false);
   });
 
-  it("signale que le format ne transporte aucune taxe", async () => {
+  it("rappelle que la TVA vient de la fiche article, sans bloquer", async () => {
     const result = await convertir();
     const issue = result.issues.find((entry) => entry.code === "TAXE_ABSENTE_DU_FORMAT")!;
 
-    // Le jeu d'essai melange 18 % et une exoneration : la TVA de l'article primerait.
+    // Un article a un regime fixe : melanger 18 % et exonere entre articles est normal.
+    expect(issue.severity).toBe("avertissement");
+    expect(issue.message).toContain("18 / 0");
+  });
+
+  it("resume les taux FNE article par article", async () => {
+    const result = await convertir();
+    const frites = result.articles.find((article) => article.reference === "ART-001")!;
+    const exonere = result.articles.find((article) => article.reference === "ART-002")!;
+
+    expect(frites.taux).toEqual([18]);
+    expect(frites.codesTaxe).toEqual(["TVA"]);
+    expect(frites.lignes).toBe(2); // la facture et l'avoir
+    expect(exonere.taux).toEqual([0]);
+    expect(exonere.codesTaxe).toEqual(["TVAC"]);
+  });
+
+  it("bloque un article vu a deux taux differents", async () => {
+    const source = JSON.parse(readFileSync(FIXTURE, "utf8"));
+    // Le meme article certifie a 18 % sur une facture et exonere sur l'autre.
+    source[1].items[0].taxes[0] = { amount: 0, shortName: "TVAD" };
+    const result = await convert(Buffer.from(JSON.stringify(source)), "fne-natif.json", {
+      customers: CLIENTS,
+    });
+
+    const issue = result.issues.find((entry) => entry.code === "ARTICLE_MULTI_TAUX")!;
     expect(issue.severity).toBe("erreur");
+    expect(issue.message).toContain("ART-001");
     expect(issue.message).toContain("18 / 0");
   });
 

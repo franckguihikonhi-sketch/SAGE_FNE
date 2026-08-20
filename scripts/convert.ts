@@ -83,6 +83,19 @@ async function main() {
   );
   console.log(`Fichier genere: ${output} (${result.file.lineCount} enregistrements)`);
 
+  if (result.articles.length > 0) {
+    console.log("\nTVA par article (regime a verifier sur la fiche article Sage) :");
+    for (const article of result.articles.slice(0, 15)) {
+      const taux = article.taux.map((valeur) => `${valeur} %`).join(" / ");
+      const codes = article.codesTaxe.join(", ");
+      console.log(
+        `  ${(article.reference || "-").padEnd(12)} ${taux.padEnd(14)} ${codes.padEnd(6)} ` +
+          `${article.lignes} ligne(s)  ${article.designation}`,
+      );
+    }
+    if (result.articles.length > 15) console.log(`  ... et ${result.articles.length - 15} autres articles`);
+  }
+
   if (result.unmappedColumns.length > 0) {
     console.log(`\nColonnes non reconnues : ${result.unmappedColumns.join(", ")}`);
   }
