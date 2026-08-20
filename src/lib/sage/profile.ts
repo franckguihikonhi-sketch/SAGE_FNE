@@ -10,6 +10,8 @@
 
 export type SageSource =
   | { kind: "const"; value: string }
+  /** Valeur numerique fixe, mise en forme selon les decimales et le separateur du profil. */
+  | { kind: "nombre"; value: number }
   | { kind: "token"; token: string }
   | { kind: "empty" };
 
@@ -47,6 +49,14 @@ export interface SageImportProfile {
   documentTypes: { facture: string; avoir: string };
   entete: SageColumn[];
   ligne: SageColumn[];
+  /**
+   * Enregistrement ecrit une fois apres les lignes de chaque document.
+   *
+   * Les deux fichiers de reference du dossier client se terminent par une telle
+   * ligne : elle reprend le type, la souche, la date de livraison et le compte
+   * tiers du document, sans article ni depot. Elle clot le document.
+   */
+  pied?: SageColumn[];
 }
 
 /**
@@ -202,6 +212,26 @@ export const SAGE100_IMPORT_EXPORT: SageImportProfile = {
     // 14 - Zone vide dans le fichier d'exemple, non identifiee.
     { label: "Zone 14", source: { kind: "empty" } },
     { label: "Remise", source: { kind: "token", token: "ligne.remise" }, decimals: 4 },
+  ],
+  // Ligne de cloture, calquee sur les fichiers de reference : seules les zones
+  // qui identifient le document sont reprises, sans date de document, sans
+  // depot et sans article.
+  pied: [
+    { label: "Domaine", source: { kind: "const", value: "0" } },
+    { label: "Numero de piece", source: { kind: "token", token: "document.numero" } },
+    { label: "Date du document", source: { kind: "empty" } },
+    { label: "Depot", source: { kind: "empty" } },
+    { label: "Type de document", source: { kind: "token", token: "document.type" } },
+    { label: "Souche", source: { kind: "token", token: "parametre.souche" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.date" } },
+    { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
+    { label: "Reference article", source: { kind: "empty" } },
+    { label: "Designation", source: { kind: "empty" } },
+    { label: "Prix unitaire HT", source: { kind: "nombre", value: 0 }, decimals: 6 },
+    { label: "Quantite", source: { kind: "nombre", value: 0 }, decimals: 4 },
+    { label: "Unite", source: { kind: "empty" } },
+    { label: "Zone 14", source: { kind: "empty" } },
+    { label: "Remise", source: { kind: "nombre", value: 0 }, decimals: 4 },
   ],
 };
 

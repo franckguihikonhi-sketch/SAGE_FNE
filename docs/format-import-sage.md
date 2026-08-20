@@ -40,9 +40,30 @@ exactement le nombre de colonnes du fichier d'exemple. Les zones 7, 8, 17 et 18 
 | 15 | Remise | remise de ligne, 4 décimales | `0,0000` |
 
 Trois zones restent à confirmer auprès du client : la 1 (constante `0`, interprétée comme le
-domaine Vente), la 6 (constante `1`, interprétée comme la souche) et la 14, vide dans l'exemple.
-Elles sont écrites à l'identique de l'échantillon, donc sans risque, mais leur libellé exact
-mériterait d'être vérifié dans l'écran de paramétrage du format.
+domaine Vente), la 6 (`1` dans un fichier de référence, `2` dans l'autre — d'où l'interprétation
+« souche », et le fait qu'elle soit paramétrable) et la 14, vide dans les deux exemples.
+
+**La zone 2 mérite une vérification particulière.** Elle est vide dans les deux fichiers de
+référence, y compris sur des documents qui existent dans Sage — un numéro de pièce y serait
+attendu. Elle porte peut-être autre chose (une référence libre, par exemple). Le connecteur y écrit
+le numéro FNE ; en cas de doute, le mode de numérotation `vide` reproduit exactement les fichiers de
+référence.
+
+### La ligne de clôture
+
+Chaque document se termine par un **enregistrement de clôture**, présent dans les deux fichiers de
+référence du dossier. Il reprend ce qui identifie le document — domaine, type, souche, date de
+livraison, compte tiers — mais laisse vides la date du document, le dépôt et l'article, et met les
+zones numériques à zéro :
+
+```
+0		200826	DEPÔT PRINCIPAL SOGEL	6	2	200826	4111CHAWAPLUS	1149002	BABINE - ALLANA 10 Kg	11000,000000	3,0000	CARTON		0,0000
+0				6	2	200826	4111CHAWAPLUS			0,000000	0,0000			0,0000
+```
+
+Le connecteur l'écrit désormais après les lignes de chaque document (zone `pied` du profil). Le
+numéro de pièce y est repris à l'identique de ses lignes, afin que Sage ne puisse pas rattacher la
+clôture à un autre document.
 
 ### Ce que ce format ne transporte pas
 

@@ -1,6 +1,7 @@
 import { Invoice, InvoiceLine } from "@/lib/core/model";
 import { encodeCp1252 } from "@/lib/core/cp1252";
 import { PaymentMapping } from "@/lib/fne/paiement";
+import { formatNumber } from "@/lib/core/text";
 import { SageColumn, SageImportProfile } from "./profile";
 import { resolveToken, TokenContext } from "./tokens";
 
@@ -42,6 +43,11 @@ export function buildSageFile(
     for (const line of invoice.lignes) {
       rows.push(renderRow(profile.ligne, { invoice, line, profile, reglements, parametres }, profile));
     }
+    if (profile.pied && profile.pied.length > 0) {
+      rows.push(
+        renderRow(profile.pied, { invoice, line: null, profile, reglements, parametres }, profile),
+      );
+    }
   }
 
   const content = rows.join(profile.eol) + (rows.length > 0 ? profile.eol : "");
@@ -63,6 +69,12 @@ function renderRow(columns: SageColumn[], ctx: TokenContext, profile: SageImport
     switch (column.source.kind) {
       case "const":
         return column.source.value;
+      case "nombre":
+        return formatNumber(
+          column.source.value,
+          column.decimals ?? profile.decimals,
+          profile.decimalSeparator,
+        );
       case "empty":
         return "";
       case "token":

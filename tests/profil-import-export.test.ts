@@ -29,10 +29,40 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
     const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
     const rows = decoded.split("\r\n").filter(Boolean);
 
-    // Format a plat : une ligne par article, pas d'enregistrement d'entete.
-    expect(rows).toHaveLength(3);
+    // Format a plat : 3 lignes d'article et une ligne de cloture par document.
+    expect(rows).toHaveLength(5);
     expect(rows.every((row) => row.split("\t").length === 15)).toBe(true);
     expect(decoded.endsWith("\r\n")).toBe(true);
+  });
+
+  it("clot chaque document par la ligne attendue par Sage", async () => {
+    const result = await convertir();
+    const rows = iconv
+      .decode(Buffer.from(result.file.base64, "base64"), "windows-1252")
+      .split("\r\n")
+      .filter(Boolean)
+      .map((row) => row.split("\t"));
+
+    // Les deux fichiers de reference du dossier client se terminent ainsi :
+    // le document est identifie, mais sans date de document, depot ni article.
+    const cloture = rows[2]!;
+    expect(cloture[0]).toBe("0");
+    expect(cloture[2]).toBe(""); // date du document
+    expect(cloture[3]).toBe(""); // depot
+    expect(cloture[4]).toBe("6"); // type de document, comme ses lignes
+    expect(cloture[5]).toBe("1"); // souche
+    expect(cloture[6]).toBe("110826"); // date de livraison
+    expect(cloture[7]).toBe("411DEMO"); // compte tiers
+    expect(cloture[8]).toBe(""); // reference article
+    expect(cloture[9]).toBe(""); // designation
+    expect(cloture[10]).toBe("0,000000");
+    expect(cloture[11]).toBe("0,0000");
+    expect(cloture[14]).toBe("0,0000");
+
+    // Une cloture par document, jamais deux.
+    const clotures = rows.filter((row) => row[8] === "" && row[9] === "");
+    expect(clotures).toHaveLength(2);
+    expect(rows[rows.length - 1]![7]).toBe("411AUTRE");
   });
 
   it("ecrit les zones dans l'ordre du format du dossier client", async () => {
@@ -129,5 +159,6 @@ describe("profil FORMAT IMPORT_EXPORT", () => {
     expect(JSON.parse(JSON.stringify(SAGE100_IMPORT_EXPORT))).toEqual(SAGE100_IMPORT_EXPORT);
     expect(SAGE100_IMPORT_EXPORT.ligne).toHaveLength(15);
     expect(SAGE100_IMPORT_EXPORT.entete).toHaveLength(0);
+    expect(SAGE100_IMPORT_EXPORT.pied).toHaveLength(15);
   });
 });
