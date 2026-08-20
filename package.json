@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "convert": "tsx scripts/convert.ts",
     "build:web": "tsx scripts/build-web.ts",
-    "verify:web": "node scripts/verify-web.mjs"
+    "verify:web": "node scripts/verify-web.mjs",
+    "test:db": "bash scripts/test-db.sh"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

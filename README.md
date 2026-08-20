@@ -110,6 +110,7 @@ src/lib/report/    contrôles avant import
 src/lib/pipeline.ts  chaîne complète : fichier FNE → fichier Sage
 src/app/           interface web (Next.js App Router) et API /api/convert
 scripts/convert.ts CLI
+supabase/          migrations SQL, stub d'authentification et tests d'isolation
 docs/              documentation fonctionnelle
 ```
 
@@ -139,6 +140,16 @@ rechargement.
 Cette page ne dépend d'aucun module Node : le lecteur Excel (ZIP + XML via `DecompressionStream`)
 et l'encodeur Windows-1252 sont écrits dans `src/lib/browser/` et `src/lib/core/cp1252.ts`. Le
 pipeline reçoit son lecteur en paramètre, ce qui lui permet de tourner à l'identique des deux côtés.
+
+## Base de données
+
+Les migrations Supabase sont dans `supabase/migrations/` : dossiers multi-société, correspondance
+clients partagée, historique des conversions et **détection des doublons** (une référence FNE ne
+peut entrer qu'une fois par dossier). Le détail des lignes d'articles n'est jamais stocké — seul
+l'entête des factures remonte. `npm run test:db` applique les migrations sur un PostgreSQL local et
+rejoue quinze contrôles d'isolation. Voir `docs/base-de-donnees.md`.
+
+La base n'est pas encore branchée à l'application : elle attend l'URL du projet et la clé `anon`.
 
 ## Confidentialité
 
