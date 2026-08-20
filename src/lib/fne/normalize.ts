@@ -9,7 +9,7 @@ import {
 import { cleanCell, normalizeKey, parseAmount, parseRate, round } from "@/lib/core/text";
 import { ColumnMapping } from "./mapping";
 import { FneField, LINE_AMOUNT_FIELDS } from "./fields";
-import { findTaxCode, taxCodeFromRate } from "./taxes";
+import { findTaxCode, isTauxFne, taxCodeFromRate } from "./taxes";
 import { numeroPiece } from "./native";
 import type { SourceTable } from "./source";
 
@@ -30,8 +30,16 @@ export interface NormalizeOptions {
    * articles (cas de l'export tableur FNE, qui n'exporte que les entetes).
    */
   libelleSynthese: string;
-  /** Reference article utilisee par la ligne de synthese. */
+  /** Reference article portee par la ligne de synthese taxable. */
   articleSynthese: string;
+  /**
+   * Reference article de la part exoneree, quand une facture melangeant
+   * plusieurs taux est reconstituee en deux lignes. Le format d'import du
+   * dossier ne transportant pas la taxe, c'est la fiche article qui donne son
+   * regime a chaque ligne : sans deux articles distincts, Sage appliquerait le
+   * meme taux aux deux parts.
+   */
+  articleSyntheseExonere: string;
 }
 
 export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
@@ -41,6 +49,7 @@ export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
   avoirEnValeurAbsolue: true,
   libelleSynthese: "Facture FNE {reference}",
   articleSynthese: "",
+  articleSyntheseExonere: "",
 };
 
 export interface NormalizeResult {
@@ -62,8 +71,9 @@ export function normalize(
   const synthese = LINE_AMOUNT_FIELDS.every((field) => !mapping[field]);
   if (synthese) {
     warnings.push(
-      "L'export ne contient pas le detail des articles : une ligne de synthese a ete generee " +
-        "par facture a partir des totaux. Utilisez l'export JSON de FNE pour obtenir le detail.",
+      "L'export ne contient pas le detail des articles : les lignes ont ete reconstituees a " +
+        "partir des totaux de chaque facture. Utilisez l'export JSON de FNE pour obtenir le " +
+        "detail reel des articles.",
     );
   }
 
@@ -80,9 +90,22 @@ export function normalize(
   });
 
   const invoices: Invoice[] = [];
+  const contexte = { decomposees: 0 };
   for (const [reference, entries] of groups) {
-    invoices.push(buildInvoice(reference, entries, mapping, options, synthese, warnings));
+    invoices.push(buildInvoice(reference, entries, mapping, options, synthese, warnings, contexte));
   }
+
+  // Le format d'import ne transportant pas la taxe, seule la fiche article
+  // donne son regime a une ligne : deux parts sur le meme article recevraient
+  // le meme taux, et le partage reconstitue serait perdu a l'import.
+  if (contexte.decomposees > 0 && options.articleSynthese === options.articleSyntheseExonere) {
+    warnings.push(
+      `${contexte.decomposees} facture(s) ont ete reconstituees en une part taxable et une part ` +
+        "exoneree. Renseignez deux references d'article distinctes, l'une au taux normal et " +
+        "l'autre exoneree, sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
+    );
+  }
+
   return { invoices, warnings, synthese };
 }
 
@@ -113,6 +136,7 @@ function buildInvoice(
   options: NormalizeOptions,
   synthese: boolean,
   warnings: string[],
+  contexte: { decomposees: number },
 ): Invoice {
   const first = entries[0]!.row;
   const sourceRow = entries[0]!.index + 2; // +2 : ligne d'entete + index base 1
@@ -153,7 +177,15 @@ function buildInvoice(
   const totalTTCSource = amount(first, mapping, "totalTTC", signe, d);
 
   invoice.lignes = synthese
-    ? [syntheseLine(reference, totalHTSource ?? 0, totalTvaSource ?? 0, options, sourceRow)]
+    ? syntheseLines(
+        reference,
+        totalHTSource ?? 0,
+        totalTvaSource ?? 0,
+        options,
+        sourceRow,
+        warnings,
+        contexte,
+      )
     : entries.map((entry, position) =>
         buildLine(entry.row, entry.index, position + 1, mapping, options, signe, reference, warnings),
       );
@@ -251,29 +283,78 @@ function buildLine(
   };
 }
 
-function syntheseLine(
+/**
+ * Reconstitution des lignes d'une facture dont l'export ne porte pas le detail.
+ *
+ * Le taux effectif (total TVA / total HT) tranche entre deux cas.
+ *
+ * S'il correspond a un taux de la nomenclature FNE, la facture ne porte qu'un
+ * seul taux : une ligne suffit.
+ *
+ * Sinon, la facture melange une part taxee au taux normal et une part exoneree
+ * - le cas courant quand la TVA ne porte que sur une minorite d'articles. Les
+ * deux parts se retrouvent exactement : la part taxable vaut total TVA / 18 %,
+ * le reste est exonere. La facture est alors reconstituee en deux lignes, aux
+ * taux reels, plutot que d'etre rejetee pour un taux moyen qui n'existe pas.
+ */
+function syntheseLines(
   reference: string,
   totalHT: number,
   totalTva: number,
   options: NormalizeOptions,
   sourceRow: number,
-): InvoiceLine {
-  const tauxTva = totalHT !== 0 ? round((totalTva / totalHT) * 100, 2) : 0;
-  return {
-    numero: 1,
-    referenceArticle: options.articleSynthese,
-    designation: options.libelleSynthese.replace("{reference}", reference),
+  warnings: string[],
+  contexte: { decomposees: number },
+): InvoiceLine[] {
+  const d = options.decimales;
+  const tauxEffectif = totalHT !== 0 ? round((totalTva / totalHT) * 100, 2) : 0;
+  const libelle = options.libelleSynthese.replace("{reference}", reference);
+
+  const ligne = (
+    numero: number,
+    article: string,
+    designation: string,
+    montantHT: number,
+    tauxTva: number,
+    montantTva: number,
+  ): InvoiceLine => ({
+    numero,
+    referenceArticle: article,
+    designation,
     quantite: 1,
-    prixUnitaireHT: totalHT,
+    prixUnitaireHT: montantHT,
     remisePourcent: 0,
     tauxTva,
     codeTaxeFne: taxCodeFromRate(tauxTva),
-    montantHT: totalHT,
-    montantTva: totalTva,
-    montantTTC: round(totalHT + totalTva, options.decimales),
+    montantHT,
+    montantTva,
+    montantTTC: round(montantHT + montantTva, d),
     unite: "",
     sourceRow,
-  };
+  });
+
+  const NORMAL = 18;
+  const decomposable =
+    !isTauxFne(tauxEffectif) && tauxEffectif > 0 && tauxEffectif < NORMAL && totalHT > 0;
+
+  if (!decomposable) {
+    return [ligne(1, options.articleSynthese, libelle, totalHT, tauxEffectif, totalTva)];
+  }
+
+  contexte.decomposees += 1;
+  const htTaxable = round((totalTva * 100) / NORMAL, d);
+  const htExonere = round(totalHT - htTaxable, d);
+
+  warnings.push(
+    `Facture ${reference} : taux effectif de ${tauxEffectif} %, la facture melange plusieurs taux. ` +
+      `Reconstituee en deux lignes d'apres le total TVA : ${htTaxable} HT au taux normal et ` +
+      `${htExonere} HT exonere. Verifiez ce partage, ou utilisez l'export JSON qui porte le detail reel.`,
+  );
+
+  return [
+    ligne(1, options.articleSynthese, `${libelle} - part taxable`, htTaxable, NORMAL, totalTva),
+    ligne(2, options.articleSyntheseExonere, `${libelle} - part exoneree`, htExonere, 0, 0),
+  ];
 }
 
 const AVOIR_KEYWORDS = ["avoir", "refund", "credit", "annulation", "remboursement"];

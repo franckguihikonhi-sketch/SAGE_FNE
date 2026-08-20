@@ -30,6 +30,8 @@ const CHAMPS: Array<keyof Reglages> = [
   "souche",
   "numeroPiece",
   "compteDefaut",
+  "articleSynthese",
+  "articleSyntheseExonere",
   "clients",
   "reglements",
 ];
@@ -89,10 +91,13 @@ async function convertir(fichier: File): Promise<void> {
       customerOptions: { compteParDefaut: reglages.compteDefaut, utiliserCodeSource: true },
       reglements: parsePaymentMappingText(reglages.reglements),
       parametres: { depot: reglages.depot, souche: reglages.souche || "1" },
-      normalizeOptions:
-        reglages.numeroPiece === "reference" || reglages.numeroPiece === "vide"
+      normalizeOptions: {
+        articleSynthese: reglages.articleSynthese,
+        articleSyntheseExonere: reglages.articleSyntheseExonere,
+        ...(reglages.numeroPiece === "reference" || reglages.numeroPiece === "vide"
           ? { numeroPiece: reglages.numeroPiece }
-          : {},
+          : {}),
+      },
     });
     afficher(state.resultat, fichier.name);
   } catch (error) {
@@ -205,8 +210,10 @@ function resume(result: ConvertResult): string {
       ${
         result.source.synthese
           ? `<div class="alerte attention"><strong>Export sans detail des articles.</strong>
-             Une ligne de synthese a ete generee par facture. Les factures melangeant plusieurs
-             taux de TVA ne peuvent pas etre reconstituees : preferez l'export JSON.</div>`
+             Une ligne de synthese a ete generee par facture, a partir des totaux. Les factures
+             melangeant plusieurs taux sont reconstituees en une part taxable et une part exoneree,
+             deduites du total TVA : verifiez ce partage. L'export JSON, lui, porte le detail reel
+             de chaque article.</div>`
           : ""
       }
       <div class="stats">${stats

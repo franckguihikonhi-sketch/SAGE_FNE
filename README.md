@@ -37,9 +37,9 @@ FNE propose trois exports. Le **PDF** est la facture certifiée, à lire et à a
 sont arrondis au franc, il est refusé à l'import avec un message qui l'explique.
 
 L'export **JSON** est le seul à contenir le détail des articles. L'export **tableur** ne porte que
-les entêtes de facture : le connecteur reconstitue alors une ligne de synthèse par facture, ce qui
-n'est exact que pour les factures à un seul taux de TVA. Sur l'export de contrôle fourni, 14 des
-50 factures mélangent plusieurs taux et sont bloquées plutôt que converties avec une TVA fausse.
+les entêtes : le connecteur reconstitue alors les lignes depuis les totaux. Une facture mélangeant
+plusieurs taux est retrouvée exactement — part taxable = total TVA ÷ 18 %, le reste étant exonéré —
+et reconstituée en deux lignes aux taux réels, totaux conservés.
 
 ## Démarrage
 
@@ -91,7 +91,7 @@ La liste complète des jetons est dans `src/lib/sage/tokens.ts`.
 | `DATE_MANQUANTE` | erreur | Date absente ou illisible |
 | `COMPTE_TIERS_MANQUANT` | erreur | Client sans compte tiers Sage |
 | `FACTURE_SANS_LIGNE` | erreur | Facture sans ligne d'article |
-| `TAXE_ABSENTE_DU_FORMAT` | erreur / avertissement | Le format d'import ne transporte pas la TVA ; Sage appliquera celle de l'article |
+| `TAXE_ABSENTE_DU_FORMAT` | avertissement | Le format d'import ne transporte pas la TVA ; Sage appliquera celle de l'article |
 | `TAUX_TVA_NON_CONFORME` | erreur | Taux hors nomenclature FNE (18 / 9 / 0 %), typiquement une facture à plusieurs taux reconstituée depuis un export sans articles |
 | `PIECE_TROP_LONGUE` | avertissement | Numéro de pièce au-delà de la longueur Sage |
 | `DESIGNATION_TRONQUEE` | avertissement | Désignation au-delà de la longueur Sage |

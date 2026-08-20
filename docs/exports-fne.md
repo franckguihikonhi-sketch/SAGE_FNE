@@ -51,16 +51,35 @@ client, Terminal, RCCM, Nom du vendeur, Établissement, Point de vente, Régime 
 facturation, Autres Mentions, Pied de page, Devises étrangères, Taux de change, Est RNE, RNE,
 Créé à, Mise à jour à.
 
-Sans article, le connecteur reconstitue **une ligne de synthèse par facture** à partir des totaux :
-quantité 1, prix unitaire = total HT, taux = total TVA ÷ total HT.
+Sans article, le connecteur reconstitue les lignes à partir des totaux de chaque facture.
 
-**Cette reconstitution n'est valable que si la facture ne porte qu'un seul taux de TVA.** Sur
-l'export de contrôle fourni (50 factures), 14 factures donnent un taux reconstitué hors nomenclature
-FNE (13,77 %, 15,61 %, 16,54 %…) : ce sont des factures mélangeant 18 % et 0 % ou 9 %. Le connecteur
-les bloque avec le code `TAUX_TVA_NON_CONFORME` plutôt que de produire une TVA fausse dans Sage.
+Le **taux effectif** (total TVA ÷ total HT) tranche entre deux cas.
 
-**En pratique : utiliser l'export JSON.** L'export tableur convient pour un rapprochement ou pour
-des lots mono-taux, pas pour un import comptable complet.
+S'il correspond à un taux de la nomenclature FNE (18 %, 9 %, 0 %), la facture ne porte qu'un seul
+taux : une ligne suffit — quantité 1, prix unitaire = total HT.
+
+Sinon, la facture mélange une part taxée au taux normal et une part exonérée : le cas courant quand
+la TVA ne porte que sur une minorité d'articles. **Les deux parts se retrouvent exactement**, sans
+rien deviner :
+
+```
+part taxable = total TVA ÷ 18 %
+part exonérée = total HT − part taxable
+```
+
+Sur l'export de contrôle fourni (50 factures), 14 factures donnent un taux effectif hors nomenclature
+(13,77 %, 15,61 %, 16,54 %…). Elles sont reconstituées en deux lignes aux taux réels, et les totaux
+de la facture sont conservés au centime près. Le fichier passe ainsi de 64 anomalies bloquantes à
+zéro.
+
+**Le format d'import ne transportant pas la taxe, c'est la fiche article Sage qui donne son régime à
+chaque ligne.** Il faut donc deux références d'article distinctes — une au taux normal, une exonérée
+— sinon Sage appliquerait le même taux aux deux parts. Le connecteur le signale quand elles ne sont
+pas renseignées.
+
+L'export JSON reste préférable : il porte le détail réel de chaque article, là où le tableur ne
+permet qu'une reconstitution — exacte sur le partage taxable / exonéré, mais qui ne dit rien des
+articles eux-mêmes.
 
 ## Export PDF — le document légal, pas une source d'import
 

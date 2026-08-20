@@ -33,33 +33,63 @@ describe("export tableur FNE (entetes seuls)", () => {
 
     expect(result.source.synthese).toBe(true);
     expect(result.invoices).toHaveLength(4);
-    expect(result.invoices.every((invoice) => invoice.lignes.length === 1)).toBe(true);
+    // Une ligne par facture, sauf celle a plusieurs taux, reconstituee en deux.
+    expect(result.invoices.map((invoice) => invoice.lignes.length)).toEqual([1, 1, 2, 1]);
     expect(result.invoices[0]!.lignes[0]!.designation).toBe("Facture FNE 1234567A26000000890");
     expect(result.invoices[0]!.lignes[0]!.tauxTva).toBe(18);
     expect(result.issues.some((issue) => issue.code === "LECTURE")).toBe(true);
   });
 
-  it("accepte un taux reconstitue a 0 % sur une facture exoneree", async () => {
+  it("laisse une facture mono-taux sur une seule ligne", async () => {
     const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
     const exoneree = result.invoices.find((invoice) => invoice.numero === "26000000863")!;
+    const normale = result.invoices.find((invoice) => invoice.numero === "26000000890")!;
+
+    expect(exoneree.lignes).toHaveLength(1);
     expect(exoneree.lignes[0]!.tauxTva).toBe(0);
-    expect(
-      result.issues.some(
-        (issue) =>
-          issue.code === "TAUX_TVA_NON_CONFORME" && issue.facture === "1234567A26000000863",
-      ),
-    ).toBe(false);
+    expect(normale.lignes).toHaveLength(1);
+    expect(normale.lignes[0]!.tauxTva).toBe(18);
   });
 
-  it("bloque les factures a plusieurs taux, que la synthese ne sait pas reconstituer", async () => {
-    const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
-    const issue = result.issues.find((entry) => entry.code === "TAUX_TVA_NON_CONFORME");
+  it("reconstitue une facture a plusieurs taux en part taxable et part exoneree", async () => {
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      normalizeOptions: { articleSynthese: "DIVERS18", articleSyntheseExonere: "DIVERSEXO" },
+    });
+    // 100 000 HT pour 13 770 de TVA : taux effectif de 13,77 %, hors nomenclature.
+    const melangee = result.invoices.find((invoice) => invoice.numero === "26000000870")!;
 
-    expect(issue?.severity).toBe("erreur");
-    // Les anomalies designent la facture par sa reference FNE.
-    expect(issue?.facture).toBe("1234567A26000000870");
-    expect(issue?.message).toContain("13.77");
-    expect(issue?.message).toContain("export JSON");
+    expect(melangee.lignes).toHaveLength(2);
+    // La part taxable se deduit du total TVA : 13 770 / 18 % = 76 500.
+    expect(melangee.lignes[0]!.montantHT).toBe(76500);
+    expect(melangee.lignes[0]!.tauxTva).toBe(18);
+    expect(melangee.lignes[0]!.referenceArticle).toBe("DIVERS18");
+    expect(melangee.lignes[1]!.montantHT).toBe(23500);
+    expect(melangee.lignes[1]!.tauxTva).toBe(0);
+    expect(melangee.lignes[1]!.referenceArticle).toBe("DIVERSEXO");
+
+    // Les totaux de la facture sont conserves par la reconstitution.
+    const sommeHT = melangee.lignes.reduce((total, ligne) => total + ligne.montantHT, 0);
+    const sommeTva = melangee.lignes.reduce((total, ligne) => total + ligne.montantTva, 0);
+    expect(sommeHT).toBe(100000);
+    expect(sommeTva).toBe(13770);
+
+    // Reconstituer vaut mieux que bloquer : plus aucune anomalie de taux.
+    expect(result.issues.some((issue) => issue.code === "TAUX_TVA_NON_CONFORME")).toBe(false);
+    expect(
+      result.issues.some(
+        (issue) => issue.code === "LECTURE" && issue.message.includes("melange plusieurs taux"),
+      ),
+    ).toBe(true);
+  });
+
+  it("avertit quand les deux parts partagent le meme article", async () => {
+    const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
+    const issue = result.issues.find((entry) => entry.message.includes("meme regime de TVA"))!;
+
+    // Sans article distinct, Sage donnerait le meme regime aux deux parts.
+    expect(issue.severity).toBe("avertissement");
+    expect(issue.message).toContain("1 facture(s)");
   });
 
   it("identifie l'avoir par le sous-type et retablit les montants positifs", async () => {

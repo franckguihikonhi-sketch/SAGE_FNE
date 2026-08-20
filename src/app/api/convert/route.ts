@@ -52,7 +52,11 @@ export async function POST(request: NextRequest) {
       customerOptions: { compteParDefaut: compteParDefaut || undefined, utiliserCodeSource: true },
       reglements: reglements ? parsePaymentMappingText(reglements) : {},
       parametres,
-      normalizeOptions: { numeroPiece },
+      normalizeOptions: {
+        numeroPiece,
+        articleSynthese: asString(form.get("articleSynthese")),
+        articleSyntheseExonere: asString(form.get("articleSyntheseExonere")),
+      },
       validationOptions: { exigerCompteTiers },
     });
     return NextResponse.json(result);

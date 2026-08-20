@@ -15,6 +15,10 @@ export interface Reglages {
   souche: string;
   numeroPiece: string;
   compteDefaut: string;
+  /** Reference de l'article de synthese taxable, pour les exports sans detail. */
+  articleSynthese: string;
+  /** Reference de l'article de synthese exonere. */
+  articleSyntheseExonere: string;
   /** Table de correspondance clients, au format CSV `ncc;nom;compte`. */
   clients: string;
   /** Correspondance des modes de reglement, une ligne par code FNE. */
@@ -27,6 +31,8 @@ export const REGLAGES_PAR_DEFAUT: Reglages = {
   souche: "1",
   numeroPiece: "sequence",
   compteDefaut: "",
+  articleSynthese: "",
+  articleSyntheseExonere: "",
   clients: "",
   reglements: "",
 };
