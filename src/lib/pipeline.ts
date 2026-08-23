@@ -88,7 +88,7 @@ export interface ConvertResult {
   invoices: Invoice[];
   /** Synthese des taux de TVA par article, pour verifier le parametrage Sage. */
   articles: ArticleResume[];
-  /** Factures partagees entre part taxable et part exoneree, a verifier. */
+  /** Factures partagees entre deux taux de TVA, a verifier. */
   reconstitutions: Reconstitution[];
   clientsInconnus: Array<{ nom: string; ncc: string; factures: string[] }>;
   /** Articles FNE sans equivalent dans le dossier Sage. */

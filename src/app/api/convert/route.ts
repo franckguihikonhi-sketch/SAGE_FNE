@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { convertFichier as convert } from "@/lib/node/convert";
+import { parseArticlesTauxText } from "@/lib/sage/articles";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { ReadError } from "@/lib/fne/read";
@@ -54,8 +55,7 @@ export async function POST(request: NextRequest) {
       parametres,
       normalizeOptions: {
         numeroPiece,
-        articleSynthese: asString(form.get("articleSynthese")),
-        articleSyntheseExonere: asString(form.get("articleSyntheseExonere")),
+        articlesSynthese: parseArticlesTauxText(asString(form.get("articlesTaux"))),
       },
       validationOptions: { exigerCompteTiers },
     });

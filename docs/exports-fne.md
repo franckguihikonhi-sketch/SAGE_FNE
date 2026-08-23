@@ -55,34 +55,43 @@ Sans article, le connecteur reconstitue les lignes à partir des totaux de chaqu
 
 Le **taux effectif** (total TVA ÷ total HT) tranche entre deux cas.
 
-S'il correspond à un taux de la nomenclature FNE (18 %, 9 %, 0 %), la facture ne porte qu'un seul
-taux : une ligne suffit — quantité 1, prix unitaire = total HT.
+S'il correspond à un taux pratiqué par l'entreprise, la facture ne porte qu'un seul taux : une ligne
+suffit — quantité 1, prix unitaire = total HT, portée par l'article de ce taux.
 
-Sinon, la facture mélange une part taxée au taux normal et une part exonérée : le cas courant quand
-la TVA ne porte que sur une minorité d'articles. **Les deux parts se retrouvent exactement**, sans
-rien deviner :
+Sinon la facture mélange deux taux, et le taux effectif dit **lesquels** : ce sont les deux taux qui
+l'encadrent. Une entreprise qui facture à 18 % et à 9 % produit des taux effectifs entre les deux ;
+un mélange de taxable et d'exonéré donne un taux effectif sous le taux le plus bas. Le partage entre
+ces deux paliers se retrouve alors exactement, sans rien deviner :
 
 ```
-part taxable = total TVA ÷ 18 %
-part exonérée = total HT − part taxable
+HT(taux haut) = (100 × total TVA − taux bas × total HT) ÷ (taux haut − taux bas)
+HT(taux bas)  = total HT − HT(taux haut)
 ```
 
-Sur l'export de contrôle fourni (50 factures), 14 factures donnent un taux effectif hors nomenclature
-(13,77 %, 15,61 %, 16,54 %…). Elles sont reconstituées en deux lignes aux taux réels, et les totaux
-de la facture sont conservés au centime près. Le fichier passe ainsi de 64 anomalies bloquantes à
-zéro.
+Le calcul porte sur les totaux, jamais sur le taux effectif arrondi : sur un écart de neuf points,
+un centième de point déplace des dizaines de francs.
 
-Ces factures sont récapitulées dans un **tableau**, trié par part exonérée décroissante, et non par
-un avertissement répété facture par facture : le partage se vérifie en comparant les lignes entre
+### Pourquoi 18 / 9 et non 18 / exonéré
+
+Les deux hypothèses sont numériquement possibles pour un même taux effectif — c'est la liste des
+taux pratiqués par l'entreprise qui tranche, et elle se règle dans l'application.
+
+Sur l'export de contrôle fourni (50 factures), 14 donnent un taux effectif intermédiaire. Le
+partage 18 / 9 place la part à 18 % sur un **nombre entier d'unités** du prix unitaire certifié
+(1 077,2763 F) — 16, 20, 40, 100, 120, 140 et 160 unités — pour les 14 factures. Le partage
+18 / exonéré ne tombe juste pour aucune. L'entreprise facture bien à deux taux.
+
+Ces factures sont récapitulées dans un **tableau**, trié par part au taux le plus bas, et non par un
+avertissement répété facture par facture : le partage se vérifie en comparant les lignes entre
 elles, un cas atypique se voyant alors immédiatement.
 
 **Le format d'import ne transportant pas la taxe, c'est la fiche article Sage qui donne son régime à
-chaque ligne.** Il faut donc deux références d'article distinctes — une au taux normal, une exonérée
-— sinon Sage appliquerait le même taux aux deux parts. Le connecteur le signale quand elles ne sont
-pas renseignées.
+chaque ligne.** Il faut donc **un article par taux** — sinon Sage appliquerait le même régime à
+toutes les parts, et une facture à 9 % repartirait taxée à 18 %. Le connecteur le signale quand
+deux parts se retrouvent sur le même article.
 
 L'export JSON reste préférable : il porte le détail réel de chaque article, là où le tableur ne
-permet qu'une reconstitution — exacte sur le partage taxable / exonéré, mais qui ne dit rien des
+permet qu'une reconstitution — exacte sur le partage entre deux taux, mais qui ne dit rien des
 articles eux-mêmes.
 
 ## Export PDF — le document légal, pas une source d'import

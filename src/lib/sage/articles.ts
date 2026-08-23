@@ -90,3 +90,39 @@ export function parseArticleMappingCsv(text: string): ArticleMappingEntry[] {
   }
   return entries;
 }
+
+/**
+ * Article de synthese associe a un taux de TVA.
+ *
+ * Un export sans detail des articles ne permet que des lignes de synthese, et
+ * le format d'import du dossier ne transporte pas la taxe : c'est la fiche
+ * article Sage qui donne son regime a la ligne. Il faut donc un article par
+ * taux pratique par l'entreprise - a defaut, toutes les parts d'une facture a
+ * taux melange recevraient le meme regime.
+ */
+export interface ArticleTaux {
+  taux: number;
+  article: string;
+}
+
+/**
+ * Lit une table `taux=article`, une par ligne : `18=DIVERS18`. Le point-virgule
+ * et la tabulation sont admis comme separateurs, le signe % est ignore.
+ */
+export function parseArticlesTauxText(text: string): ArticleTaux[] {
+  const entries: ArticleTaux[] = [];
+  const vus = new Set<number>();
+
+  for (const ligne of text.split(/\r?\n/)) {
+    if (ligne.trim() === "" || ligne.trim().startsWith("#")) continue;
+    const [brut = "", ...reste] = ligne.split(/[=;,\t]/);
+    const taux = Number(brut.replace("%", "").replace(",", ".").trim());
+    const article = reste.join("").trim();
+    if (!Number.isFinite(taux) || taux < 0 || taux > 100) continue;
+    if (vus.has(taux)) continue;
+    vus.add(taux);
+    entries.push({ taux, article });
+  }
+
+  return entries.sort((a, b) => b.taux - a.taux);
+}

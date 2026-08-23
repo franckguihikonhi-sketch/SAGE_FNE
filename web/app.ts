@@ -14,7 +14,7 @@ import {
   type Reglages,
 } from "@/lib/browser/reglages";
 import { parseCustomerMappingCsv } from "@/lib/sage/customers";
-import { parseArticleMappingCsv } from "@/lib/sage/articles";
+import { parseArticleMappingCsv, parseArticlesTauxText } from "@/lib/sage/articles";
 import { parsePaymentMappingText } from "@/lib/fne/paiement";
 import { PROFILES } from "@/lib/sage/profile";
 
@@ -35,8 +35,7 @@ const CHAMPS: Array<keyof Reglages> = [
   "typeAvoir",
   "compteDefaut",
   "articles",
-  "articleSynthese",
-  "articleSyntheseExonere",
+  "articlesTaux",
   "colonnes",
   "colonnesComplement",
   "clients",
@@ -115,8 +114,7 @@ async function convertir(fichier: File): Promise<void> {
         typeAvoir: reglages.typeAvoir,
       },
       normalizeOptions: {
-        articleSynthese: reglages.articleSynthese,
-        articleSyntheseExonere: reglages.articleSyntheseExonere,
+        articlesSynthese: parseArticlesTauxText(reglages.articlesTaux),
         ...(reglages.numeroPiece === "reference" || reglages.numeroPiece === "vide"
           ? { numeroPiece: reglages.numeroPiece }
           : {}),
@@ -240,9 +238,9 @@ function resume(result: ConvertResult): string {
         result.source.synthese
           ? `<div class="alerte attention"><strong>Export sans detail des articles.</strong>
              Une ligne de synthese a ete generee par facture, a partir des totaux. Les factures
-             melangeant plusieurs taux sont reconstituees en une part taxable et une part exoneree,
-             deduites du total TVA : verifiez ce partage. L'export JSON, lui, porte le detail reel
-             de chaque article.</div>`
+             melangeant deux taux sont reconstituees en deux lignes, aux taux qui encadrent le
+             taux effectif : verifiez ce partage. L'export JSON, lui, porte le detail reel de
+             chaque article.</div>`
           : ""
       }
       <div class="stats">${stats
@@ -410,22 +408,32 @@ function listeAnomalies(titre: string, issues: ConvertResult["issues"], ton: str
 
 /**
  * Les factures reconstituees se verifient en les comparant entre elles : un
- * tableau trie par part exoneree fait ressortir les cas atypiques, la ou
- * quatorze avertissements identiques ne disent rien.
+ * tableau trie par part au taux le plus bas fait ressortir les cas atypiques,
+ * la ou quatorze avertissements identiques ne disent rien.
  */
 function tableauReconstitutions(result: ConvertResult): string {
   if (result.reconstitutions.length === 0) return "";
   const nombre = result.reconstitutions.length;
-  const lignes = [...result.reconstitutions].sort((a, b) => b.partExoneree - a.partExoneree);
+  const lignes = [...result.reconstitutions].sort((a, b) => b.partBasse - a.partBasse);
+  const taux = [
+    ...new Set(result.reconstitutions.flatMap((ligne) => ligne.parts.map((part) => part.taux))),
+  ].sort((a, b) => b - a);
+
+  const cellule = (ligne: (typeof lignes)[number], rang: number) => {
+    const part = ligne.parts[rang];
+    if (!part) return "<td></td>";
+    return `<td class="droite">${montant.format(part.ht)}
+      <span class="taux">${part.taux} %</span></td>`;
+  };
 
   return `
     <div class="bloc">
       <h2>Factures reconstituees <span class="compte">${nombre}</span></h2>
       <p class="source">
-        Ces factures melangent plusieurs taux, que l'export Excel ne detaille pas. La part taxable
-        se deduit du total TVA (TVA &divide; 18 %), le reste est exonere : le partage est exact si la
-        facture ne melange que le taux normal et des articles exoneres. Verifiez-le sur l'export
-        JSON, qui porte le detail reel de chaque article.
+        Ces factures melangent deux taux, que l'export Excel ne detaille pas. Le taux effectif dit
+        lesquels : ce sont les deux taux qui l'encadrent (ici ${taux.map((t) => `${t} %`).join(" et ")}),
+        et le partage entre eux est exact. Verifiez que ces taux sont bien ceux que l'entreprise
+        pratique &mdash; ils se reglent dans la table des articles par taux.
       </p>
       <div class="table-large">
         <table>
@@ -433,9 +441,9 @@ function tableauReconstitutions(result: ConvertResult): string {
             <tr>
               <th>Facture</th>
               <th class="droite">Taux effectif</th>
-              <th class="droite">Part taxable</th>
-              <th class="droite">Part exoneree</th>
-              <th class="droite">Exonere</th>
+              <th class="droite">Part au taux haut</th>
+              <th class="droite">Part au taux bas</th>
+              <th class="droite">Part basse</th>
             </tr>
           </thead>
           <tbody>
@@ -444,9 +452,9 @@ function tableauReconstitutions(result: ConvertResult): string {
                 (ligne) => `<tr>
                   <td><code>${escape(ligne.reference)}</code></td>
                   <td class="droite">${ligne.tauxEffectif} %</td>
-                  <td class="droite">${montant.format(ligne.htTaxable)}</td>
-                  <td class="droite">${montant.format(ligne.htExonere)}</td>
-                  <td class="droite">${ligne.partExoneree} %</td>
+                  ${cellule(ligne, 0)}
+                  ${cellule(ligne, 1)}
+                  <td class="droite">${ligne.partBasse} %</td>
                 </tr>`,
               )
               .join("")}

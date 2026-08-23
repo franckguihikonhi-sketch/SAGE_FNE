@@ -7,6 +7,12 @@ const buffer = () => readFileSync(FIXTURE);
 
 const SEQUENCE = { numeroPiece: "sequence" as const };
 
+const ARTICLES_18_9 = [
+  { taux: 18, article: "DIVERS18" },
+  { taux: 9, article: "DIVERS9" },
+  { taux: 0, article: "DIVERSEXO" },
+];
+
 const CLIENTS = [
   { ncc: "7654321B", codeSage: "411DEMO" },
   { ncc: "9988776C", codeSage: "411AUTRE" },
@@ -94,22 +100,22 @@ describe("export tableur FNE (entetes seuls)", () => {
     expect(normale.lignes[0]!.tauxTva).toBe(18);
   });
 
-  it("reconstitue une facture a plusieurs taux en part taxable et part exoneree", async () => {
+  it("reconstitue une facture a taux melange entre les deux taux qui l'encadrent", async () => {
     const result = await convert(buffer(), "fne-tableau.csv", {
       customers: CLIENTS,
-      normalizeOptions: { ...SEQUENCE, articleSynthese: "DIVERS18", articleSyntheseExonere: "DIVERSEXO" },
+      normalizeOptions: { ...SEQUENCE, articlesSynthese: ARTICLES_18_9 },
     });
-    // 100 000 HT pour 13 770 de TVA : taux effectif de 13,77 %, hors nomenclature.
+    // 100 000 HT pour 13 770 de TVA : taux effectif de 13,77 %, entre 9 et 18.
     const melangee = result.invoices.find((invoice) => invoice.numero === "26000000870")!;
 
     expect(melangee.lignes).toHaveLength(2);
-    // La part taxable se deduit du total TVA : 13 770 / 18 % = 76 500.
-    expect(melangee.lignes[0]!.montantHT).toBe(76500);
+    // 100 000 x (13,77 - 9) / (18 - 9) = 53 000 au taux normal, le reste a 9 %.
+    expect(melangee.lignes[0]!.montantHT).toBe(53000);
     expect(melangee.lignes[0]!.tauxTva).toBe(18);
     expect(melangee.lignes[0]!.referenceArticle).toBe("DIVERS18");
-    expect(melangee.lignes[1]!.montantHT).toBe(23500);
-    expect(melangee.lignes[1]!.tauxTva).toBe(0);
-    expect(melangee.lignes[1]!.referenceArticle).toBe("DIVERSEXO");
+    expect(melangee.lignes[1]!.montantHT).toBe(47000);
+    expect(melangee.lignes[1]!.tauxTva).toBe(9);
+    expect(melangee.lignes[1]!.referenceArticle).toBe("DIVERS9");
 
     // Les totaux de la facture sont conserves par la reconstitution.
     const sommeHT = melangee.lignes.reduce((total, ligne) => total + ligne.montantHT, 0);
@@ -121,19 +127,57 @@ describe("export tableur FNE (entetes seuls)", () => {
     expect(result.issues.some((issue) => issue.code === "TAUX_TVA_NON_CONFORME")).toBe(false);
   });
 
+  it("partage entre taxable et exonere quand l'entreprise n'a qu'un taux", async () => {
+    // Meme facture, meme taux effectif : c'est la liste des taux pratiques qui
+    // decide de la decomposition.
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      normalizeOptions: {
+        ...SEQUENCE,
+        articlesSynthese: [
+          { taux: 18, article: "DIVERS18" },
+          { taux: 0, article: "DIVERSEXO" },
+        ],
+      },
+    });
+    const melangee = result.invoices.find((invoice) => invoice.numero === "26000000870")!;
+
+    // 13 770 / 18 % = 76 500 de part taxable, le reste exonere.
+    expect(melangee.lignes.map((ligne) => [ligne.montantHT, ligne.tauxTva])).toEqual([
+      [76500, 18],
+      [23500, 0],
+    ]);
+  });
+
+  it("porte chaque facture mono-taux sur l'article de son taux", async () => {
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      normalizeOptions: { ...SEQUENCE, articlesSynthese: ARTICLES_18_9 },
+    });
+    const exoneree = result.invoices.find((invoice) => invoice.numero === "26000000863")!;
+    const normale = result.invoices.find((invoice) => invoice.numero === "26000000890")!;
+
+    // Un article par taux : sans cela, une facture a 9 % repartirait avec
+    // l'article du taux normal et Sage lui appliquerait 18 %.
+    expect(normale.lignes[0]!.referenceArticle).toBe("DIVERS18");
+    expect(exoneree.lignes[0]!.referenceArticle).toBe("DIVERSEXO");
+  });
+
   it("recapitule les reconstitutions plutot que de repeter un avertissement", async () => {
     const result = await convert(buffer(), "fne-tableau.csv", {
       customers: CLIENTS,
-      normalizeOptions: { articleSynthese: "DIVERS18", articleSyntheseExonere: "DIVERSEXO" },
+      normalizeOptions: { articlesSynthese: ARTICLES_18_9 },
     });
 
     expect(result.reconstitutions).toHaveLength(1);
     expect(result.reconstitutions[0]).toEqual({
       reference: "1234567A26000000870",
       tauxEffectif: 13.77,
-      htTaxable: 76500,
-      htExonere: 23500,
-      partExoneree: 23.5,
+      parts: [
+        { taux: 18, ht: 53000, tva: 9540, article: "DIVERS18" },
+        { taux: 9, ht: 47000, tva: 4230, article: "DIVERS9" },
+      ],
+      partBasse: 47,
     });
 
     // Le detail vit dans le tableau : aucun avertissement par facture.

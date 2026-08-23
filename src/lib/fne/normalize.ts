@@ -9,7 +9,7 @@ import {
 import { cleanCell, normalizeKey, parseAmount, parseRate, round } from "@/lib/core/text";
 import { ColumnMapping } from "./mapping";
 import { FneField, LINE_AMOUNT_FIELDS } from "./fields";
-import { findTaxCode, isTauxFne, taxCodeFromRate } from "./taxes";
+import { findTaxCode, taxCodeFromRate, TAUX_FNE } from "./taxes";
 import { numeroPiece } from "./native";
 import type { SourceTable } from "./source";
 
@@ -30,16 +30,18 @@ export interface NormalizeOptions {
    * articles (cas de l'export tableur FNE, qui n'exporte que les entetes).
    */
   libelleSynthese: string;
-  /** Reference article portee par la ligne de synthese taxable. */
-  articleSynthese: string;
   /**
-   * Reference article de la part exoneree, quand une facture melangeant
-   * plusieurs taux est reconstituee en deux lignes. Le format d'import du
-   * dossier ne transportant pas la taxe, c'est la fiche article qui donne son
-   * regime a chaque ligne : sans deux articles distincts, Sage appliquerait le
-   * meme taux aux deux parts.
+   * Article de synthese par taux de TVA, pour les exports sans detail.
+   *
+   * Les taux listes sont ceux que l'entreprise pratique : ils determinent en
+   * quoi une facture a taux melange peut etre decomposee. Le format d'import
+   * du dossier ne transportant pas la taxe, c'est la fiche article qui donne
+   * son regime a chaque ligne - il faut donc un article par taux, sans quoi
+   * Sage appliquerait le meme regime a toutes les parts.
+   *
+   * Vide : les trois taux de la nomenclature FNE (18, 9 et 0), sans article.
    */
-  articleSyntheseExonere: string;
+  articlesSynthese: Array<{ taux: number; article: string }>;
 }
 
 export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
@@ -51,8 +53,7 @@ export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
   numeroPiece: "vide",
   avoirEnValeurAbsolue: true,
   libelleSynthese: "Facture FNE {reference}",
-  articleSynthese: "",
-  articleSyntheseExonere: "",
+  articlesSynthese: [],
 };
 
 /**
@@ -63,10 +64,10 @@ export const DEFAULT_NORMALIZE_OPTIONS: NormalizeOptions = {
 export interface Reconstitution {
   reference: string;
   tauxEffectif: number;
-  htTaxable: number;
-  htExonere: number;
-  /** Part exoneree en pourcentage du total HT, pour reperer les cas atypiques. */
-  partExoneree: number;
+  /** Les deux parts reconstituees, du taux le plus eleve au plus bas. */
+  parts: Array<{ taux: number; ht: number; tva: number; article: string }>;
+  /** Part du total HT portee par le taux le plus bas, pour reperer les cas atypiques. */
+  partBasse: number;
 }
 
 export interface NormalizeResult {
@@ -75,7 +76,7 @@ export interface NormalizeResult {
   warnings: string[];
   /** Vrai quand les lignes ont ete reconstituees depuis les totaux. */
   synthese: boolean;
-  /** Factures partagees entre part taxable et part exoneree. */
+  /** Factures partagees entre deux taux de TVA. */
   reconstitutions: Reconstitution[];
 }
 
@@ -123,12 +124,18 @@ export function normalize(
   // Le format d'import ne transportant pas la taxe, seule la fiche article
   // donne son regime a une ligne : deux parts sur le meme article recevraient
   // le meme taux, et le partage reconstitue serait perdu a l'import.
-  const nombre = contexte.reconstitutions.length;
-  if (nombre > 0 && options.articleSynthese === options.articleSyntheseExonere) {
+  const confondues = contexte.reconstitutions.filter((reconstitution) => {
+    const articles = reconstitution.parts.map((part) => part.article);
+    return new Set(articles).size < articles.length;
+  });
+  if (confondues.length > 0) {
+    const taux = [
+      ...new Set(confondues.flatMap((r) => r.parts.map((part) => `${part.taux} %`))),
+    ].join(" et ");
     warnings.push(
-      `${nombre} facture(s) ont ete reconstituees en une part taxable et une part exoneree. ` +
-        "Renseignez deux references d'article distinctes, l'une au taux normal et l'autre " +
-        "exoneree, sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
+      `${confondues.length} facture(s) ont ete reconstituees en deux parts a des taux differents ` +
+        `(${taux}), portees par le meme article. Renseignez une reference d'article par taux, ` +
+        "sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
     );
   }
 
@@ -313,18 +320,36 @@ function buildLine(
 }
 
 /**
+ * Paliers de taux entre lesquels une facture peut etre decomposee : les taux
+ * pratiques par l'entreprise, plus l'exoneration, qui est toujours possible.
+ */
+function paliersDeTaux(articles: NormalizeOptions["articlesSynthese"]): number[] {
+  const taux = articles.length > 0 ? articles.map((entree) => entree.taux) : TAUX_FNE;
+  return [...new Set([0, ...taux])].filter((valeur) => valeur >= 0).sort((a, b) => a - b);
+}
+
+/**
  * Reconstitution des lignes d'une facture dont l'export ne porte pas le detail.
  *
  * Le taux effectif (total TVA / total HT) tranche entre deux cas.
  *
- * S'il correspond a un taux de la nomenclature FNE, la facture ne porte qu'un
- * seul taux : une ligne suffit.
+ * S'il correspond a un taux pratique par l'entreprise, la facture ne porte
+ * qu'un seul taux : une ligne suffit, portee par l'article de ce taux.
  *
- * Sinon, la facture melange une part taxee au taux normal et une part exoneree
- * - le cas courant quand la TVA ne porte que sur une minorite d'articles. Les
- * deux parts se retrouvent exactement : la part taxable vaut total TVA / 18 %,
- * le reste est exonere. La facture est alors reconstituee en deux lignes, aux
- * taux reels, plutot que d'etre rejetee pour un taux moyen qui n'existe pas.
+ * Sinon la facture melange deux taux, et le taux effectif dit lesquels : ce
+ * sont les deux paliers qui l'encadrent. Une entreprise qui facture a 18 % et
+ * a 9 % produit ainsi des taux effectifs entre les deux, et un melange de
+ * taxable et d'exonere donne un taux effectif sous le taux le plus bas. La
+ * repartition entre les deux paliers est alors exacte :
+ *
+ *     HT(haut) = (100 x TVA - bas x HT) / (haut - bas)
+ *
+ * La facture est reconstituee en deux lignes, aux taux reels, plutot que
+ * d'etre rejetee pour un taux moyen qui n'existe pas.
+ *
+ * Ce partage se verifie : sur l'export reel du client, les quatorze factures
+ * a taux intermediaire donnent, au palier 18 %, un nombre entier d'unites du
+ * prix unitaire certifie - ce que l'hypothese 18 % / exonere ne donnait jamais.
  */
 function syntheseLines(
   reference: string,
@@ -366,29 +391,55 @@ function syntheseLines(
     sourceRow,
   });
 
-  const NORMAL = 18;
-  const decomposable =
-    !isTauxFne(tauxEffectif) && tauxEffectif > 0 && tauxEffectif < NORMAL && totalHT > 0;
+  const paliers = paliersDeTaux(options.articlesSynthese);
+  const article = (taux: number) =>
+    options.articlesSynthese.find((entree) => Math.abs(entree.taux - taux) <= 0.01)?.article ?? "";
 
-  if (!decomposable) {
-    return [ligne(1, options.articleSynthese, libelle, totalHT, tauxEffectif, totalTva)];
+  const exact = paliers.find((palier) => Math.abs(palier - tauxEffectif) <= 0.01);
+  if (exact !== undefined) {
+    return [ligne(1, article(exact), libelle, totalHT, exact, totalTva)];
   }
 
-  const htTaxable = round((totalTva * 100) / NORMAL, d);
-  const htExonere = round(totalHT - htTaxable, d);
+  const haut = paliers.find((palier) => palier > tauxEffectif);
+  const bas = [...paliers].reverse().find((palier) => palier < tauxEffectif);
+  if (haut === undefined || bas === undefined || totalHT === 0) {
+    // Taux effectif hors de tout encadrement : une seule ligne, et la
+    // validation signalera un taux non conforme.
+    return [ligne(1, article(tauxEffectif), libelle, totalHT, tauxEffectif, totalTva)];
+  }
+
+  // Le partage se calcule sur les totaux, jamais sur le taux effectif arrondi :
+  // sur un ecart de neuf points, un centieme de point deplace des dizaines de
+  // francs, et le montant reconstitue cesserait de tomber juste.
+  const htHaut = round((100 * totalTva - bas * totalHT) / (haut - bas), d);
+  const htBas = round(totalHT - htHaut, d);
+  const tvaHaut = round((htHaut * haut) / 100, d);
+  // Le solde plutot qu'un second calcul : le total TVA de la facture est
+  // conserve au centime, quel que soit l'arrondi de la premiere part.
+  const tvaBas = round(totalTva - tvaHaut, d);
+
+  const parts = [
+    { taux: haut, ht: htHaut, tva: tvaHaut, article: article(haut) },
+    { taux: bas, ht: htBas, tva: tvaBas, article: article(bas) },
+  ];
 
   contexte.reconstitutions.push({
     reference: piece,
     tauxEffectif,
-    htTaxable,
-    htExonere,
-    partExoneree: round((htExonere / totalHT) * 100, 1),
+    parts,
+    partBasse: round((htBas / totalHT) * 100, 1),
   });
 
-  return [
-    ligne(1, options.articleSynthese, `${libelle} - part taxable`, htTaxable, NORMAL, totalTva),
-    ligne(2, options.articleSyntheseExonere, `${libelle} - part exoneree`, htExonere, 0, 0),
-  ];
+  return parts.map((part, index) =>
+    ligne(
+      index + 1,
+      part.article,
+      `${libelle} - part a ${part.taux} %`,
+      part.ht,
+      part.taux,
+      part.tva,
+    ),
+  );
 }
 
 const AVOIR_KEYWORDS = ["avoir", "refund", "credit", "annulation", "remboursement"];

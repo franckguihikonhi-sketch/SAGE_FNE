@@ -104,13 +104,15 @@ async function main() {
   }
 
   if (result.reconstitutions.length > 0) {
-    console.log(`\n${result.reconstitutions.length} facture(s) reconstituees (part taxable / part exoneree) :`);
-    console.log("  Facture              Taux    Part taxable   Part exoneree   Exonere");
-    for (const ligne of [...result.reconstitutions].sort((a, b) => b.partExoneree - a.partExoneree)) {
+    console.log(`\n${result.reconstitutions.length} facture(s) reconstituees en deux taux :`);
+    console.log("  Facture              Taux      Part haute       Part basse   Part basse");
+    for (const ligne of [...result.reconstitutions].sort((a, b) => b.partBasse - a.partBasse)) {
+      const [haut, bas] = ligne.parts;
       console.log(
         `  ${ligne.reference.padEnd(20)} ${`${ligne.tauxEffectif} %`.padStart(7)} ` +
-          `${fmt(ligne.htTaxable).padStart(14)} ${fmt(ligne.htExonere).padStart(15)} ` +
-          `${`${ligne.partExoneree} %`.padStart(8)}`,
+          `${`${fmt(haut?.ht ?? 0)} @ ${haut?.taux ?? 0}%`.padStart(17)} ` +
+          `${`${fmt(bas?.ht ?? 0)} @ ${bas?.taux ?? 0}%`.padStart(17)} ` +
+          `${`${ligne.partBasse} %`.padStart(8)}`,
       );
     }
   }

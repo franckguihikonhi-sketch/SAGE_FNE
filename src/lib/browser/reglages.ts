@@ -20,10 +20,11 @@ export interface Reglages {
   typeFacture: string;
   typeAvoir: string;
   compteDefaut: string;
-  /** Reference de l'article de synthese taxable, pour les exports sans detail. */
-  articleSynthese: string;
-  /** Reference de l'article de synthese exonere. */
-  articleSyntheseExonere: string;
+  /**
+   * Article de synthese par taux de TVA, une ligne par taux : `18=DIVERS18`.
+   * Les taux listes sont ceux que l'entreprise pratique.
+   */
+  articlesTaux: string;
   /** Lettres des colonnes retenues dans l'export tableur FNE. Vide : toutes. */
   colonnes: string;
   /** "oui" pour ajouter les colonnes A, C, E et G aux colonnes retenues. */
@@ -44,8 +45,7 @@ export const REGLAGES_PAR_DEFAUT: Reglages = {
   typeFacture: "",
   typeAvoir: "",
   compteDefaut: "",
-  articleSynthese: "",
-  articleSyntheseExonere: "",
+  articlesTaux: "",
   colonnes: COLONNES_RETENUES_DEFAUT,
   colonnesComplement: "oui",
   clients: "",
@@ -57,13 +57,29 @@ export function lireReglages(): Reglages {
   try {
     const brut = localStorage.getItem(CLE);
     if (!brut) return { ...REGLAGES_PAR_DEFAUT };
-    const stocke = JSON.parse(brut) as Partial<Reglages>;
+    const stocke = JSON.parse(brut) as Partial<Reglages> & Record<string, unknown>;
     // Fusion avec les valeurs par defaut : une version anterieure peut ne pas
     // porter tous les champs.
-    return { ...REGLAGES_PAR_DEFAUT, ...stocke };
+    return { ...REGLAGES_PAR_DEFAUT, ...stocke, articlesTaux: articlesTaux(stocke) };
   } catch {
     return { ...REGLAGES_PAR_DEFAUT };
   }
+}
+
+/**
+ * Les deux champs d'article de synthese ont laisse place a une table
+ * `taux=article`, l'entreprise pouvant pratiquer plus de deux taux. Un poste
+ * qui a deja des reglages ne doit pas les perdre a la mise a jour.
+ */
+function articlesTaux(stocke: Record<string, unknown>): string {
+  const existant = stocke.articlesTaux;
+  if (typeof existant === "string" && existant.trim() !== "") return existant;
+
+  const normal = typeof stocke.articleSynthese === "string" ? stocke.articleSynthese.trim() : "";
+  const exonere =
+    typeof stocke.articleSyntheseExonere === "string" ? stocke.articleSyntheseExonere.trim() : "";
+  const lignes = [normal ? `18=${normal}` : "", exonere ? `0=${exonere}` : ""].filter(Boolean);
+  return lignes.join("\n");
 }
 
 export function ecrireReglages(reglages: Reglages): boolean {

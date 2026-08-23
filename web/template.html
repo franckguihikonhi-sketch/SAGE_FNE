@@ -176,6 +176,14 @@
 
   .source { margin: 0; color: var(--encre-douce); font-size: 13.5px; }
 
+  /* Taux porte par une part reconstituee, a cote de son montant. */
+  .taux {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 11.5px;
+    color: var(--encre-douce);
+  }
+
   /* Depot de fichier */
   .depot-fichier {
     border: 1.5px dashed var(--bord-fort);
@@ -482,20 +490,16 @@
           <input type="text" id="compteDefaut" placeholder="411DIVERS">
         </div>
 
-        <div class="duo">
-          <div class="champ">
-            <label for="articleSynthese">Article taxable</label>
-            <input type="text" id="articleSynthese" placeholder="DIVERS18">
-          </div>
-          <div class="champ">
-            <label for="articleSyntheseExonere">Article exonere</label>
-            <input type="text" id="articleSyntheseExonere" placeholder="DIVERSEXO">
-          </div>
+        <div class="champ">
+          <label for="articlesTaux">Articles par taux de TVA</label>
+          <textarea id="articlesTaux" rows="3" placeholder="18=DIVERS18&#10;9=DIVERS9&#10;0=DIVERSEXO"></textarea>
+          <p class="aide">
+            Un article Sage par taux pratique par l&rsquo;entreprise. Utilise seulement par
+            l&rsquo;export Excel, qui ne porte pas les articles : une facture melangeant deux taux
+            est reconstituee en deux lignes, et c&rsquo;est la fiche article qui porte le regime de
+            TVA. Vide : les trois taux de la nomenclature FNE (18, 9 et 0).
+          </p>
         </div>
-        <p class="aide">
-          Utilises seulement par l&rsquo;export Excel, qui ne porte pas les articles : une facture
-          melangeant plusieurs taux est reconstituee en une part taxable et une part exoneree.
-        </p>
 
         <div class="champ">
           <label for="colonnes">Colonnes de l&rsquo;export Excel</label>
