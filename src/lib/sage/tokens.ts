@@ -1,4 +1,4 @@
-import { formatDate } from "@/lib/core/date";
+import { formatDate, parseDate } from "@/lib/core/date";
 import { Invoice, InvoiceLine } from "@/lib/core/model";
 import { formatNumber } from "@/lib/core/text";
 import { codeReglementSage, libellePaiement, PaymentMapping } from "@/lib/fne/paiement";
@@ -51,6 +51,22 @@ export const TOKENS: Record<string, TokenResolver> = {
   },
   "document.numero": (ctx) => ctx.invoice.numero,
   "document.date": (ctx) => (ctx.invoice.date ? formatDate(ctx.invoice.date, ctx.profile.dateFormat) : ""),
+  /**
+   * Date de livraison du document.
+   *
+   * Sage la controle a l'import, et un dossier peut la refuser la ou il
+   * accepte la date du document : elle se regle donc a part - reprise de la
+   * date du document (defaut), laissee vide, ou fixee a une date donnee.
+   */
+  "document.dateLivraison": (ctx) => {
+    const consigne = (ctx.parametres?.dateLivraison ?? "").trim();
+    if (consigne === "vide") return "";
+    if (consigne !== "" && consigne !== "document") {
+      const iso = parseDate(consigne);
+      return iso ? formatDate(iso, ctx.profile.dateFormat) : "";
+    }
+    return ctx.invoice.date ? formatDate(ctx.invoice.date, ctx.profile.dateFormat) : "";
+  },
   "document.reference": (ctx) => ctx.invoice.reference,
   "document.devise": (ctx) => ctx.invoice.devise,
   "document.modeReglement": (ctx) => ctx.invoice.modeReglement,
@@ -117,4 +133,7 @@ export const PARAMETRES_CONNUS: Array<{ nom: string; libelle: string; defaut: st
   // Vides : le profil fournit alors ses propres codes (6 facture, 5 avoir).
   { nom: "typeFacture", libelle: "Type de document facture", defaut: "" },
   { nom: "typeAvoir", libelle: "Type de document avoir", defaut: "" },
+  // "document" reprend la date de la piece, "vide" laisse la zone vide, une
+  // date la fixe pour tout le fichier.
+  { nom: "dateLivraison", libelle: "Date de livraison", defaut: "document" },
 ];

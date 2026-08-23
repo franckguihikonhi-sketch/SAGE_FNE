@@ -50,6 +50,12 @@ export interface ConvertOptions {
   reglements?: PaymentMapping;
   /** Valeurs propres au dossier Sage : depot, souche... (jetons `parametre.<nom>`). */
   parametres?: Record<string, string>;
+  /**
+   * Format des dates, quand celui du profil ne correspond pas au format
+   * d'import du dossier. Sage refuse la piece des que la date qu'il lit n'en
+   * est pas une, et le message ne nomme que la zone en cause.
+   */
+  formatDate?: SageImportProfile["dateFormat"];
   normalizeOptions?: Partial<NormalizeOptions>;
   validationOptions?: Partial<ValidationOptions>;
   filenameBase?: string;
@@ -181,10 +187,13 @@ export async function convert(
   const invoices = articlesMappes.invoices;
   const inconnus = clients.inconnus;
 
-  const profile =
+  const profileBase =
     options.profile ??
     (options.profileId ? findProfile(options.profileId) : null) ??
     SAGE100_IMPORT_EXPORT;
+  const profile: SageImportProfile = options.formatDate
+    ? { ...profileBase, dateFormat: options.formatDate }
+    : profileBase;
 
   const validationOptions: ValidationOptions = {
     ...DEFAULT_VALIDATION_OPTIONS,

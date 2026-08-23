@@ -20,6 +20,12 @@ export interface Reglages {
   typeFacture: string;
   typeAvoir: string;
   compteDefaut: string;
+  /** "document", "vide", ou une date jj/mm/aaaa imposee a tout le fichier. */
+  dateLivraison: string;
+  /** Date imposee quand `dateLivraison` vaut "fixe". */
+  dateLivraisonFixe: string;
+  /** Format des dates : vide pour celui du profil. */
+  formatDate: string;
   /**
    * Article de synthese par taux de TVA, une ligne par taux : `18=DIVERS18`.
    * Les taux listes sont ceux que l'entreprise pratique.
@@ -45,6 +51,9 @@ export const REGLAGES_PAR_DEFAUT: Reglages = {
   typeFacture: "",
   typeAvoir: "",
   compteDefaut: "",
+  dateLivraison: "document",
+  dateLivraisonFixe: "",
+  formatDate: "",
   articlesTaux: "",
   colonnes: COLONNES_RETENUES_DEFAUT,
   colonnesComplement: "oui",

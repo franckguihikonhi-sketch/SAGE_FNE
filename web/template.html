@@ -490,6 +490,36 @@
           <input type="text" id="compteDefaut" placeholder="411DIVERS">
         </div>
 
+        <div class="duo">
+          <div class="champ">
+            <label for="dateLivraison">Date de livraison</label>
+            <select id="dateLivraison">
+              <option value="document">Celle du document</option>
+              <option value="vide">Laissee vide</option>
+              <option value="fixe">Date fixe&hellip;</option>
+            </select>
+          </div>
+          <div class="champ">
+            <label for="formatDate">Format des dates</label>
+            <select id="formatDate">
+              <option value="">Celui du format d&rsquo;import</option>
+              <option value="DDMMYY">jjmmaa &mdash; 200826</option>
+              <option value="DDMMYYYY">jjmmaaaa &mdash; 20082026</option>
+              <option value="DD/MM/YYYY">jj/mm/aaaa &mdash; 20/08/2026</option>
+              <option value="YYYYMMDD">aaaammjj &mdash; 20260820</option>
+            </select>
+          </div>
+        </div>
+        <div class="champ" id="champ-date-fixe" hidden>
+          <label for="dateLivraisonFixe">Date de livraison imposee</label>
+          <input type="text" id="dateLivraisonFixe" placeholder="20/08/2026">
+        </div>
+        <p class="aide">
+          Sage controle la date de livraison a l&rsquo;import et peut la refuser la ou il accepte
+          la date de la piece &mdash; periode close, exercice non ouvert. Si le message d&rsquo;erreur
+          nomme cette zone, essayez de la laisser vide, puis de changer le format des dates.
+        </p>
+
         <div class="champ">
           <label for="articlesTaux">Articles par taux de TVA</label>
           <textarea id="articlesTaux" rows="3" placeholder="18=DIVERS18&#10;9=DIVERS9&#10;0=DIVERSEXO"></textarea>

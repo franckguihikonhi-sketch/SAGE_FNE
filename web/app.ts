@@ -34,6 +34,9 @@ const CHAMPS: Array<keyof Reglages> = [
   "typeFacture",
   "typeAvoir",
   "compteDefaut",
+  "dateLivraison",
+  "dateLivraisonFixe",
+  "formatDate",
   "articles",
   "articlesTaux",
   "colonnes",
@@ -112,7 +115,10 @@ async function convertir(fichier: File): Promise<void> {
         souche: reglages.souche || "1",
         typeFacture: reglages.typeFacture,
         typeAvoir: reglages.typeAvoir,
+        dateLivraison:
+          reglages.dateLivraison === "fixe" ? reglages.dateLivraisonFixe : reglages.dateLivraison,
       },
+      ...(reglages.formatDate ? { formatDate: reglages.formatDate as "DDMMYY" } : {}),
       normalizeOptions: {
         articlesSynthese: parseArticlesTauxText(reglages.articlesTaux),
         ...(reglages.numeroPiece === "reference" || reglages.numeroPiece === "vide"
@@ -606,6 +612,13 @@ function init(): void {
 
   appliquerReglages(lireReglages());
   enregistrer();
+
+  // La date imposee ne se saisit que si on l'a demandee.
+  const dateFixe = () => {
+    $("champ-date-fixe").hidden = champ("dateLivraison").value !== "fixe";
+  };
+  champ("dateLivraison").addEventListener("change", dateFixe);
+  dateFixe();
 
   // `change` ne se declenche qu'en quittant le champ : un utilisateur qui tape
   // un compte par defaut et regarde l'ecran ne verrait rien se produire.

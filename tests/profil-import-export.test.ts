@@ -189,4 +189,41 @@ describe("codes de type de document", () => {
     expect(zones[0]![4]).toBe("6");
     expect(zones.find((row) => row[7] === "411AUTRE")![4]).toBe("4");
   });
+
+  it("regle la date de livraison sans toucher a la date du document", async () => {
+    const zones = async (options: Record<string, unknown>) => {
+      const result = await convertir(options);
+      const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
+      return decoded.split("\r\n").filter(Boolean).map((row) => row.split("\t"));
+    };
+
+    // Par defaut, la date de livraison reprend celle de la piece.
+    const reprise = await zones({});
+    expect(reprise[0]![2]).toBe(reprise[0]![6]);
+
+    // Sage peut refuser la date de livraison la ou il accepte celle de la
+    // piece : on doit pouvoir la vider sans rien changer d'autre.
+    const vide = await zones({ parametres: { depot: "DEPOT PRINCIPAL", souche: "1", dateLivraison: "vide" } });
+    expect(vide[0]![6]).toBe("");
+    expect(vide[0]![2]).toBe(reprise[0]![2]);
+    // Y compris sur la ligne de cloture, qui ne porte que la date de livraison.
+    expect(vide.at(-1)![6]).toBe("");
+
+    // Ou la fixer pour tout le fichier.
+    const fixe = await zones({
+      parametres: { depot: "DEPOT PRINCIPAL", souche: "1", dateLivraison: "31/12/2026" },
+    });
+    expect(fixe.every((row) => row[6] === "311226")).toBe(true);
+  });
+
+  it("ecrit les dates au format demande", async () => {
+    const result = await convertir({ formatDate: "DDMMYYYY" });
+    const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
+    const premiere = decoded.split("\r\n")[0]!.split("\t");
+
+    // Le format du profil est jjmmaa : un dossier qui attend jjmmaaaa refuse
+    // la piece en ne nommant que la zone de date.
+    expect(premiere[2]).toMatch(/^\d{8}$/);
+    expect(premiere[6]).toBe(premiere[2]);
+  });
 });

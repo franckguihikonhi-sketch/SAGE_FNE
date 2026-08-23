@@ -202,7 +202,7 @@ export const SAGE100_IMPORT_EXPORT: SageImportProfile = {
     { label: "Type de document", source: { kind: "token", token: "document.type" } },
     // 6 - Constante 1 dans l'exemple : souche du document.
     { label: "Souche", source: { kind: "token", token: "parametre.souche" } },
-    { label: "Date de livraison", source: { kind: "token", token: "document.date" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.dateLivraison" } },
     { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
     { label: "Reference article", source: { kind: "token", token: "ligne.reference" } },
     { label: "Designation", source: { kind: "token", token: "ligne.designation" } },
@@ -223,7 +223,7 @@ export const SAGE100_IMPORT_EXPORT: SageImportProfile = {
     { label: "Depot", source: { kind: "empty" } },
     { label: "Type de document", source: { kind: "token", token: "document.type" } },
     { label: "Souche", source: { kind: "token", token: "parametre.souche" } },
-    { label: "Date de livraison", source: { kind: "token", token: "document.date" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.dateLivraison" } },
     { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
     { label: "Reference article", source: { kind: "empty" } },
     { label: "Designation", source: { kind: "empty" } },
