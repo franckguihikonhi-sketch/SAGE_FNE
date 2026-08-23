@@ -161,6 +161,7 @@ function afficher(result: ConvertResult, nomFichier: string): void {
     ${listeAnomalies("Avertissements", avertissements, "attention")}
     ${tableauReconstitutions(result)}
     ${tableauArticles(result)}
+    ${tableauZones(result)}
     ${fichierGenere(result)}
   `;
 
@@ -461,6 +462,50 @@ function tableauReconstitutions(result: ConvertResult): string {
                   ${cellule(ligne, 0)}
                   ${cellule(ligne, 1)}
                   <td class="droite">${ligne.partBasse} %</td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+/**
+ * Les zones du fichier, une par une, avec ce qu'elles contiennent.
+ *
+ * Quand Sage refuse un import, il ne nomme que la zone qui l'a arrete. Sans
+ * savoir laquelle est la troisieme colonne du fichier, le message ne mene
+ * nulle part : ce tableau se lit a cote de la fenetre du format d'import de
+ * Sage, zone par zone, et l'ecart saute aux yeux.
+ */
+function tableauZones(result: ConvertResult): string {
+  const profil = PROFILES.find((entree) => entree.id === result.profile.id);
+  if (!profil || profil.ligne.length === 0) return "";
+
+  const premiere = result.file.content.split(/\r?\n/).find((row) => row.trim() !== "");
+  if (!premiere) return "";
+  const valeurs = premiere.split(profil.delimiter);
+
+  return `
+    <div class="bloc">
+      <h2>Zones du fichier <span class="compte">${profil.ligne.length}</span></h2>
+      <p class="source">
+        Ce que porte chaque zone, sur la premiere ligne. Sage ne nomme que la zone qui l'arrete :
+        comparez cette liste avec celle du format d'import de votre dossier, dans le meme ordre.
+      </p>
+      <div class="table-large">
+        <table>
+          <thead>
+            <tr><th>N&deg;</th><th>Zone</th><th>Valeur sur la ligne 1</th></tr>
+          </thead>
+          <tbody>
+            ${profil.ligne
+              .map(
+                (colonne, index) => `<tr>
+                  <td>${index + 1}</td>
+                  <td>${escape(colonne.label)}</td>
+                  <td><code>${escape(valeurs[index] ?? "")}</code></td>
                 </tr>`,
               )
               .join("")}
