@@ -14,6 +14,7 @@ import {
   parseFneNative,
 } from "@/lib/fne/native";
 import { ReadError, type SourceTable } from "@/lib/fne/source";
+import { ColonnesOptions, restreindreColonnes } from "@/lib/fne/colonnes";
 import { decodeText } from "@/lib/core/cp1252";
 import { PaymentMapping } from "@/lib/fne/paiement";
 import { applyCustomerMapping, CustomerMappingEntry, CustomerMappingOptions } from "@/lib/sage/customers";
@@ -54,6 +55,8 @@ export interface ConvertOptions {
   filenameBase?: string;
   /** Feuille Excel a exploiter quand le classeur en contient plusieurs. */
   sheet?: string;
+  /** Colonnes de l'export tableur retenues, par leur lettre. Voir `colonnes.ts`. */
+  colonnes?: Partial<ColonnesOptions>;
   /**
    * Lecteur de tableaux (CSV / Excel). Injecte par l'appelant : le serveur passe
    * le lecteur Node, le navigateur le sien. Le pipeline reste ainsi utilisable
@@ -72,6 +75,10 @@ export interface ConvertResult {
     columns: string[];
     /** Vrai quand les lignes ont ete reconstituees depuis les totaux. */
     synthese: boolean;
+    /** Lettres des colonnes retenues, quand une restriction s'applique. */
+    colonnesRetenues?: string[];
+    /** Libelles des colonnes ecartees par la restriction. */
+    colonnesEcartees?: string[];
   };
   mapping: ColumnMapping;
   unmappedColumns: string[];
@@ -135,7 +142,12 @@ export async function convert(
           "ou convertNavigateur (web).",
       );
     }
-    const table: SourceTable = await options.reader(buffer, filename, options.sheet);
+    const lu: SourceTable = await options.reader(buffer, filename, options.sheet);
+    // L'export tableur FNE porte trente-trois colonnes dont neuf servent a
+    // l'import : la restriction est appliquee avant la detection des champs,
+    // qui ne voit donc que les colonnes retenues.
+    const restriction = restreindreColonnes(lu, options.colonnes);
+    const table = restriction.table;
     const detected = detectMapping(table.columns);
     mapping = { ...detected.mapping, ...(options.mappingOverrides ?? {}) };
     unmapped = detected.unmapped;
@@ -143,7 +155,7 @@ export async function convert(
     missing = missingRequiredFields(mapping);
     const result = normalize(table, mapping, normalizeOptions);
     parsed = result.invoices;
-    warnings = result.warnings;
+    warnings = [...restriction.avertissements, ...result.warnings];
     reconstitutions = result.reconstitutions;
     source = {
       kind: "tableau",
@@ -152,6 +164,8 @@ export async function convert(
       rowCount: table.rows.length,
       columns: table.columns,
       synthese: result.synthese,
+      colonnesRetenues: restriction.retenues,
+      colonnesEcartees: restriction.ecartees,
     };
   }
 

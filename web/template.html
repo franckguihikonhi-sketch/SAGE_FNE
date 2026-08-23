@@ -498,6 +498,27 @@
         </p>
 
         <div class="champ">
+          <label for="colonnes">Colonnes de l&rsquo;export Excel</label>
+          <input type="text" id="colonnes" placeholder="F;I;J;K;L;N;O;P;U">
+          <p class="aide">
+            Lettres des colonnes retenues dans l&rsquo;export tableur FNE : date, totaux, client,
+            vendeur. Laissez vide pour lire tout le fichier.
+          </p>
+        </div>
+
+        <div class="champ">
+          <label for="colonnesComplement">Colonnes A, C, E et G</label>
+          <select id="colonnesComplement">
+            <option value="oui">Ajoutees &mdash; reference, avoir, reglement</option>
+            <option value="non">Ecartees &mdash; strictement les colonnes ci-dessus</option>
+          </select>
+          <p class="aide">
+            A porte la facture d&rsquo;origine d&rsquo;un avoir, C la reference FNE, E distingue
+            facture et avoir, G le mode de paiement. Les ecarter prive l&rsquo;import de ces reperes.
+          </p>
+        </div>
+
+        <div class="champ">
           <label for="clients">Correspondance clients</label>
           <textarea id="clients" rows="4" placeholder="ncc;nom;compte&#10;5011806N;PROSUMA;411PROSUMA"></textarea>
           <div class="actions compactes">

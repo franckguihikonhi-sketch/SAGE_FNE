@@ -96,21 +96,27 @@ export function normalize(
     );
   }
 
-  const groups = new Map<string, Array<{ row: Record<string, unknown>; index: number }>>();
+  type Entree = { row: Record<string, unknown>; index: number };
+  // Cle de regroupement d'un cote, reference affichee de l'autre : sans colonne
+  // de numero, chaque ligne est une facture a elle seule et ne porte aucune
+  // reference. La cle technique ne doit alors jamais ressortir dans le fichier
+  // d'import ni dans les messages.
+  const groups = new Map<string, { reference: string; entries: Entree[] }>();
   table.rows.forEach((row, index) => {
-    const key = mapping.numeroFacture ? cleanCell(row[mapping.numeroFacture]) : `__ligne_${index}`;
-    if (!key) {
+    const reference = mapping.numeroFacture ? cleanCell(row[mapping.numeroFacture]) : "";
+    if (mapping.numeroFacture && !reference) {
       warnings.push(`Ligne ${index + 2} du fichier : numero de facture vide, ligne ignoree.`);
       return;
     }
+    const key = mapping.numeroFacture ? reference : `ligne:${index}`;
     const bucket = groups.get(key);
-    if (bucket) bucket.push({ row, index });
-    else groups.set(key, [{ row, index }]);
+    if (bucket) bucket.entries.push({ row, index });
+    else groups.set(key, { reference, entries: [{ row, index }] });
   });
 
   const invoices: Invoice[] = [];
   const contexte: { reconstitutions: Reconstitution[] } = { reconstitutions: [] };
-  for (const [reference, entries] of groups) {
+  for (const { reference, entries } of groups.values()) {
     invoices.push(buildInvoice(reference, entries, mapping, options, synthese, warnings, contexte));
   }
 
@@ -160,9 +166,11 @@ function buildInvoice(
 ): Invoice {
   const first = entries[0]!.row;
   const sourceRow = entries[0]!.index + 2; // +2 : ligne d'entete + index base 1
+  // De quoi designer la piece dans un message quand elle n'a pas de reference.
+  const piece = reference || `ligne ${sourceRow}`;
 
   const date = parseDate(get(first, mapping, "dateFacture"));
-  if (!date) warnings.push(`Facture ${reference} : date illisible ou absente (ligne ${sourceRow}).`);
+  if (!date) warnings.push(`Facture ${piece} : date illisible ou absente (ligne ${sourceRow}).`);
 
   const kind = detectKind(first, mapping, entries, options);
   const signe = kind === "AVOIR" && options.avoirEnValeurAbsolue ? -1 : 1;
@@ -199,6 +207,7 @@ function buildInvoice(
   invoice.lignes = synthese
     ? syntheseLines(
         reference,
+        piece,
         totalHTSource ?? 0,
         totalTvaSource ?? 0,
         options,
@@ -207,7 +216,7 @@ function buildInvoice(
         contexte,
       )
     : entries.map((entry, position) =>
-        buildLine(entry.row, entry.index, position + 1, mapping, options, signe, reference, warnings),
+        buildLine(entry.row, entry.index, position + 1, mapping, options, signe, piece, warnings),
       );
 
   const sommeHT = round(invoice.lignes.reduce((sum, line) => sum + line.montantHT, 0), d);
@@ -319,6 +328,8 @@ function buildLine(
  */
 function syntheseLines(
   reference: string,
+  /** Designation de la piece dans les messages, quand elle n'a pas de reference. */
+  piece: string,
   totalHT: number,
   totalTva: number,
   options: NormalizeOptions,
@@ -328,7 +339,9 @@ function syntheseLines(
 ): InvoiceLine[] {
   const d = options.decimales;
   const tauxEffectif = totalHT !== 0 ? round((totalTva / totalHT) * 100, 2) : 0;
-  const libelle = options.libelleSynthese.replace("{reference}", reference);
+  // Un libelle sans reference ne doit pas laisser trainer un separateur seul :
+  // "Facture FNE " ecrit tel quel dans Sage n'aiderait personne.
+  const libelle = options.libelleSynthese.replace("{reference}", reference).trim() || "Facture FNE";
 
   const ligne = (
     numero: number,
@@ -365,7 +378,7 @@ function syntheseLines(
   const htExonere = round(totalHT - htTaxable, d);
 
   contexte.reconstitutions.push({
-    reference,
+    reference: piece,
     tauxEffectif,
     htTaxable,
     htExonere,

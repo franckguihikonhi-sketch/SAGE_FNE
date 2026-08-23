@@ -7,6 +7,8 @@
  * navigateur, aucune donnee ne part sur un serveur.
  */
 
+import { COLONNES_RETENUES_DEFAUT } from "@/lib/fne/colonnes";
+
 const CLE = "passerelle-fne-sage.reglages.v1";
 
 export interface Reglages {
@@ -22,6 +24,10 @@ export interface Reglages {
   articleSynthese: string;
   /** Reference de l'article de synthese exonere. */
   articleSyntheseExonere: string;
+  /** Lettres des colonnes retenues dans l'export tableur FNE. Vide : toutes. */
+  colonnes: string;
+  /** "oui" pour ajouter les colonnes A, C, E et G aux colonnes retenues. */
+  colonnesComplement: string;
   /** Table de correspondance clients, au format CSV `ncc;nom;compte`. */
   clients: string;
   /** Correspondance des articles, au format CSV `referenceFne;referenceSage`. */
@@ -40,6 +46,8 @@ export const REGLAGES_PAR_DEFAUT: Reglages = {
   compteDefaut: "",
   articleSynthese: "",
   articleSyntheseExonere: "",
+  colonnes: COLONNES_RETENUES_DEFAUT,
+  colonnesComplement: "oui",
   clients: "",
   articles: "",
   reglements: "",

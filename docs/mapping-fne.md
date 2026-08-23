@@ -14,7 +14,46 @@ et les alias les plus longs sont testés en premier pour éviter qu'une colonne 
 Une colonne non reconnue n'est jamais devinée : elle apparaît dans `unmappedColumns` et peut être
 associée manuellement à un champ via `mappingOverrides`. Les colonnes présentes dans l'export FNE
 mais sans usage côté Sage (RCCM, Terminal, Pied de page, Créé à…) sont listées séparément dans
-`ignoredColumns` : elles ne sont pas des anomalies.
+`ignoredColumns` : elles ne sont pas des anomalies. Dans un export tableur FNE, elles ne sont même
+plus soumises à la détection — voir la section suivante.
+
+## Colonnes retenues
+
+L'export tableur FNE compte trente-trois colonnes ; neuf portent ce qu'un document de vente Sage
+demande, et ce sont les seules retenues par défaut :
+
+| | Colonne | Rôle |
+| --- | --- | --- |
+| F | Date | Date de la pièce |
+| I | Total HT | Base HT |
+| J | Remise | Remise globale |
+| K | Total TVA | TVA, d'où se déduit le taux effectif |
+| L | Total TTC | Contrôle |
+| N | Net à payer | Contrôle |
+| O | NCC du client | Rapprochement du compte tiers |
+| P | Nom de la société / du client | Rapprochement du compte tiers |
+| U | Nom du vendeur | Traçabilité |
+
+Quatre colonnes ne portent aucun montant mais donnent son identité au document, et sont ajoutées
+aux précédentes (réglage *Colonnes A, C, E et G*) :
+
+| | Colonne | Ce qui se perd sans elle |
+| --- | --- | --- |
+| A | Référence initial | Le lien d'un avoir vers la facture qu'il annule |
+| C | Référence | La référence FNE : libellé des lignes et contrôle des doublons |
+| E | Sous-type de facture | La distinction facture / avoir — reste déduite du signe des totaux |
+| G | Mode de paiement | Le code règlement Sage |
+
+Les vingt colonnes restantes sont écartées **avant** la détection : elles n'ont pas d'usage
+comptable (Terminal, RCCM, régime d'imposition, pied de page, horodatages) et un libellé proche
+d'un alias pourrait détourner la reconnaissance d'un champ. Deux d'entre elles portent des
+montants sans emploi dans le format d'import du dossier : H (timbre de quittance) et M (total
+autres taxes) — un format paramétrable qui les utiliserait devrait les rajouter à la liste.
+
+La restriction se fait par **position**, comme le cabinet désigne ses colonnes, et n'est appliquée
+qu'à un fichier reconnu comme un export tableur FNE : au moins cinq des sept libellés de
+signature (C, E, F, I, L, O, U) doivent se trouver à leur place. Un CSV d'une autre forme est lu
+en entier. Voir `src/lib/fne/colonnes.ts`.
 
 ## Champs du modèle pivot
 

@@ -37,6 +37,8 @@ const CHAMPS: Array<keyof Reglages> = [
   "articles",
   "articleSynthese",
   "articleSyntheseExonere",
+  "colonnes",
+  "colonnesComplement",
   "clients",
   "reglements",
 ];
@@ -102,6 +104,10 @@ async function convertir(fichier: File): Promise<void> {
       articles: parseArticleMappingCsv(reglages.articles),
       customerOptions: { compteParDefaut: reglages.compteDefaut, utiliserCodeSource: true },
       reglements: parsePaymentMappingText(reglages.reglements),
+      colonnes: {
+        retenues: reglages.colonnes,
+        complement: reglages.colonnesComplement !== "non",
+      },
       parametres: {
         depot: reglages.depot,
         souche: reglages.souche || "1",
@@ -222,7 +228,10 @@ function resume(result: ConvertResult): string {
   const source =
     result.source.kind === "fne-json"
       ? "Export JSON natif FNE &mdash; le detail des articles est lu directement."
-      : `Tableau ${result.source.format.toUpperCase()} &mdash; ${result.source.rowCount} enregistrements.`;
+      : `Tableau ${result.source.format.toUpperCase()} &mdash; ${result.source.rowCount} enregistrements` +
+        (result.source.colonnesRetenues?.length
+          ? `, colonnes ${result.source.colonnesRetenues.join(", ")}.`
+          : ".");
 
   return `
     <div class="bloc">

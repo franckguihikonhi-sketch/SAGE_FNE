@@ -25,9 +25,47 @@ describe("export tableur FNE (entetes seuls)", () => {
     expect(result.mapping.clientNom).toBe("Nom de la société / du client");
     expect(result.mapping.totalHT).toBe("Total HT");
     expect(result.mapping.netAPayer).toBe("Net a payer");
-    expect(result.mapping.timbre).toBe("Timbre de quittance");
     expect(result.unmappedColumns).toHaveLength(0);
-    expect(result.ignoredColumns).toContain("RCCM");
+
+    // Les colonnes sans usage comptable sont ecartees avant la detection.
+    expect(result.source.colonnesEcartees).toContain("RCCM");
+    expect(result.mapping.timbre).toBeUndefined();
+  });
+
+  it("ne retient que les colonnes demandees, et celles qui identifient la piece", async () => {
+    const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
+
+    expect(result.source.colonnesRetenues).toEqual(
+      ["A", "C", "E", "F", "G", "I", "J", "K", "L", "N", "O", "P", "U"],
+    );
+    expect(result.source.columns).toHaveLength(13);
+    expect(result.issues.some((issue) => issue.message.includes("Lecture restreinte"))).toBe(true);
+  });
+
+  it("annonce ce que coute l'abandon des colonnes d'identification", async () => {
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      colonnes: { complement: false },
+    });
+
+    expect(result.source.colonnesRetenues).toEqual(["F", "I", "J", "K", "L", "N", "O", "P", "U"]);
+    // Sans la colonne C, la piece n'a plus de reference : la cle technique de
+    // regroupement ne doit pas ressortir dans le libelle envoye a Sage.
+    expect(result.invoices[0]!.numeroFne).toBe("");
+    expect(result.invoices[0]!.lignes[0]!.designation).toBe("Facture FNE");
+    expect(
+      result.issues.some((issue) => issue.message.includes("sans reference FNE")),
+    ).toBe(true);
+  });
+
+  it("laisse un fichier d'une autre forme intact", async () => {
+    // Les lettres designent des positions de l'export tableur FNE : un CSV
+    // quelconque garde toutes ses colonnes.
+    const autre = new URL("./fixtures/export-fne-exemple.csv", import.meta.url);
+    const result = await convert(readFileSync(autre), "export-fne-exemple.csv", {});
+
+    expect(result.source.colonnesEcartees).toHaveLength(0);
+    expect(result.mapping.montantHT).toBeTruthy();
   });
 
   it("genere une ligne de synthese par facture et le signale", async () => {
