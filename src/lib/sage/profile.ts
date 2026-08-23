@@ -235,6 +235,52 @@ export const SAGE100_IMPORT_EXPORT: SageImportProfile = {
   ],
 };
 
+/**
+ * Meme parametrage, mais en deux enregistrements par document.
+ *
+ * La documentation Sage decrit le fichier d'import des documents des ventes
+ * ainsi : "chaque document est compose de deux parties : une ligne avec les
+ * informations de l'entete et pied de la piece, et une ou plusieurs lignes
+ * avec les informations du detail". Le fichier d'export du dossier, lui, est
+ * a plat : les quinze zones sont repetees sur chaque ligne.
+ *
+ * Les quinze zones retenues par le format du dossier se partagent exactement
+ * entre les deux enregistrements : huit d'entete (domaine, numero, date,
+ * depot, type, souche, date de livraison, compte tiers) et sept de detail
+ * (article, designation, prix, quantite, unite, zone 20, remise). C'est ce
+ * decoupage que reproduit ce profil, a essayer quand Sage refuse le fichier
+ * a plat des sa premiere ligne.
+ */
+export const SAGE100_ENTETE_DETAIL: SageImportProfile = {
+  ...SAGE100_IMPORT_EXPORT,
+  id: "sage100-entete-detail",
+  label: "Sage 100 GesCom - Entete + lignes (8 zones puis 7)",
+  description:
+    "Meme parametrage que FORMAT IMPORT_EXPORT, mais un enregistrement d'entete de 8 zones par " +
+    "document suivi d'un enregistrement de 7 zones par ligne, comme decrit par la documentation Sage.",
+  entete: [
+    { label: "Domaine", source: { kind: "const", value: "0" } },
+    { label: "Numero de piece", source: { kind: "token", token: "document.numero" } },
+    { label: "Date du document", source: { kind: "token", token: "document.date" } },
+    { label: "Depot", source: { kind: "token", token: "parametre.depot" } },
+    { label: "Type de document", source: { kind: "token", token: "document.type" } },
+    { label: "Souche", source: { kind: "token", token: "parametre.souche" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.dateLivraison" } },
+    { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
+  ],
+  ligne: [
+    { label: "Reference article", source: { kind: "token", token: "ligne.reference" } },
+    { label: "Designation", source: { kind: "token", token: "ligne.designation" } },
+    { label: "Prix unitaire HT", source: { kind: "token", token: "ligne.prixUnitaire" }, decimals: 6 },
+    { label: "Quantite", source: { kind: "token", token: "ligne.quantite" }, decimals: 4 },
+    { label: "Unite", source: { kind: "token", token: "ligne.unite" } },
+    { label: "Zone 20", source: { kind: "empty" } },
+    { label: "Remise", source: { kind: "token", token: "ligne.remise" }, decimals: 4 },
+  ],
+  // Le pied voyage sur la ligne d'entete : aucune ligne de cloture.
+  pied: undefined,
+};
+
 /** Profil CSV point-virgule, utile pour verifier le mappage dans Excel. */
 export const SAGE100_CSV_CONTROLE: SageImportProfile = {
   ...SAGE100_LIGNE_A_PLAT,
@@ -251,6 +297,7 @@ export const SAGE100_CSV_CONTROLE: SageImportProfile = {
 
 export const PROFILES: SageImportProfile[] = [
   SAGE100_IMPORT_EXPORT,
+  SAGE100_ENTETE_DETAIL,
   SAGE100_DOCUMENTS_VENTES,
   SAGE100_LIGNE_A_PLAT,
   SAGE100_CSV_CONTROLE,
