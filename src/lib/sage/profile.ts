@@ -212,25 +212,10 @@ export const SAGE100_EXPORT_VERIFIE: SageImportProfile = {
     { label: "Code taxe", source: { kind: "token", token: "ligne.codeTaxeSage" } },
     { label: "Taux de TVA", source: { kind: "token", token: "ligne.tauxTva" }, decimals: 4 },
   ],
-  // Ligne de cloture, relevee telle quelle sur l'exemplaire : ni date de
-  // document, ni depot, ni article, mais le type, le numero, la date de
-  // livraison et le compte tiers du document.
-  pied: [
-    { label: "Zone 1", source: { kind: "empty" } },
-    { label: "Date du document", source: { kind: "empty" } },
-    { label: "Depot", source: { kind: "empty" } },
-    { label: "Type de document", source: { kind: "token", token: "document.type" } },
-    { label: "Numero de piece", source: { kind: "token", token: "document.numero" } },
-    { label: "Date de livraison", source: { kind: "token", token: "document.dateLivraison" } },
-    { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
-    { label: "Reference article", source: { kind: "empty" } },
-    { label: "Designation", source: { kind: "empty" } },
-    { label: "Prix unitaire HT", source: { kind: "nombre", value: 0 }, decimals: 6 },
-    { label: "Quantite", source: { kind: "nombre", value: 0 }, decimals: 4 },
-    { label: "Unite", source: { kind: "empty" } },
-    { label: "Code taxe", source: { kind: "empty" } },
-    { label: "Taux de TVA", source: { kind: "nombre", value: 0 }, decimals: 4 },
-  ],
+  // Pas de ligne de cloture : sur les soixante enregistrements de
+  // l'exemplaire verifie, cinquante-sept documents n'en portent aucune. La
+  // seule rencontree ferme le document 536 - une ligne sans article dans le
+  // dossier, pas une regle du format.
 };
 
 /**

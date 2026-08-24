@@ -2,6 +2,7 @@ import { formatDate, parseDate } from "@/lib/core/date";
 import { Invoice, InvoiceLine } from "@/lib/core/model";
 import { formatNumber } from "@/lib/core/text";
 import { codeReglementSage, libellePaiement, PaymentMapping } from "@/lib/fne/paiement";
+import { findTaxCode } from "@/lib/fne/taxes";
 import { SageImportProfile } from "./profile";
 
 export interface TokenContext {
@@ -107,13 +108,21 @@ export const TOKENS: Record<string, TokenResolver> = {
   "ligne.tauxTva": (ctx) => (ctx.line ? num(ctx.line.tauxTva, ctx, 2) : ""),
   "ligne.codeTaxe": (ctx) => ctx.line?.codeTaxeFne ?? "",
   /**
-   * Code taxe tel que le dossier Sage l'ecrit : dans l'exemplaire verifie, le
-   * meme libelle "TVA" porte le taux normal comme le taux reduit, et la zone
-   * reste vide sur une ligne exoneree. Le code se regle par parametre, la
-   * nomenclature FNE (TVA, TVAB, TVAC) n'etant pas celle de Sage.
+   * Code taxe tel que le dossier Sage l'ecrit.
+   *
+   * Dans l'exemplaire verifie, le meme libelle "TVA" porte le taux normal
+   * comme le taux reduit, et la zone reste vide sur une ligne exoneree : la
+   * nomenclature FNE (TVA, TVAB, TVAC, TVAD) n'est pas celle de Sage, et le
+   * libelle se regle par parametre.
+   *
+   * Un code hors de cette nomenclature - l'AIRSI a 1,5 % du meme exemplaire -
+   * designe une autre taxe que la TVA : il est alors repris tel quel.
    */
   "ligne.codeTaxeSage": (ctx) => {
-    if (!ctx.line || ctx.line.tauxTva === 0) return "";
+    if (!ctx.line) return "";
+    const code = ctx.line.codeTaxeFne;
+    if (code && !findTaxCode(code)) return code;
+    if (ctx.line.tauxTva === 0) return "";
     return ctx.parametres?.codeTaxe || "TVA";
   },
   "ligne.montantHT": (ctx) => (ctx.line ? num(ctx.line.montantHT, ctx) : ""),

@@ -32,8 +32,8 @@ describe("profil de l'exemplaire verifie", () => {
     const decoded = iconv.decode(Buffer.from(result.file.base64, "base64"), "windows-1252");
     const rows = decoded.split("\r\n").filter(Boolean);
 
-    // Format a plat : 3 lignes d'article et une ligne de cloture par document.
-    expect(rows).toHaveLength(5);
+    // Format a plat : une ligne par article, sans ligne de cloture.
+    expect(rows).toHaveLength(3);
     expect(rows.every((row) => row.split("\t").length === 14)).toBe(true);
     expect(decoded.endsWith("\r\n")).toBe(true);
   });
@@ -72,29 +72,17 @@ describe("profil de l'exemplaire verifie", () => {
     expect(exoneree[13]).toBe("0,0000");
   });
 
-  it("clot chaque document par la ligne relevee sur l'exemplaire", async () => {
+  it("n'ecrit aucune ligne de cloture", async () => {
     const rows = (await convertir()).file.content
       .split("\r\n")
       .filter(Boolean)
       .map((row) => row.split("\t"));
 
-    const cloture = rows[2]!;
-    expect(cloture[0]).toBe("");
-    expect(cloture[1]).toBe(""); // date du document
-    expect(cloture[2]).toBe(""); // depot
-    expect(cloture[3]).toBe("6"); // type de document, comme ses lignes
-    expect(cloture[5]).toBe("110826"); // date de livraison
-    expect(cloture[6]).toBe("411DEMO"); // compte tiers
-    expect(cloture[7]).toBe(""); // reference article
-    expect(cloture[8]).toBe(""); // designation
-    expect(cloture[9]).toBe("0,000000");
-    expect(cloture[10]).toBe("0,0000");
-    expect(cloture[13]).toBe("0,0000");
-
-    // Une cloture par document, jamais deux.
-    const clotures = rows.filter((row) => row[7] === "" && row[8] === "");
-    expect(clotures).toHaveLength(2);
-    expect(rows[rows.length - 1]![6]).toBe("411AUTRE");
+    // Sur les soixante enregistrements de l'exemplaire verifie, cinquante-sept
+    // documents n'en portent aucune : la ligne sans article n'est pas une
+    // regle du format, et un enregistrement de plus est un rejet de plus.
+    expect(rows.every((row) => row[7] !== "" && row[8] !== "")).toBe(true);
+    expect(rows.at(-1)![6]).toBe("411AUTRE");
   });
 
   it("encode en Windows-1252, comme le fichier accepte par Sage", async () => {
@@ -136,7 +124,7 @@ describe("profil de l'exemplaire verifie", () => {
     expect(JSON.parse(JSON.stringify(SAGE100_EXPORT_VERIFIE))).toEqual(SAGE100_EXPORT_VERIFIE);
     expect(SAGE100_EXPORT_VERIFIE.ligne).toHaveLength(14);
     expect(SAGE100_EXPORT_VERIFIE.entete).toHaveLength(0);
-    expect(SAGE100_EXPORT_VERIFIE.pied).toHaveLength(14);
+    expect(SAGE100_EXPORT_VERIFIE.pied).toBeUndefined();
   });
 });
 
@@ -238,10 +226,8 @@ describe("codes de type de document", () => {
     // Sage peut refuser la date de livraison la ou il accepte celle de la
     // piece : on doit pouvoir la vider sans rien changer d'autre.
     const vide = await zones({ parametres: { depot: "DEPOT PRINCIPAL", dateLivraison: "vide" } });
-    expect(vide[0]![5]).toBe("");
+    expect(vide.every((row) => row[5] === "")).toBe(true);
     expect(vide[0]![1]).toBe(reprise[0]![1]);
-    // Y compris sur la ligne de cloture, qui ne porte que la date de livraison.
-    expect(vide.at(-1)![5]).toBe("");
 
     // Ou la fixer pour tout le fichier.
     const fixe = await zones({

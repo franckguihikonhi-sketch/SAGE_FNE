@@ -31,7 +31,7 @@ difficulté** (`EXPORT_SAGE_VERIFIE.txt`, 60 enregistrements), relevé zone par 
 | 10 | Prix unitaire HT | `items[].amount`, 6 décimales | `1077,276300` |
 | 11 | Quantité | `items[].quantity`, 4 décimales | `20,0000` |
 | 12 | Unité | `items[].measurementUnit` | `SAC` |
-| 13 | Code taxe | `TVA` si le taux est non nul, sinon vide | `TVA` |
+| 13 | Code taxe | `TVA` si le taux est non nul, sinon vide ; un code hors nomenclature FNE est repris tel quel | `TVA`, `AIRSI` |
 | 14 | Taux de TVA | taux de la ligne, 4 décimales | `18,0000` |
 
 **Ce format transporte la taxe.** Le taux est écrit ligne à ligne — 18, 9 ou 0 — et le code taxe
@@ -39,8 +39,9 @@ l'accompagne. Le régime de la fiche article Sage ne décide donc plus de rien :
 ni blocage sur un article vu à deux taux, ni besoin d'un article distinct par taux pour les
 factures reconstituées.
 
-Sur l'exemplaire, le code `AIRSI` apparaît aussi, à 1,5 % — un prélèvement ivoirien que le
-connecteur ne produit pas encore : ces lignes-là restent à saisir à la main.
+Sur l'exemplaire, le code `AIRSI` apparaît aussi, à 1,5 % — un prélèvement ivoirien. FNE ne le
+certifie pas comme la TVA d'une ligne : il apparaît dans `customTaxes`, et le connecteur le
+signale plutôt que de l'inventer. Une ligne qui porterait déjà ce code le conserve.
 
 ## Pourquoi le format d'export du dossier n'est pas importable
 
@@ -74,21 +75,25 @@ sur le modèle de celle des comptes tiers : les articles sans correspondance son
 avec un champ de saisie, et la table est conservée d'une conversion à l'autre. Sans correspondance,
 la référence FNE est transmise telle quelle et l'article est signalé.
 
-### La ligne de clôture
+### Pas de ligne de clôture
 
-Un document peut se terminer par un **enregistrement de clôture**, relevé sur les fichiers de
-référence du dossier. Il reprend ce qui identifie le document — type, numéro de pièce, date de
-livraison, compte tiers — mais laisse vides la date du document, le dépôt et l'article, et met les
-zones numériques à zéro :
+Un premier fichier de référence se terminait par un enregistrement sans article — type, numéro,
+date de livraison et compte tiers, le reste à vide — et le connecteur en écrivait un par document.
 
-```
-	100726	DEPÔT PRINCIPAL SOGEL	6	536	100726	S2P	6FF001	FRITES 7 MM-PK ( 4*2.5 kg)	1077,276300	40,0000	SAC	TVA	18,0000
-			6	536	100726	S2P			0,000000	0,0000			0,0000
-```
+L'exemplaire de 60 enregistrements réellement importé l'a démenti : **57 documents, une seule
+ligne sans article** (le document 536). Ce n'est donc pas une règle du format mais une ligne sans
+article dans le dossier. Le connecteur n'en écrit plus.
 
-Le connecteur l'écrit après les lignes de chaque document (zone `pied` du profil). Le numéro de
-pièce y est repris à l'identique de ses lignes, afin que Sage ne puisse pas rattacher la clôture à
-un autre document.
+### Preuve par l'aller-retour
+
+L'exemplaire est relu, ses documents reconstruits, puis réécrits par le connecteur : **59 des 60
+enregistrements ressortent octet pour octet** — même contenu, même ordre, même encodage, 7 744
+octets contre 7 744. Le soixantième est la ligne sans article ci-dessus.
+
+Le contrôle est rejoué à chaque exécution des tests sur un exemplaire anonymisé de même structure
+(`tests/fixtures/sage-export-verifie.txt`) : prélèvement AIRSI à 1,5 %, ligne exonérée, taux
+réduit, taux normal, document à deux lignes, type 8 à numérotation distincte, et une pièce dont la
+date de livraison diffère de la date du document.
 
 ### Ce que ce format ne transporte pas
 
