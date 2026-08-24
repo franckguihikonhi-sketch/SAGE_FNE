@@ -179,4 +179,17 @@ describe("garde-fou sur les references d'article", () => {
     });
     expect(result.issues.some((e) => e.code === "ARTICLE_EST_UN_COMPTE_TIERS")).toBe(false);
   });
+
+  it("signale les autres taxes, que le format ne peut pas porter", async () => {
+    const source = JSON.parse(readFileSync(FIXTURE, "utf8"));
+    // Un prelevement declare en plus de la TVA, comme l'AIRSI a 1,5 %.
+    source[0].totalCustomTaxes = 1500;
+    source[0].customTaxes = [{ amount: 1.5, shortName: "AIRSI" }];
+
+    const result = await convert(Buffer.from(JSON.stringify(source)), "fne-natif.json", {});
+    const issue = result.issues.find((entry) => entry.message.includes("AIRSI"))!;
+
+    expect(issue.severity).toBe("avertissement");
+    expect(issue.message).toContain("ne sont pas reprises");
+  });
 });

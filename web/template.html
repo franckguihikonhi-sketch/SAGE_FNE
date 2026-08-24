@@ -432,13 +432,15 @@
     <div class="rail">
       <div class="bloc">
         <label for="fichier" class="depot-fichier" id="depot-fichier" tabindex="0">
-          <strong>Choisir un export FNE</strong>
-          <span>JSON, Excel ou CSV &mdash; ou glissez le fichier ici</span>
+          <strong>Choisir l&rsquo;export JSON de FNE</strong>
+          <span>ou glissez le fichier ici &mdash; Excel et CSV acceptes en depannage</span>
           <input type="file" id="fichier" accept=".json,.xlsx,.xlsm,.csv,.txt,.pdf">
         </label>
         <p class="aide">
-          L&rsquo;export <strong>JSON</strong> est le seul a contenir le detail des articles.
-          L&rsquo;export Excel ne porte que les entetes de facture.
+          <strong>Prenez le JSON.</strong> Lui seul porte le detail des articles : reference,
+          designation, quantite, prix unitaire, unite et taux de TVA de chaque ligne, tels que la
+          DGI les a certifies. L&rsquo;export Excel n&rsquo;a que les entetes de facture, et le
+          detail doit alors etre reconstitue depuis les totaux.
         </p>
       </div>
 
@@ -589,9 +591,11 @@
       <div class="bloc notice">
         <h2>Ce que fait la passerelle</h2>
         <p>
-          <strong>Elle lit l&rsquo;export tel qu&rsquo;il sort de FNE.</strong> Le JSON natif est
-          reconnu seul : articles, quantites, prix unitaires HT, unites et codes taxe
-          (TVA, TVAB, TVAC, TVAD) sont repris tels que la DGI les a certifies.
+          <strong>Elle lit l&rsquo;export JSON tel qu&rsquo;il sort de FNE.</strong> Il est reconnu
+          seul : articles, quantites, prix unitaires HT, unites et codes taxe (TVA, TVAB, TVAC,
+          TVAD) sont repris tels que la DGI les a certifies, sans rien recalculer. C&rsquo;est
+          l&rsquo;export a utiliser. Les fichiers Excel et CSV restent acceptes, mais ils ne
+          portent que les entetes de facture.
         </p>
         <p>
           <strong>Elle rend les avoirs importables.</strong> FNE les certifie en montants negatifs ;
@@ -612,9 +616,9 @@
   </div>
 
   <footer>
-    Le format d&rsquo;import du dossier ne comporte pas de zone de taxe : Sage appliquera le regime
-    de TVA de la fiche article. La synthese par article affichee apres conversion permet de verifier
-    que ce parametrage correspond bien a ce que FNE a certifie.
+    Le format du dossier porte la taxe : le taux de chaque ligne est ecrit dans le fichier, tel que
+    FNE l&rsquo;a certifie. La synthese par article affichee apres conversion permet de verifier que
+    le parametrage Sage des articles concorde.
   </footer>
 </div>
 

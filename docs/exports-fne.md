@@ -1,11 +1,14 @@
 # Les exports FNE
 
-La plateforme FNE (Facture Normalisée Électronique, DGI Côte d'Ivoire) propose deux exports.
+La plateforme FNE (Facture Normalisée Électronique, DGI Côte d'Ivoire) propose trois exports.
 **Ils ne contiennent pas la même chose**, et ce point conditionne tout le reste.
+
+**C'est l'export JSON qui alimente le connecteur.** Les autres restent lus, mais en dépannage :
+le tableur oblige à reconstituer le détail depuis les totaux, et le PDF arrondit au franc.
 
 | Export | Contenu | Utilisable pour un import Sage |
 | --- | --- | --- |
-| **JSON** | Entêtes **et** détail des articles (`items`), avec le taux de TVA de chaque ligne | Oui, sans réserve |
+| **JSON** | Entêtes **et** détail des articles (`items`), avec le taux de TVA de chaque ligne | **Oui — l'export de référence** |
 | **Tableur (.xlsx)** | Entêtes uniquement : 33 colonnes, une ligne par facture, aucun article | Partiellement (voir plus bas) |
 | **PDF** | La facture certifiée, une par fichier, montants arrondis au franc | Non (voir plus bas) |
 

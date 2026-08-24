@@ -179,11 +179,30 @@ function buildInvoice(
   invoice.lignes = lignes.length > 0 ? lignes : [syntheseLine(source, signe, options)];
 
   const d = options.decimales;
+  // Le format d'import ne porte qu'une taxe par ligne : un prelevement declare
+  // en plus de la TVA (AIRSI...) n'a nulle part ou aller. Mieux vaut le dire
+  // que de laisser croire que la piece est complete.
+  const autresTaxes = round(signe * (source.totalCustomTaxes ?? 0), d);
+  if (autresTaxes !== 0) {
+    const noms = [
+      ...new Set(
+        [...(source.customTaxes ?? []), ...items.flatMap((item) => item.customTaxes ?? [])]
+          .map((taxe) => cleanCell(taxe.shortName) || cleanCell(taxe.name))
+          .filter((nom) => nom !== ""),
+      ),
+    ];
+    warnings.push(
+      `${position} : ${autresTaxes} d'autres taxes${noms.length > 0 ? ` (${noms.join(", ")})` : ""} ` +
+        "ne sont pas reprises dans le fichier Sage, dont le format ne porte qu'une taxe par " +
+        "ligne. A ajouter a la main sur la piece.",
+    );
+  }
+
   invoice.totaux = {
     totalHT: round(signe * (source.totalBeforeTaxes ?? 0), d),
     totalRemise: round(signe * (source.totalDiscounted ?? 0), d),
     totalTva: round(signe * (source.totalTaxes ?? source.vatAmount ?? 0), d),
-    autresTaxes: round(signe * (source.totalCustomTaxes ?? 0), d),
+    autresTaxes,
     timbre: round(signe * (source.fiscalStamp ?? 0), d),
     totalTTC: round(signe * (source.totalAfterTaxes ?? source.amount ?? 0), d),
     netAPayer: round(signe * (source.totalDue ?? source.amount ?? 0), d),
