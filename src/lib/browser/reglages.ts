@@ -44,7 +44,7 @@ export interface Reglages {
 }
 
 export const REGLAGES_PAR_DEFAUT: Reglages = {
-  profil: "sage100-import-export",
+  profil: "sage100-export-verifie",
   depot: "",
   souche: "1",
   numeroPiece: "vide",

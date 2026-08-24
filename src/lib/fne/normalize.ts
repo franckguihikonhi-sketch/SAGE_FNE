@@ -121,24 +121,6 @@ export function normalize(
     invoices.push(buildInvoice(reference, entries, mapping, options, synthese, warnings, contexte));
   }
 
-  // Le format d'import ne transportant pas la taxe, seule la fiche article
-  // donne son regime a une ligne : deux parts sur le meme article recevraient
-  // le meme taux, et le partage reconstitue serait perdu a l'import.
-  const confondues = contexte.reconstitutions.filter((reconstitution) => {
-    const articles = reconstitution.parts.map((part) => part.article);
-    return new Set(articles).size < articles.length;
-  });
-  if (confondues.length > 0) {
-    const taux = [
-      ...new Set(confondues.flatMap((r) => r.parts.map((part) => `${part.taux} %`))),
-    ].join(" et ");
-    warnings.push(
-      `${confondues.length} facture(s) ont ete reconstituees en deux parts a des taux differents ` +
-        `(${taux}), portees par le meme article. Renseignez une reference d'article par taux, ` +
-        "sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
-    );
-  }
-
   return { invoices, warnings, synthese, reconstitutions: contexte.reconstitutions };
 }
 

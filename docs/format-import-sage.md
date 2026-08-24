@@ -2,9 +2,8 @@
 
 ## Le format du dossier client (profil par défaut)
 
-Le profil `sage100-import-export` reproduit le format paramétrable
-**FORMAT IMPORT_EXPORT** du dossier client, relevé sur son fichier `.egc` et sur un fichier
-d'exemple réellement échangé avec Sage.
+Le profil `sage100-export-verifie` reproduit **l'exemplaire que le dossier importe sans
+difficulté** (`EXPORT_SAGE_VERIFIE.txt`, 60 enregistrements), relevé zone par zone.
 
 | Caractéristique | Valeur |
 | --- | --- |
@@ -14,43 +13,54 @@ d'exemple réellement échangé avec Sage.
 | Séparateur décimal | virgule |
 | Format de date | `jjmmaa` (`200826` = 20/08/2026) |
 | Structure | **à plat** : une ligne par article, zones d'entête répétées |
-| Nombre de zones | 15 |
+| Nombre de zones | 14 |
 
-Le fichier `.egc` déclare 19 zones dont 15 retenues, dans l'ordre `0-6`, `11-16`, `20`, `21` —
-exactement le nombre de colonnes du fichier d'exemple. Les zones 7, 8, 17 et 18 ne sont pas reprises.
-
-### Les 15 zones
+### Les 14 zones
 
 | # | Zone | Source | Exemple |
 | --- | --- | --- | --- |
-| 1 | Domaine | constante `0` (vente) | `0` |
-| 2 | Numéro de pièce | numéro FNE, ou vide | `26000000889` |
-| 3 | Date du document | date FNE en `jjmmaa` | `110826` |
-| 4 | Dépôt | paramètre `depot` | `DEPÔT PRINCIPAL SOGEL` |
-| 5 | Type de document | `6` facture, `5` avoir | `6` |
-| 6 | Souche | paramètre `souche` | `1` |
-| 7 | Date de livraison | date FNE | `110826` |
-| 8 | Compte tiers | table de correspondance clients | `411PROSUMA` |
-| 9 | Référence article | `items[].reference` | `6FF001` |
-| 10 | Désignation | `items[].description` | `FRITES 7MM-PK` |
-| 11 | Prix unitaire HT | `items[].amount`, 6 décimales | `1077,276300` |
-| 12 | Quantité | `items[].quantity`, 4 décimales | `20,0000` |
-| 13 | Unité | `items[].measurementUnit` | `SAC` |
-| 14 | *(non identifiée)* | vide dans le fichier d'exemple | |
-| 15 | Remise | remise de ligne, 4 décimales | `0,0000` |
+| 1 | *(vide)* | vide sur les 60 lignes de l'exemplaire | |
+| 2 | Date du document | date FNE en `jjmmaa` | `110826` |
+| 3 | Dépôt | paramètre `depot` | `DEPÔT PRINCIPAL SOGEL` |
+| 4 | Type de document | `6` facture, `5` avoir | `6` |
+| 5 | Numéro de pièce | numéro FNE, ou vide | `522` |
+| 6 | Date de livraison | date FNE, réglable | `110826` |
+| 7 | Compte tiers | table de correspondance clients | `4111COCODYPALISAD` |
+| 8 | Référence article | `items[].reference` | `6FF001` |
+| 9 | Désignation | `items[].description` | `FRITES 7 MM-PK` |
+| 10 | Prix unitaire HT | `items[].amount`, 6 décimales | `1077,276300` |
+| 11 | Quantité | `items[].quantity`, 4 décimales | `20,0000` |
+| 12 | Unité | `items[].measurementUnit` | `SAC` |
+| 13 | Code taxe | `TVA` si le taux est non nul, sinon vide | `TVA` |
+| 14 | Taux de TVA | taux de la ligne, 4 décimales | `18,0000` |
 
-Trois zones restent à confirmer auprès du client : la 1 (constante `0`, interprétée comme le
-domaine Vente), la 6 (`1` dans un fichier de référence, `2` dans l'autre — d'où l'interprétation
-« souche », et le fait qu'elle soit paramétrable) et la 14, vide dans les deux exemples.
+**Ce format transporte la taxe.** Le taux est écrit ligne à ligne — 18, 9 ou 0 — et le code taxe
+l'accompagne. Le régime de la fiche article Sage ne décide donc plus de rien : ni rappel sur la TVA,
+ni blocage sur un article vu à deux taux, ni besoin d'un article distinct par taux pour les
+factures reconstituées.
 
-**La zone 2 est laissée vide par défaut.** Elle l'est dans les deux fichiers de référence, dont un
-exemplaire réellement importé : c'est donc le seul comportement dont on sache qu'il est accepté, et
-le connecteur le reproduit. Sage numérote alors lui-même les documents.
+Sur l'exemplaire, le code `AIRSI` apparaît aussi, à 1,5 % — un prélèvement ivoirien que le
+connecteur ne produit pas encore : ces lignes-là restent à saisir à la main.
 
-Le revers est que **la référence FNE n'apparaît nulle part dans le document importé** : ce format à
-15 zones ne comporte aucune zone qui pourrait la porter. Les modes `sequence` et `reference`
-l'écrivent dans la zone 2, au prix d'un comportement non éprouvé à l'import. Pour une traçabilité
-solide, mieux vaut ajouter une zone dédiée au format d'import dans Sage.
+## Pourquoi le format d'export du dossier n'est pas importable
+
+Le profil `sage100-import-export`, calqué sur le fichier `.egc` **FORMAT IMPORT_EXPORT** et sur un
+fichier d'export du dossier, porte **15 zones**. Sage le refuse à l'import, y compris quand c'est
+son propre export qu'on lui redonne, avec le message *« Le champ Type document est incorrect à la
+ligne 1 »*.
+
+Les deux formats sont identiques à deux différences près, et ce sont elles qui expliquent le refus :
+
+| | Export (15 zones) | Exemplaire importé (14 zones) |
+| --- | --- | --- |
+| Zone 1 | constante `0` | *(vide)*, et pas de zone en plus |
+| Zones 14-15 | *(vide)* puis `0,0000` | code taxe puis taux de TVA |
+
+La constante de tête décale tout d'un cran : Sage lit le **dépôt** là où il attend le **type de
+document**, d'où le message. Et la dernière zone n'est pas une remise mais le taux de TVA — dans
+l'export elle valait `0,0000` parce que les articles concernés étaient exonérés.
+
+Le profil à 15 zones reste disponible dans la liste des formats, à titre de témoin.
 
 ### Les références d'article ne coïncident pas
 
@@ -66,46 +76,43 @@ la référence FNE est transmise telle quelle et l'article est signalé.
 
 ### La ligne de clôture
 
-Chaque document se termine par un **enregistrement de clôture**, présent dans les deux fichiers de
-référence du dossier. Il reprend ce qui identifie le document — domaine, type, souche, date de
+Un document peut se terminer par un **enregistrement de clôture**, relevé sur les fichiers de
+référence du dossier. Il reprend ce qui identifie le document — type, numéro de pièce, date de
 livraison, compte tiers — mais laisse vides la date du document, le dépôt et l'article, et met les
 zones numériques à zéro :
 
 ```
-0		200826	DEPÔT PRINCIPAL SOGEL	6	2	200826	4111CHAWAPLUS	1149002	BABINE - ALLANA 10 Kg	11000,000000	3,0000	CARTON		0,0000
-0				6	2	200826	4111CHAWAPLUS			0,000000	0,0000			0,0000
+	100726	DEPÔT PRINCIPAL SOGEL	6	536	100726	S2P	6FF001	FRITES 7 MM-PK ( 4*2.5 kg)	1077,276300	40,0000	SAC	TVA	18,0000
+			6	536	100726	S2P			0,000000	0,0000			0,0000
 ```
 
-Le connecteur l'écrit désormais après les lignes de chaque document (zone `pied` du profil). Le
-numéro de pièce y est repris à l'identique de ses lignes, afin que Sage ne puisse pas rattacher la
-clôture à un autre document.
+Le connecteur l'écrit après les lignes de chaque document (zone `pied` du profil). Le numéro de
+pièce y est repris à l'identique de ses lignes, afin que Sage ne puisse pas rattacher la clôture à
+un autre document.
 
 ### Ce que ce format ne transporte pas
 
-**Aucune zone de taxe.** Sage appliquera le régime de TVA paramétré sur chaque article, et non le
-code taxe porté par la facture FNE (`TVA` 18 %, `TVAB` 9 %, `TVAC`/`TVAD` 0 %). Sans effet tant que
-tout est au taux normal, cela **fausse les exonérations et le taux réduit**.
+Le format à 14 zones **porte la taxe** : le taux de chaque ligne est écrit, et le contrôle
+`TAXE_ABSENTE_DU_FORMAT` ne se déclenche donc pas. Il reste actif pour les profils qui n'ont aucune
+zone de taxe, dont l'ancien profil à 15 zones : Sage applique alors le régime de la fiche article,
+ce qui fausse les exonérations et le taux réduit.
 
-Le connecteur le signale (`TAXE_ABSENTE_DU_FORMAT`) : simple avertissement si toutes les lignes sont
-à 18 %, erreur bloquante dès qu'un autre taux apparaît. Deux issues : ajouter une zone de taxe au
-format d'import dans Sage (recommandé), ou s'assurer que les articles exonérés sont paramétrés comme
-tels dans la fiche article.
-
-Ce format ne transporte pas non plus les totaux (HT, TVA, TTC) : Sage les recalcule depuis prix
+Ce format ne transporte pas les totaux (HT, TVA, TTC) : Sage les recalcule depuis prix
 unitaire × quantité. Les totaux FNE servent alors uniquement aux contrôles du connecteur.
 
 ## Numéro de pièce et référence FNE
 
 Une référence FNE fait 19 caractères (`2304903U26000000889`), au-delà de la zone `DO_Piece` de
 Sage. Par défaut seule la partie année + numéro d'ordre est transmise comme numéro de pièce
-(`26000000889`, 11 caractères) : le NCC en préfixe est constant pour une entreprise. La référence
-complète est toujours écrite dans la zone « Référence FNE » du fichier, pour la traçabilité et les
-contrôles de la DGI.
+(`26000000889`, 11 caractères) : le NCC en préfixe est constant pour une entreprise. Ce format ne comporte
+aucune zone où loger la référence complète : pour la traçabilité, mieux vaut ajouter une zone
+dédiée au format d'import dans Sage.
 
 Basculer sur `numeroPiece: "reference"` transmet la référence complète — à réserver aux dossiers
-dont la zone a été étendue, sinon Sage tronquera. Le mode `vide` laisse la zone vide pour que Sage
-numérote lui-même, comme dans le fichier d'exemple du client ; l'unicité est alors contrôlée sur la
-référence FNE.
+dont la zone a été étendue, sinon Sage tronquera. Le mode `vide`, qui est le défaut, laisse la zone vide
+pour que Sage numérote lui-même ; l'unicité est alors contrôlée sur la référence FNE. À noter que
+l'exemplaire importé, lui, porte toujours un numéro (`443`, `522`, `FR00035`) : si Sage réclame
+cette zone, basculer sur `sequence`.
 
 ## Modes de règlement
 

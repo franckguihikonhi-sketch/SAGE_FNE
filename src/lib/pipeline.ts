@@ -24,7 +24,7 @@ import { PARAMETRES_CONNUS } from "@/lib/sage/tokens";
 import {
   findProfile,
   porteLaTaxe,
-  SAGE100_IMPORT_EXPORT,
+  SAGE100_EXPORT_VERIFIE,
   SageImportProfile,
 } from "@/lib/sage/profile";
 import {
@@ -190,7 +190,7 @@ export async function convert(
   const profileBase =
     options.profile ??
     (options.profileId ? findProfile(options.profileId) : null) ??
-    SAGE100_IMPORT_EXPORT;
+    SAGE100_EXPORT_VERIFIE;
   const profile: SageImportProfile = options.formatDate
     ? { ...profileBase, dateFormat: options.formatDate }
     : profileBase;
@@ -212,6 +212,7 @@ export async function convert(
     // Le controle des articles vaut quel que soit le format : une reference qui
     // est en realite un compte tiers fait echouer l'import dans tous les cas.
     ...controleArticles(articles, taxeDansLeFormat),
+    ...controleReconstitutions(reconstitutions, taxeDansLeFormat),
   ];
 
   const base = options.filenameBase ?? filename.replace(/\.[^.]+$/, "");
@@ -241,6 +242,39 @@ export async function convert(
     },
     profile: { id: profile.id, label: profile.label },
   };
+}
+
+/**
+ * Deux parts reconstituees a des taux differents mais portees par le meme
+ * article ne se distinguent plus une fois dans Sage : sans zone de taxe, c'est
+ * la fiche article qui donne son regime a la ligne, et les deux parts
+ * recevraient le meme. Le controle ne vaut donc que pour un format qui ne
+ * transporte pas la taxe - celui du dossier l'ecrit ligne a ligne.
+ */
+function controleReconstitutions(
+  reconstitutions: Reconstitution[],
+  taxeDansLeFormat: boolean,
+): Issue[] {
+  if (taxeDansLeFormat) return [];
+  const confondues = reconstitutions.filter((reconstitution) => {
+    const articles = reconstitution.parts.map((part) => part.article);
+    return new Set(articles).size < articles.length;
+  });
+  if (confondues.length === 0) return [];
+
+  const taux = [
+    ...new Set(confondues.flatMap((r) => r.parts.map((part) => `${part.taux} %`))),
+  ].join(" et ");
+  return [
+    {
+      severity: "avertissement",
+      code: "ARTICLE_SYNTHESE_CONFONDU",
+      message:
+        `${confondues.length} facture(s) ont ete reconstituees en deux parts a des taux ` +
+        `differents (${taux}), portees par le meme article. Renseignez une reference d'article ` +
+        "par taux, sans quoi Sage appliquera le meme regime de TVA aux deux parts.",
+    },
+  ];
 }
 
 /**

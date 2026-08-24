@@ -187,7 +187,12 @@ describe("export tableur FNE (entetes seuls)", () => {
   });
 
   it("avertit quand les deux parts partagent le meme article", async () => {
-    const result = await convert(buffer(), "fne-tableau.csv", { customers: CLIENTS });
+    // Le controle ne vaut que pour un format sans zone de taxe : c'est alors
+    // la fiche article qui donne son regime a la ligne.
+    const result = await convert(buffer(), "fne-tableau.csv", {
+      customers: CLIENTS,
+      profileId: "sage100-import-export",
+    });
     const issue = result.issues.find((entry) => entry.message.includes("meme regime de TVA"))!;
 
     // Sans article distinct, Sage donnerait le meme regime aux deux parts.
@@ -211,7 +216,7 @@ describe("export tableur FNE (entetes seuls)", () => {
       .split("\r\n")
       .find((row) => row.includes("A2600000038"))!
       .split("\t");
-    // Zone 5 du format du dossier client : type de document, 5 = avoir.
-    expect(ligne[4]).toBe("5");
+    // Zone 4 de l'exemplaire verifie : type de document, 5 = avoir.
+    expect(ligne[3]).toBe("5");
   });
 });

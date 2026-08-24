@@ -440,7 +440,7 @@ function tableauReconstitutions(result: ConvertResult): string {
         Ces factures melangent deux taux, que l'export Excel ne detaille pas. Le taux effectif dit
         lesquels : ce sont les deux taux qui l'encadrent (ici ${taux.map((t) => `${t} %`).join(" et ")}),
         et le partage entre eux est exact. Verifiez que ces taux sont bien ceux que l'entreprise
-        pratique &mdash; ils se reglent dans la table des articles par taux.
+        pratique &mdash; ils se listent dans la table des articles par taux.
       </p>
       <div class="table-large">
         <table>

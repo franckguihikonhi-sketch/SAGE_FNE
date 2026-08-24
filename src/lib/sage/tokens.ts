@@ -106,6 +106,16 @@ export const TOKENS: Record<string, TokenResolver> = {
   "ligne.remise": (ctx) => (ctx.line ? num(ctx.line.remisePourcent, ctx, 2) : ""),
   "ligne.tauxTva": (ctx) => (ctx.line ? num(ctx.line.tauxTva, ctx, 2) : ""),
   "ligne.codeTaxe": (ctx) => ctx.line?.codeTaxeFne ?? "",
+  /**
+   * Code taxe tel que le dossier Sage l'ecrit : dans l'exemplaire verifie, le
+   * meme libelle "TVA" porte le taux normal comme le taux reduit, et la zone
+   * reste vide sur une ligne exoneree. Le code se regle par parametre, la
+   * nomenclature FNE (TVA, TVAB, TVAC) n'etant pas celle de Sage.
+   */
+  "ligne.codeTaxeSage": (ctx) => {
+    if (!ctx.line || ctx.line.tauxTva === 0) return "";
+    return ctx.parametres?.codeTaxe || "TVA";
+  },
   "ligne.montantHT": (ctx) => (ctx.line ? num(ctx.line.montantHT, ctx) : ""),
   "ligne.montantTva": (ctx) => (ctx.line ? num(ctx.line.montantTva, ctx) : ""),
   "ligne.montantTTC": (ctx) => (ctx.line ? num(ctx.line.montantTTC, ctx) : ""),
@@ -136,4 +146,5 @@ export const PARAMETRES_CONNUS: Array<{ nom: string; libelle: string; defaut: st
   // "document" reprend la date de la piece, "vide" laisse la zone vide, une
   // date la fixe pour tout le fichier.
   { nom: "dateLivraison", libelle: "Date de livraison", defaut: "document" },
+  { nom: "codeTaxe", libelle: "Code taxe Sage", defaut: "TVA" },
 ];

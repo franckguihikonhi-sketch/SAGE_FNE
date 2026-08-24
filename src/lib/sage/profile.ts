@@ -153,6 +153,87 @@ export const SAGE100_LIGNE_A_PLAT: SageImportProfile = {
 
 
 /**
+ * Profil calque sur l'exemplaire que le dossier client importe sans difficulte
+ * ("EXPORT_SAGE_VERIFIE.txt", 60 enregistrements).
+ *
+ * Quatorze zones tabulees, fins de ligne CRLF, Windows-1252, dates jjmmaa,
+ * separateur decimal virgule. Les zones, relevees une a une sur l'exemplaire :
+ *
+ *  1  vide sur les soixante lignes          8  reference article
+ *  2  date du document                      9  designation
+ *  3  depot                                10  prix unitaire (6 decimales)
+ *  4  type de document (6, 8...)           11  quantite (4 decimales)
+ *  5  numero de piece (443, FR00035...)    12  unite (CN, KG, SAC)
+ *  6  date de livraison                    13  code taxe (TVA, AIRSI, vide)
+ *  7  compte tiers                         14  taux de TVA (4 decimales)
+ *
+ * Deux ecarts avec le fichier d'export de reference precedent expliquent le
+ * refus de Sage a l'import :
+ *
+ * - ce dernier porte une zone de plus en tete, une constante "0" ; tout est
+ *   alors decale d'un cran et Sage lit le depot la ou il attend le type de
+ *   document, d'ou "Le champ Type document est incorrect a la ligne 1" ;
+ * - sa derniere zone n'est pas une remise mais le taux de TVA, et
+ *   l'avant-derniere le code taxe. **Ce format transporte donc la taxe** :
+ *   le taux de chaque ligne est ecrit, et non deduit de la fiche article.
+ */
+export const SAGE100_EXPORT_VERIFIE: SageImportProfile = {
+  id: "sage100-export-verifie",
+  label: "Sage 100 GesCom - Export verifie du dossier (14 zones)",
+  description:
+    "Reproduction de l'exemplaire que le dossier importe sans difficulte : 14 zones tabulees, " +
+    "format a plat, dates jjmmaa, virgule decimale, Windows-1252, taxe portee par la ligne.",
+  extension: "txt",
+  layout: "delimited",
+  delimiter: "\t",
+  quote: "",
+  encoding: "windows-1252",
+  eol: "\r\n",
+  decimalSeparator: ",",
+  decimals: 2,
+  dateFormat: "DDMMYY",
+  includeHeaderRow: false,
+  documentTypes: { facture: "6", avoir: "5" },
+  entete: [],
+  ligne: [
+    // 1 - Vide sur les soixante lignes de l'exemplaire.
+    { label: "Zone 1", source: { kind: "empty" } },
+    { label: "Date du document", source: { kind: "token", token: "document.date" } },
+    { label: "Depot", source: { kind: "token", token: "parametre.depot" } },
+    { label: "Type de document", source: { kind: "token", token: "document.type" } },
+    { label: "Numero de piece", source: { kind: "token", token: "document.numero" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.dateLivraison" } },
+    { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
+    { label: "Reference article", source: { kind: "token", token: "ligne.reference" } },
+    { label: "Designation", source: { kind: "token", token: "ligne.designation" } },
+    { label: "Prix unitaire HT", source: { kind: "token", token: "ligne.prixUnitaire" }, decimals: 6 },
+    { label: "Quantite", source: { kind: "token", token: "ligne.quantite" }, decimals: 4 },
+    { label: "Unite", source: { kind: "token", token: "ligne.unite" } },
+    { label: "Code taxe", source: { kind: "token", token: "ligne.codeTaxeSage" } },
+    { label: "Taux de TVA", source: { kind: "token", token: "ligne.tauxTva" }, decimals: 4 },
+  ],
+  // Ligne de cloture, relevee telle quelle sur l'exemplaire : ni date de
+  // document, ni depot, ni article, mais le type, le numero, la date de
+  // livraison et le compte tiers du document.
+  pied: [
+    { label: "Zone 1", source: { kind: "empty" } },
+    { label: "Date du document", source: { kind: "empty" } },
+    { label: "Depot", source: { kind: "empty" } },
+    { label: "Type de document", source: { kind: "token", token: "document.type" } },
+    { label: "Numero de piece", source: { kind: "token", token: "document.numero" } },
+    { label: "Date de livraison", source: { kind: "token", token: "document.dateLivraison" } },
+    { label: "Compte tiers", source: { kind: "token", token: "client.code" } },
+    { label: "Reference article", source: { kind: "empty" } },
+    { label: "Designation", source: { kind: "empty" } },
+    { label: "Prix unitaire HT", source: { kind: "nombre", value: 0 }, decimals: 6 },
+    { label: "Quantite", source: { kind: "nombre", value: 0 }, decimals: 4 },
+    { label: "Unite", source: { kind: "empty" } },
+    { label: "Code taxe", source: { kind: "empty" } },
+    { label: "Taux de TVA", source: { kind: "nombre", value: 0 }, decimals: 4 },
+  ],
+};
+
+/**
  * Profil calque sur le format d'import/export du dossier client
  * ("FORMAT IMPORT_EXPORT", fichier .egc) et sur le fichier d'exemple fourni.
  *
@@ -174,10 +255,11 @@ export const SAGE100_LIGNE_A_PLAT: SageImportProfile = {
  */
 export const SAGE100_IMPORT_EXPORT: SageImportProfile = {
   id: "sage100-import-export",
-  label: "Sage 100 GesCom - FORMAT IMPORT_EXPORT (15 zones, tabule)",
+  label: "Sage 100 GesCom - FORMAT IMPORT_EXPORT (15 zones, export seul)",
   description:
-    "Reproduction du format parametrable du dossier client : 15 zones tabulees, format a plat, " +
-    "dates jjmmaa, separateur decimal virgule, encodage Windows-1252.",
+    "Reproduction du fichier d'export du dossier : 15 zones tabulees, une constante 0 en tete. " +
+    "Sage refuse ce fichier a l'import, y compris quand c'est son propre export - la zone de tete " +
+    "decale tout d'un cran. Conserve pour comparaison.",
   extension: "txt",
   layout: "delimited",
   delimiter: "\t",
@@ -296,6 +378,7 @@ export const SAGE100_CSV_CONTROLE: SageImportProfile = {
 };
 
 export const PROFILES: SageImportProfile[] = [
+  SAGE100_EXPORT_VERIFIE,
   SAGE100_IMPORT_EXPORT,
   SAGE100_ENTETE_DETAIL,
   SAGE100_DOCUMENTS_VENTES,
@@ -304,7 +387,13 @@ export const PROFILES: SageImportProfile[] = [
 ];
 
 /** Jetons de taxe : un profil qui n'en porte aucun laisse Sage appliquer le regime de l'article. */
-const TAX_TOKENS = ["ligne.tauxTva", "ligne.codeTaxe", "ligne.montantTva", "totaux.tva"];
+const TAX_TOKENS = [
+  "ligne.tauxTva",
+  "ligne.codeTaxe",
+  "ligne.codeTaxeSage",
+  "ligne.montantTva",
+  "totaux.tva",
+];
 
 export function porteLaTaxe(profile: SageImportProfile): boolean {
   return [...profile.entete, ...profile.ligne].some(
