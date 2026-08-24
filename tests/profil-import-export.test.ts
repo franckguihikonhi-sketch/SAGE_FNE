@@ -245,4 +245,27 @@ describe("codes de type de document", () => {
     expect(premiere[1]).toMatch(/^\d{8}$/);
     expect(premiere[5]).toBe(premiere[1]);
   });
+
+  it("refuse de livrer un fichier sans date de livraison", async () => {
+    const result = await convertir({
+      parametres: { depot: "DEPOT PRINCIPAL", dateLivraison: "vide" },
+    });
+    const issue = result.issues.find((entry) => entry.code === "DATE_LIVRAISON_VIDE")!;
+
+    // Sage refuse la piece par "Le champ Date livraison est incorrect a la
+    // ligne 1", sans dire d'ou vient le vide : c'est a l'outil de le dire.
+    expect(issue.severity).toBe("erreur");
+    expect(issue.message).toContain("Celle du document");
+  });
+
+  it("reprend la date du document quand la date imposee est illisible", async () => {
+    const result = await convertir({
+      parametres: { depot: "DEPOT PRINCIPAL", dateLivraison: "date inconnue" },
+    });
+    const zones = result.file.content.split("\r\n")[0]!.split("\t");
+
+    // Plutot que d'ecrire une zone vide, que Sage refuserait sans expliquer.
+    expect(zones[5]).toBe(zones[1]);
+    expect(result.issues.some((issue) => issue.code === "DATE_LIVRAISON_ILLISIBLE")).toBe(true);
+  });
 });

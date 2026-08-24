@@ -497,7 +497,7 @@
             <label for="dateLivraison">Date de livraison</label>
             <select id="dateLivraison">
               <option value="document">Celle du document</option>
-              <option value="vide">Laissee vide</option>
+              <option value="vide">Laissee vide &mdash; refusee par Sage</option>
               <option value="fixe">Date fixe&hellip;</option>
             </select>
           </div>
@@ -517,9 +517,9 @@
           <input type="text" id="dateLivraisonFixe" placeholder="20/08/2026">
         </div>
         <p class="aide">
-          Sage controle la date de livraison a l&rsquo;import et peut la refuser la ou il accepte
-          la date de la piece &mdash; periode close, exercice non ouvert. Si le message d&rsquo;erreur
-          nomme cette zone, essayez de la laisser vide, puis de changer le format des dates.
+          Le dossier exige cette zone : laissee vide, Sage refuse la piece par
+          <em>&laquo; Le champ Date livraison est incorrect a la ligne 1 &raquo;</em>. Gardez
+          <strong>Celle du document</strong>, sauf si votre dossier impose une autre date.
         </p>
 
         <div class="champ">

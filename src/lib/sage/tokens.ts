@@ -64,7 +64,10 @@ export const TOKENS: Record<string, TokenResolver> = {
     if (consigne === "vide") return "";
     if (consigne !== "" && consigne !== "document") {
       const iso = parseDate(consigne);
-      return iso ? formatDate(iso, ctx.profile.dateFormat) : "";
+      // Une date imposee illisible ne doit pas vider la zone en silence :
+      // Sage refuse la piece des que cette zone est vide, et le message ne
+      // dit pas d'ou vient le vide. La date du document reprend la main.
+      if (iso) return formatDate(iso, ctx.profile.dateFormat);
     }
     return ctx.invoice.date ? formatDate(ctx.invoice.date, ctx.profile.dateFormat) : "";
   },

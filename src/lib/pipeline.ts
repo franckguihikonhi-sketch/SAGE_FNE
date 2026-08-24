@@ -1,3 +1,4 @@
+import { parseDate } from "@/lib/core/date";
 import { Invoice } from "@/lib/core/model";
 import { toBase64 } from "@/lib/core/cp1252";
 import { detectMapping, ColumnMapping, missingRequiredFields } from "@/lib/fne/mapping";
@@ -205,6 +206,7 @@ export async function convert(
   // synthese par article n'aurait aucun sens.
   const articles = source.synthese ? [] : resumeArticles(invoices);
   const taxeDansLeFormat = porteLaTaxe(profile);
+  const parametres = { ...defaultParametres(), ...(options.parametres ?? {}) };
   const issues: Issue[] = [
     ...warnings.map((message) => ({ severity: "avertissement" as const, code: "LECTURE", message })),
     ...validateInvoices(invoices, validationOptions),
@@ -213,12 +215,13 @@ export async function convert(
     // est en realite un compte tiers fait echouer l'import dans tous les cas.
     ...controleArticles(articles, taxeDansLeFormat),
     ...controleReconstitutions(reconstitutions, taxeDansLeFormat),
+    ...controleDateLivraison(profile, parametres, invoices),
   ];
 
   const base = options.filenameBase ?? filename.replace(/\.[^.]+$/, "");
   const file = buildSageFile(invoices, profile, `${base}-sage`, {
     reglements: options.reglements ?? {},
-    parametres: { ...defaultParametres(), ...(options.parametres ?? {}) },
+    parametres,
   });
 
   return {
@@ -242,6 +245,64 @@ export async function convert(
     },
     profile: { id: profile.id, label: profile.label },
   };
+}
+
+/**
+ * La zone de date de livraison, quand le format en comporte une, ne supporte
+ * pas le vide : Sage refuse la piece par "Le champ Date livraison est
+ * incorrect a la ligne 1", sans dire d'ou vient le vide. Trois facons de la
+ * vider, et le controle les couvre toutes.
+ */
+function controleDateLivraison(
+  profile: SageImportProfile,
+  parametres: Record<string, string>,
+  invoices: Invoice[],
+): Issue[] {
+  const porteLaZone = [...profile.entete, ...profile.ligne, ...(profile.pied ?? [])].some(
+    (colonne) => colonne.source.kind === "token" && colonne.source.token === "document.dateLivraison",
+  );
+  if (!porteLaZone) return [];
+
+  const consigne = (parametres.dateLivraison ?? "").trim();
+  if (consigne === "vide") {
+    return [
+      {
+        severity: "erreur",
+        code: "DATE_LIVRAISON_VIDE",
+        message:
+          "Le reglage laisse la date de livraison vide alors que le format en comporte la zone. " +
+          "Sage refuse alors la piece : \"Le champ Date livraison est incorrect a la ligne 1\". " +
+          "Remettez le reglage sur \"Celle du document\".",
+      },
+    ];
+  }
+
+  if (consigne !== "" && consigne !== "document" && !parseDate(consigne)) {
+    return [
+      {
+        severity: "erreur",
+        code: "DATE_LIVRAISON_ILLISIBLE",
+        message:
+          `La date de livraison imposee ("${consigne}") n'est pas une date lisible : ` +
+          "la date du document a ete reprise. Attendu jj/mm/aaaa.",
+      },
+    ];
+  }
+
+  const sansDate = invoices.filter((invoice) => !invoice.date).length;
+  if (sansDate > 0) {
+    return [
+      {
+        severity: "erreur",
+        code: "DATE_LIVRAISON_VIDE",
+        message:
+          `${sansDate} piece(s) sans date : les zones de date du document et de livraison ` +
+          "resteront vides, et Sage refusera la piece.",
+      },
+    ];
+  }
+
+  return [];
 }
 
 /**
