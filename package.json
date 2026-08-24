@@ -2,38 +2,19 @@
   "name": "sage-fne",
   "version": "0.1.0",
   "private": true,
-  "description": "Transforme les exports de factures FNE (DGI Cote d'Ivoire) en fichier d'import Sage 100 Gestion Commerciale (format parametrable).",
+  "description": "Transforme les factures certifiees FNE (DGI Cote d'Ivoire) en fichier d'import Sage 100 Gestion Commerciale.",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "convert": "tsx scripts/convert.ts",
-    "build:web": "tsx scripts/build-web.ts",
-    "verify:web": "node scripts/verify-web.mjs",
-    "test:db": "bash scripts/test-db.sh"
+    "build": "tsx scripts/construire-page.ts",
+    "verify": "node scripts/verifier-page.mjs"
   },
-  "dependencies": {
-    "exceljs": "^4.4.0",
-    "iconv-lite": "^0.6.3",
-    "next": "^15.5.4",
-    "papaparse": "^5.5.3",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "zod": "^3.25.76"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^22.15.3",
-    "@types/papaparse": "^5.3.16",
-    "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0",
     "esbuild": "^0.25.0",
     "playwright": "^1.55.0",
-    "tailwindcss": "^4.1.13",
     "tsx": "^4.23.12",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

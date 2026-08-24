@@ -1,0 +1,417 @@
+<title>Passerelle FNE → Sage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+  :root {
+    --fond: #eef1f3;
+    --surface: #ffffff;
+    --creux: #f5f7f8;
+    --bord: #dbe1e5;
+    --bord-net: #c3ccd3;
+    --encre: #10171c;
+    --encre-douce: #5a6873;
+    --tampon: #0f6d63;
+    --tampon-voile: #e4f0ee;
+    --alerte: #a32b21;
+    --alerte-voile: #fbeae8;
+    --reserve: #8a5a06;
+    --reserve-voile: #fdf1dd;
+    --sur-tampon: #ffffff;
+    --rayon: 10px;
+    --ombre: 0 1px 2px rgba(16, 23, 28, .06), 0 8px 24px -18px rgba(16, 23, 28, .35);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fond: #0d1215;
+      --surface: #151d22;
+      --creux: #111a1f;
+      --bord: #26333a;
+      --bord-net: #3a4a53;
+      --encre: #e7edf0;
+      --encre-douce: #9aa9b3;
+      --tampon: #4fbfae;
+      --tampon-voile: #123430;
+      --alerte: #f0857a;
+      --alerte-voile: #351a18;
+      --reserve: #e0ab53;
+      --reserve-voile: #33260f;
+      --ombre: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px -18px rgba(0, 0, 0, .9);
+      --sur-tampon: #0d1215;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --fond: #0d1215;
+    --surface: #151d22;
+    --creux: #111a1f;
+    --bord: #26333a;
+    --bord-net: #3a4a53;
+    --encre: #e7edf0;
+    --encre-douce: #9aa9b3;
+    --tampon: #4fbfae;
+    --tampon-voile: #123430;
+    --alerte: #f0857a;
+    --alerte-voile: #351a18;
+    --reserve: #e0ab53;
+    --reserve-voile: #33260f;
+    --ombre: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px -18px rgba(0, 0, 0, .9);
+    --sur-tampon: #0d1215;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--fond);
+    color: var(--encre);
+    font: 15px/1.55 Archivo, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  /* Entete */
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+
+  h1 {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    margin: 0;
+  }
+
+  .flux {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--encre-douce);
+    border: 1px solid var(--bord);
+    border-radius: 999px;
+    padding: 2px 10px;
+    background: var(--surface);
+  }
+
+  .chapeau {
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 15.5px;
+    color: var(--encre-douce);
+    max-width: 64ch;
+    margin: 0 0 24px;
+  }
+
+  /* Colonnes */
+  .grille { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grille { grid-template-columns: minmax(0, 1fr); } }
+
+  .rail { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; }
+  @media (max-width: 900px) { .rail { position: static; } }
+
+  .bloc {
+    background: var(--surface);
+    border: 1px solid var(--bord);
+    border-radius: var(--rayon);
+    padding: 18px;
+    box-shadow: var(--ombre);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  h2 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--encre-douce);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .compte {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--creux);
+    border: 1px solid var(--bord);
+  }
+
+  /* Depot de fichier */
+  .depot {
+    border: 1.5px dashed var(--bord-net);
+    border-radius: var(--rayon);
+    background: var(--creux);
+    padding: 22px 16px;
+    text-align: center;
+    cursor: pointer;
+    display: block;
+    transition: border-color .15s, background .15s;
+  }
+
+  .depot:hover, .depot.survol { border-color: var(--tampon); background: var(--tampon-voile); }
+  .depot strong { display: block; font-size: 14.5px; }
+  .depot span { font-size: 12.5px; color: var(--encre-douce); }
+  .depot input { display: none; }
+
+  /* Formulaire */
+  .champ { display: flex; flex-direction: column; gap: 5px; }
+
+  .champ > label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--encre-douce);
+  }
+
+  input[type="text"], select, textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--bord-net);
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--encre);
+    font: inherit;
+    font-size: 14px;
+  }
+
+  textarea {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    resize: vertical;
+    min-height: 76px;
+  }
+
+  input:focus-visible, select:focus-visible, textarea:focus-visible,
+  button:focus-visible, .depot:focus-visible {
+    outline: 2px solid var(--tampon);
+    outline-offset: 1px;
+  }
+
+  .aide { font-size: 12.5px; color: var(--encre-douce); margin: 0; }
+  .aide code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; }
+
+  details summary {
+    font-size: 12.5px;
+    color: var(--encre-douce);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  details[open] summary { margin-bottom: 10px; }
+
+  /* Boutons */
+  button {
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    background: var(--tampon);
+    color: var(--sur-tampon);
+    cursor: pointer;
+  }
+
+  button.discret {
+    background: var(--surface);
+    color: var(--encre);
+    border-color: var(--bord-net);
+  }
+
+  button:disabled { opacity: .5; cursor: default; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Verdict */
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: var(--rayon);
+    border: 1px solid var(--bord);
+    background: var(--surface);
+    box-shadow: var(--ombre);
+  }
+
+  .verdict .pastille {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex: none;
+    background: var(--tampon);
+  }
+
+  .verdict.pret { border-color: var(--tampon); background: var(--tampon-voile); }
+  .verdict.bloque { border-color: var(--alerte); background: var(--alerte-voile); }
+  .verdict.bloque .pastille { background: var(--alerte); }
+  .verdict.reserve { border-color: var(--reserve); background: var(--reserve-voile); }
+  .verdict.reserve .pastille { background: var(--reserve); }
+  .verdict strong { font-size: 15px; }
+  .verdict span { color: var(--encre-douce); font-size: 13.5px; }
+
+  /* Chiffres */
+  .chiffres { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--bord); border-radius: 8px; overflow: hidden; }
+  .chiffre { background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+  .chiffre span { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--encre-douce); }
+  .chiffre strong { font-size: 19px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+  /* Tableaux */
+  .large { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--bord); white-space: nowrap; }
+  th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--encre-douce); font-weight: 600; }
+  td.nombre, th.nombre { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: none; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; }
+
+  td input[type="text"] {
+    padding: 5px 8px;
+    font-size: 13px;
+    min-width: 150px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  /* Anomalies */
+  ul.liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+  ul.liste li {
+    font-size: 13.5px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--bord-net);
+    background: var(--creux);
+  }
+
+  ul.liste li.erreur { border-left-color: var(--alerte); background: var(--alerte-voile); }
+  ul.liste li.attention { border-left-color: var(--reserve); background: var(--reserve-voile); }
+
+  /* Apercu du fichier */
+  pre.apercu {
+    margin: 0;
+    padding: 12px;
+    background: var(--creux);
+    border: 1px solid var(--bord);
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    white-space: pre;
+    max-height: 260px;
+  }
+
+  .attente { color: var(--encre-douce); font-family: "Source Serif 4", Georgia, serif; }
+
+  footer {
+    margin-top: 28px;
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 13.5px;
+    color: var(--encre-douce);
+    max-width: 72ch;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="page">
+  <header>
+    <h1>Passerelle FNE → Sage</h1>
+    <p class="flux">factures certifiées → documents des ventes</p>
+  </header>
+  <p class="chapeau">
+    Déposez vos factures FNE : la passerelle en tire le fichier d’import de votre dossier Sage,
+    quatorze zones tabulées, prêt pour <em>Fichier → Importer → Format paramétrable</em>. Tout se
+    passe sur ce poste, aucun fichier ne part sur un serveur.
+  </p>
+
+  <div class="grille">
+    <div class="rail">
+      <div class="bloc">
+        <label for="fichier" class="depot" id="depot" tabindex="0">
+          <strong>Choisir les factures</strong>
+          <span>PDF converti en texte, ou export JSON — ou glissez le fichier ici</span>
+          <input type="file" id="fichier" accept=".md,.txt,.json,.text">
+        </label>
+        <p class="aide" id="etat-fichier">Aucun fichier chargé.</p>
+      </div>
+
+      <div class="bloc">
+        <h2>Réglages du dossier</h2>
+
+        <div class="champ">
+          <label for="depotSage">Dépôt</label>
+          <input type="text" id="depotSage" placeholder="DEPÔT PRINCIPAL SOGEL">
+        </div>
+
+        <div class="champ">
+          <label for="clients">Comptes tiers</label>
+          <textarea id="clients" rows="5" placeholder="5011806N;PROSUMA&#10;COTE D'IVOIRE SUPERMARCHES;4111COCODYPALISAD"></textarea>
+          <p class="aide">Une ligne par client : son NCC ou son nom, puis le compte tiers Sage.</p>
+        </div>
+
+        <div class="champ">
+          <label for="compteDefaut">Compte par défaut</label>
+          <input type="text" id="compteDefaut" placeholder="4111DIVERS">
+          <p class="aide">Appliqué aux clients absents de la table. Vide : la conversion les signale.</p>
+        </div>
+
+        <div class="champ">
+          <label for="numeroPiece">Numéro de pièce</label>
+          <select id="numeroPiece">
+            <option value="vide">Laissé à Sage</option>
+            <option value="reference">Référence FNE</option>
+          </select>
+        </div>
+
+        <details>
+          <summary>Unités</summary>
+          <div class="champ">
+            <textarea id="unites" rows="4"></textarea>
+            <p class="aide">Unité imprimée sur la facture, puis celle du dossier Sage.</p>
+          </div>
+        </details>
+
+        <div class="actions">
+          <button type="button" class="discret" id="oublier">Réinitialiser</button>
+          <span class="aide" id="etat-reglages"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="resultat">
+      <div class="bloc">
+        <h2>Ce que fait la passerelle</h2>
+        <p class="aide">
+          <strong>Elle lit les factures telles que FNE les certifie.</strong> Référence d’article,
+          désignation, quantité, unité, taux de TVA et prélèvement AIRSI sont repris ligne à ligne.
+          Le prix unitaire est rétabli depuis le montant HT certifié, que le PDF arrondit au franc.
+        </p>
+        <p class="aide">
+          <strong>Elle écrit le format de votre dossier.</strong> Quatorze zones tabulées, encodage
+          Windows-1252, dates <code>jjmmaa</code>, virgule décimale — le format relevé sur
+          l’exemplaire que Sage accepte, et rejoué à chaque modification du code.
+        </p>
+        <p class="aide">
+          <strong>Elle contrôle avant d’écrire.</strong> Compte tiers manquant, date absente, écart
+          entre la somme des lignes et le total certifié : tout est dit ici, pas après le rejet.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Le format du dossier porte la taxe : le taux de chaque ligne est écrit dans le fichier, tel que
+    FNE l’a certifié. Une ligne soumise à la fois à la TVA et à l’AIRSI ne transporte que la TVA,
+    la zone étant unique.
+  </footer>
+</div>
+
+<script>/*BUNDLE*/</script>

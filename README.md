@@ -1,170 +1,76 @@
-# SAGE FNE
+# Passerelle FNE → Sage
 
-Convertisseur des exports de factures **FNE** (Facture Normalisée Électronique, DGI Côte d'Ivoire)
-vers un fichier d'import **Sage 100 Gestion Commerciale** (Fichier > Importer > *Format
-paramétrable*), afin de retrouver automatiquement les factures dans les documents des ventes.
+Transforme les factures certifiées sur la plateforme **FNE** (Facture Normalisée Électronique,
+DGI Côte d'Ivoire) en fichier d'import pour **Sage 100 Gestion commerciale**, format paramétrable.
 
-```
-Export FNE (JSON natif / Excel / CSV)
-        │
-        ├─ lecture : JSON natif lu directement, tableaux par détection de colonnes
-        ├─ modèle pivot (facture, client, lignes, taxes)
-        ├─ correspondance clients FNE → comptes tiers Sage
-        ├─ contrôles avant import (totaux, doublons, longueurs de zones)
-        │
-        └─→ fichier d'import Sage 100 (texte tabulé, Windows-1252, CRLF)
-```
+Tout le calcul se fait sur le poste : la page est un fichier HTML autonome, aucun fichier ne part
+sur un serveur.
 
-## État du projet
+## Ce qui entre
 
-Le côté FNE est **calé sur des exports réels** (un export JSON et un export tableur de 50 factures)
-et sur la documentation officielle *Procédure de certification des factures des entreprises par API*
-(DGI, mai 2025) : codes taxe, modes de paiement, types de facturation et structure des références
-sont conformes à la nomenclature publiée. Voir `docs/exports-fne.md`.
+| Source | Contenu | Remarque |
+| --- | --- | --- |
+| **Factures FNE en texte** | Le PDF des factures, converti en texte ou en Markdown | Source courante : c'est la seule sortie que FNE donne en nombre |
+| **Export JSON de FNE** | Le détail certifié, prix unitaires compris | Préférable quand la plateforme le donne : rien n'est déduit |
 
-Le côté Sage est calé lui aussi : le profil par défaut `sage100-import-export` **reproduit le format
-paramétrable du dossier client** (fichier `FORMAT IMPORT_EXPORT.egc` et fichier d'exemple réellement
-échangé avec Sage) — 15 zones tabulées, format à plat, dates `jjmmaa`, séparateur décimal virgule,
-encodage Windows-1252. Voir `docs/format-import-sage.md`.
+Le PDF arrondit le prix unitaire au franc — `1 077` pour `1 077,2763`. La passerelle le rétablit
+depuis le montant HT certifié et la quantité, si bien que le total recalculé par Sage est celui de
+la facture. L'export JSON, lui, porte le prix exact.
 
-**Le point d'attention restant est la TVA.** Ce format ne comporte aucune zone de taxe : Sage
-applique le régime de TVA de la fiche article, pas le code taxe FNE. Le connecteur le signale, en
-erreur bloquante dès qu'une facture sort du taux normal.
+## Ce qui sort
 
-### Quel export FNE utiliser
+Le format relevé sur l'exemplaire que le dossier importe sans difficulté : **quatorze zones
+tabulées**, encodage Windows-1252, fins de ligne CRLF, dates `jjmmaa`, virgule décimale.
 
-FNE propose trois exports. Le **PDF** est la facture certifiée, à lire et à archiver : ses montants
-sont arrondis au franc, il est refusé à l'import avec un message qui l'explique.
+| | Zone | | | Zone |
+| --- | --- | --- | --- | --- |
+| 1 | *(vide)* | | 8 | Référence article |
+| 2 | Date du document | | 9 | Désignation |
+| 3 | Dépôt | | 10 | Prix unitaire (6 décimales) |
+| 4 | Type de document | | 11 | Quantité (4 décimales) |
+| 5 | Numéro de pièce | | 12 | Unité |
+| 6 | Date de livraison | | 13 | Code taxe |
+| 7 | Compte tiers | | 14 | Taux de la taxe (4 décimales) |
 
-L'export **JSON** est le seul à contenir le détail des articles. L'export **tableur** ne porte que
-les entêtes : le connecteur reconstitue alors les lignes depuis les totaux. Une facture mélangeant
-plusieurs taux est retrouvée exactement — part taxable = total TVA ÷ 18 %, le reste étant exonéré —
-et reconstituée en deux lignes aux taux réels, totaux conservés.
+**Ce format porte la taxe.** Le taux de chaque ligne est écrit — 18, 9, 0, ou 1,5 pour l'AIRSI —
+tel que FNE l'a certifié. La fiche article Sage ne décide de rien.
 
-## Démarrage
+Aucune ligne d'entête, aucune ligne de clôture : un enregistrement par ligne d'article.
+
+## Ce qu'il faut renseigner
+
+Deux tables, gardées sur le poste d'une session à l'autre :
+
+- **Comptes tiers** — `NCC ou nom du client;compte Sage`. FNE nomme le client, Sage l'attend par
+  son compte. Les clients rencontrés sans correspondance sont présentés après conversion, avec une
+  case pour saisir leur compte.
+- **Unités** — `unité de la facture;unité Sage`, par exemple `CARTONS;CN`.
+
+Les **références d'article n'ont pas de table** : FNE est alimenté depuis le catalogue du dossier,
+les deux nomenclatures coïncident déjà.
+
+## Développement
 
 ```bash
 npm install
-npm run dev        # interface web sur http://localhost:3000
-npm test           # tests unitaires
-npm run typecheck
-npm run build
+npm test        # moteur : lecture, écriture, conversion
+npm run build   # assemble web/dist/passerelle-fne-sage.html
+npm run verify  # la page, dans un vrai navigateur
 ```
 
-### Conversion en ligne de commande
+Le contrôle qui compte est l'**aller-retour** (`tests/ecriture-sage.test.ts`) : un exemplaire du
+format que Sage accepte est relu, ses documents reconstruits, puis réécrits — le fichier produit
+doit ressortir octet pour octet.
 
-```bash
-npm run convert -- factures_20260811.json \
-  --profil=sage100-documents-ventes \
-  --clients=clients.csv \
-  --defaut=411DIVERS \
-  --sortie=import-sage.txt
-```
+## Structure
 
-`clients.csv` associe les clients FNE aux comptes tiers Sage, une ligne par client :
-
-```
-ncc;nom;compte Sage
-1234567 A;ETS KOUAME ET FILS;411KOUAME
-7654321 B;;411SID
-```
-
-Le NCC seul ou le nom seul suffit ; la colonne `compte Sage` est obligatoire.
-
-## Formats d'import disponibles
-
-| Identifiant | Description |
+| Fichier | Rôle |
 | --- | --- |
-| `sage100-documents-ventes` | Texte tabulé, un enregistrement d'entête `E` par facture suivi de ses lignes `L`. |
-| `sage100-ligne-a-plat` | Texte tabulé, une ligne par article avec les zones d'entête répétées. |
-| `sage100-csv-controle` | CSV point-virgule avec libellés, pour relire le résultat dans Excel avant l'import. |
-
-Ajouter un format revient à déclarer un profil dans `src/lib/sage/profile.ts` : aucun code à écrire,
-les zones sont décrites par des jetons (`document.numero`, `client.code`, `ligne.montantHT`, …).
-La liste complète des jetons est dans `src/lib/sage/tokens.ts`.
-
-## Contrôles effectués avant l'import
-
-| Code | Gravité | Contrôle |
-| --- | --- | --- |
-| `PIECE_DUPLIQUEE` | erreur | Numéro de pièce présent plusieurs fois |
-| `DATE_MANQUANTE` | erreur | Date absente ou illisible |
-| `COMPTE_TIERS_MANQUANT` | erreur | Client sans compte tiers Sage |
-| `FACTURE_SANS_LIGNE` | erreur | Facture sans ligne d'article |
-| `TAXE_ABSENTE_DU_FORMAT` | avertissement | Le format d'import ne transporte pas la TVA ; Sage appliquera celle de l'article |
-| `TAUX_TVA_NON_CONFORME` | erreur | Taux hors nomenclature FNE (18 / 9 / 0 %), typiquement une facture à plusieurs taux reconstituée depuis un export sans articles |
-| `PIECE_TROP_LONGUE` | avertissement | Numéro de pièce au-delà de la longueur Sage |
-| `DESIGNATION_TRONQUEE` | avertissement | Désignation au-delà de la longueur Sage |
-| `ECART_TOTAL_HT` / `ECART_TOTAL_TVA` | avertissement | Totaux déclarés ≠ totaux recalculés depuis les lignes |
-| `QUANTITE_NULLE` | avertissement | Ligne à quantité nulle |
-
-Le téléchargement du fichier est bloqué tant qu'il reste une erreur bloquante.
-
-## Organisation du code
-
-```
-src/lib/core/      modèle pivot + parseurs de montants et de dates (formats FR, séries Excel)
-src/lib/fne/       lecture des exports FNE (JSON natif + tableaux), nomenclature DGI, normalisation
-src/lib/sage/      profils d'import, jetons, écriture du fichier, correspondance clients
-src/lib/report/    contrôles avant import
-src/lib/pipeline.ts  chaîne complète : fichier FNE → fichier Sage
-src/app/           interface web (Next.js App Router) et API /api/convert
-scripts/convert.ts CLI
-supabase/          migrations SQL, stub d'authentification et tests d'isolation
-docs/              documentation fonctionnelle
-```
-
-`docs/exports-fne.md` décrit les deux exports FNE et la nomenclature DGI ;
-`docs/format-import-sage.md` explique comment aligner le fichier généré sur le paramétrage Sage ;
-`docs/mapping-fne.md` détaille la reconnaissance des colonnes des exports tableur.
-
-La conversion se fait **entièrement en mémoire** : aucun fichier n'est stocké côté serveur.
-
-## Version web autonome
-
-`npm run build:web` compile le moteur pour le navigateur et produit une page unique,
-`web/dist/passerelle-fne-sage.html`, qui embarque tout le convertisseur : dépôt du fichier,
-contrôles, synthèse par article et génération du fichier Sage se font entièrement côté client,
-aucun fichier n'est transmis.
-
-Le poste garde ses réglages d'une session à l'autre (`localStorage`) : format d'import, dépôt,
-souche, mode de numérotation, compte tiers par défaut, table de correspondance clients et modes de
-règlement. Les clients sans compte tiers ne sont pas listés comme des erreurs mais présentés comme
-un travail à faire — un champ par client, mémorisé pour les conversions suivantes. La table clients
-s'importe et s'exporte en CSV.
-
-`npm run verify:web` rejoue dans Chromium l'ensemble du parcours : conversion des deux formes
-d'export, refus du PDF, affectation des comptes tiers et persistance des réglages après
-rechargement.
-
-Cette page ne dépend d'aucun module Node : le lecteur Excel (ZIP + XML via `DecompressionStream`)
-et l'encodeur Windows-1252 sont écrits dans `src/lib/browser/` et `src/lib/core/cp1252.ts`. Le
-pipeline reçoit son lecteur en paramètre, ce qui lui permet de tourner à l'identique des deux côtés.
-
-## Base de données
-
-Les migrations Supabase sont dans `supabase/migrations/` : dossiers multi-société, correspondance
-clients partagée, historique des conversions et **détection des doublons** (une référence FNE ne
-peut entrer qu'une fois par dossier). Le détail des lignes d'articles n'est jamais stocké — seul
-l'entête des factures remonte. `npm run test:db` applique les migrations sur un PostgreSQL local et
-rejoue quinze contrôles d'isolation. Voir `docs/base-de-donnees.md`.
-
-La base n'est pas encore branchée à l'application : elle attend l'URL du projet et la clé `anon`.
-
-## Confidentialité
-
-Les exports FNE contiennent des données clients et, pour l'export JSON, la **clé API** de
-l'entreprise (`company.apiKey`). Le dossier `samples/` est exclu du dépôt par `.gitignore` : ne
-jamais y committer d'export réel. Les jeux de test de `tests/fixtures/` sont anonymisés.
-
-## Prochaines étapes
-
-- Faire confirmer par le client les zones 1, 6 et 14 du format (constantes reprises de l'échantillon).
-- Ajouter une zone de taxe au format d'import Sage pour porter le code taxe FNE.
-- Confirmer la sémantique du champ `discount` de FNE (pourcentage ou montant).
-- Interface de mappage manuel des colonnes non reconnues (l'API l'accepte déjà via
-  `mappingOverrides`).
-- Persistance des tables de correspondance (clients, articles, règlements), puis multi-société /
-  multi-utilisateur.
-- Packaging en application Windows installable (.exe), une fois le convertisseur validé en ligne.
-- Lecture directe depuis l'API FNE (`/external/invoices`) pour supprimer l'étape d'export manuel.
+| `src/modele.ts` | Ce qu'une facture doit porter, et rien de plus |
+| `src/lire-factures.ts` | Le texte des factures certifiées → factures |
+| `src/lire-json.ts` | L'export JSON de FNE → factures |
+| `src/comptes.ts` | Clients et unités : rapprochement avec le dossier |
+| `src/controles.ts` | Ce qui doit être vu avant l'import |
+| `src/ecrire-sage.ts` | Le fichier à quatorze zones |
+| `src/convertir.ts` | L'enchaînement, sans état |
+| `web/` | La page, et le script qui l'assemble |
