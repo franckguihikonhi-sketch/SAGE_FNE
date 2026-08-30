@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 39 tests
+dotnet test                                    # 43 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -132,10 +132,14 @@ SQL Server plafonne à 2 100 paramètres par commande.
 autres sont traduites. Un comptable veut voir tout ce qui cloche en une fois, pas le
 découvrir une erreur après l'autre.
 
-Les lignes d'un lot sont rattachées à leur entête par `DO_Piece` **et** `DO_Type` : filtrer
-sur le seul numéro ramènerait aussi les lignes d'un document d'un autre type portant le
-même numéro. La lecture d'une pièce isolée, elle, suit la spécification d'origine et filtre
-sur le domaine et le numéro seuls.
+Les lignes sont rattachées à leur entête par le domaine, `DO_Piece` **et** `DO_Type` :
+filtrer sur le seul numéro ramènerait aussi les lignes d'un document d'un autre type
+portant le même numéro — un bon de livraison 1219 en même temps que la facture 1219.
+
+**Une pièce isolée et un lot suivent la même règle** : `GetInvoiceLinesAsync` passe par la
+lecture de lot avec un critère d'une seule pièce. Une seule requête à maintenir, et pas
+deux comportements à réconcilier. Un test compare les deux textes SQL pour que cela le
+reste.
 
 ## Contrôles financiers
 

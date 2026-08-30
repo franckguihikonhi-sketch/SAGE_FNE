@@ -86,8 +86,9 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
     public Task<SageDocumentHeader?> GetInvoiceAsync(string piece, CancellationToken cancellation = default) =>
         Task.FromResult(Entetes.FirstOrDefault(entete => entete.Piece == piece));
 
+    /// <summary>Même chemin que le lot, comme dans le dépôt SQL.</summary>
     public Task<List<SageDocumentLine>> GetInvoiceLinesAsync(string piece, CancellationToken cancellation = default) =>
-        Task.FromResult(Lignes.Where(ligne => ligne.Piece == piece).ToList());
+        GetLinesAsync(InvoiceQuery.Piece(piece), cancellation);
 
     public Task<SageCustomer?> GetCustomerAsync(string ctNum, CancellationToken cancellation = default) =>
         Task.FromResult(Clients.FirstOrDefault(client => client.CtNum == ctNum));

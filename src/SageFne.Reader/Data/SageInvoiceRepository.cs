@@ -73,26 +73,14 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         return await lecteur.ReadAsync(cancellation) ? LireEntete(lecteur) : null;
     }
 
-    public async Task<List<SageDocumentLine>> GetInvoiceLinesAsync(
+    /// <remarks>
+    /// Passe par la lecture de lot : une seule règle de rattachement des
+    /// lignes à leur entête, pour une pièce comme pour cinquante.
+    /// </remarks>
+    public Task<List<SageDocumentLine>> GetInvoiceLinesAsync(
         string piece,
-        CancellationToken cancellation = default)
-    {
-        var sql = $"""
-            select
-            {ColonnesLignes}
-            from F_DOCLIGNE l
-            where l.DO_Domaine = @domaine
-              and l.DO_Piece = @piece
-            order by l.DL_Ligne
-            """;
-
-        await using var connexion = await OuvrirAsync(cancellation);
-        await using var commande = Commande(connexion, sql);
-        Ajouter(commande, "@domaine", DomaineVente);
-        Ajouter(commande, "@piece", piece);
-
-        return await LireLignesAsync(commande, cancellation);
-    }
+        CancellationToken cancellation = default) =>
+        GetLinesAsync(InvoiceQuery.Piece(piece), cancellation);
 
     public async Task<SageCustomer?> GetCustomerAsync(string ctNum, CancellationToken cancellation = default)
     {
@@ -155,29 +143,9 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
         foreach (var tranche in Tranches(query))
         {
-            // Les lignes se filtrent par leur entête : filtrer sur le seul
-            // numéro de pièce ramènerait aussi les lignes d'un document d'un
-            // autre type portant le même numéro.
             var criteres = new CritereSql("e");
-            var sql = $"""
-                select
-                {ColonnesLignes}
-                from F_DOCLIGNE l
-                where l.DO_Domaine = @domaine
-                  and exists (
-                        select 1
-                        from F_DOCENTETE e
-                        where e.DO_Domaine = l.DO_Domaine
-                          and e.DO_Type = l.DO_Type
-                          and e.DO_Piece = l.DO_Piece
-                          and e.DO_Type = @type
-                        {criteres.Where(tranche)}
-                  )
-                order by l.DO_Piece, l.DL_Ligne
-                """;
-
             await using var connexion = await OuvrirAsync(cancellation);
-            await using var commande = Commande(connexion, sql);
+            await using var commande = Commande(connexion, SqlLignes(criteres, tranche));
             Ajouter(commande, "@domaine", DomaineVente);
             Ajouter(commande, "@type", TypeFacture);
             criteres.Appliquer(commande, tranche);
@@ -247,6 +215,32 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     }
 
     // --- Plomberie ---------------------------------------------------------
+
+    /// <summary>
+    /// Requête des lignes d'un lot.
+    /// </summary>
+    /// <remarks>
+    /// Les lignes se rattachent à leur entête par le domaine, le numéro de
+    /// pièce <b>et le type</b> : filtrer sur le seul numéro ramènerait aussi
+    /// les lignes d'un document d'un autre type portant le même numéro — un
+    /// bon de livraison 1219 en même temps que la facture 1219.
+    /// </remarks>
+    internal static string SqlLignes(CritereSql criteres, InvoiceQuery query) => $"""
+        select
+        {ColonnesLignes}
+        from F_DOCLIGNE l
+        where l.DO_Domaine = @domaine
+          and exists (
+                select 1
+                from F_DOCENTETE e
+                where e.DO_Domaine = l.DO_Domaine
+                  and e.DO_Type = l.DO_Type
+                  and e.DO_Piece = l.DO_Piece
+                  and e.DO_Type = @type
+                {criteres.Where(query)}
+          )
+        order by l.DO_Piece, l.DL_Ligne
+        """;
 
     /// <summary>
     /// Découpe une liste de pièces en tranches lisibles d'une seule commande.
