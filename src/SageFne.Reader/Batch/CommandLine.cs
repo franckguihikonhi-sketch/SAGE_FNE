@@ -17,6 +17,8 @@ public sealed record CommandLine
     public string? Sortie { get; init; }
     /// <summary>Afficher le JSON de toutes les pièces, et pas seulement le résumé.</summary>
     public bool AfficherJson { get; init; }
+    /// <summary>Registre des certifications à consulter, à la place de celui configuré.</summary>
+    public string? Registre { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public static CommandLine Parse(string[] args)
@@ -27,6 +29,7 @@ public sealed record CommandLine
         DateTime? jusqua = null;
         var limite = 500;
         string? sortie = null;
+        string? registre = null;
         var afficherJson = false;
 
         for (var rang = 0; rang < args.Length; rang++)
@@ -51,6 +54,10 @@ public sealed record CommandLine
                     sortie = Valeur() ?? "";
                     if (sortie is "") erreurs.Add("--sortie attend un chemin de dossier.");
                     break;
+                case "--registre":
+                    registre = Valeur() ?? "";
+                    if (registre is "") erreurs.Add("--registre attend un chemin de fichier.");
+                    break;
                 case "--json":
                     afficherJson = true;
                     break;
@@ -71,6 +78,7 @@ public sealed record CommandLine
                 Limite = limite,
             },
             Sortie = sortie,
+            Registre = registre,
             AfficherJson = afficherJson,
             Erreurs = erreurs,
         };
@@ -95,6 +103,7 @@ public sealed record CommandLine
           --du, --au     période, bornes comprises
           --limite N     nombre maximal de pièces (500 par défaut)
           --sortie DOS   écrit un fichier JSON par pièce dans ce dossier
+          --registre F   registre des certifications à consulter
           --json         affiche le JSON de chaque pièce, pas seulement le résumé
         """;
 }

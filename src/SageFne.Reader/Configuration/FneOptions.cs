@@ -16,4 +16,11 @@ public sealed class FneOptions
     /// TVAC pour l'exonération conventionnelle.
     /// </summary>
     public string ExemptionCode { get; set; } = "TVAD";
+
+    /// <summary>
+    /// Fichier du registre des certifications. Vide : « certifications.json »
+    /// à côté de l'exécutable. Ce registre ne peut pas vivre dans Sage, dont
+    /// l'accès est en lecture seule.
+    /// </summary>
+    public string CertificationLedgerPath { get; set; } = "";
 }

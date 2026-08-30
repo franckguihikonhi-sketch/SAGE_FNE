@@ -1,8 +1,25 @@
+using SageFne.Reader.Certification;
 using SageFne.Reader.Models.Fne;
 using SageFne.Reader.Models.Sage;
 using SageFne.Reader.Validation;
 
 namespace SageFne.Reader.Batch;
+
+/// <summary>Ce qu'il reste à faire d'une pièce.</summary>
+public enum EtatPiece
+{
+    /// <summary>Traduite, contrôlée, prête à partir.</summary>
+    ACertifier,
+
+    /// <summary>Une erreur empêche de l'envoyer.</summary>
+    Bloquee,
+
+    /// <summary>Déjà certifiée et inchangée depuis : à ne pas renvoyer.</summary>
+    DejaCertifiee,
+
+    /// <summary>Certifiée, puis modifiée dans Sage : la certifiée ne dit plus le vrai.</summary>
+    ModifieeDepuis,
+}
 
 /// <summary>
 /// Ce qu'une pièce est devenue : sa facture FNE quand elle a pu être
@@ -16,8 +33,24 @@ public sealed class InvoiceConversion
     public FneInvoice? Invoice { get; init; }
     public required CheckReport Report { get; init; }
 
+    /// <summary>Empreinte de ce qui partirait, quand la traduction a abouti.</summary>
+    public string Empreinte { get; init; } = "";
+
+    /// <summary>Trace de certification, si le registre en connaît une.</summary>
+    public CertifiedInvoice? Certification { get; init; }
+
+    public EtatPiece Etat { get; init; }
+
     /// <summary>Vrai quand la pièce peut partir à la certification.</summary>
-    public bool EstPrete => Invoice is not null && !Report.ContientDesErreurs;
+    public bool EstPrete => Etat == EtatPiece.ACertifier;
+
+    public string LibelleEtat => Etat switch
+    {
+        EtatPiece.ACertifier => "à certifier",
+        EtatPiece.DejaCertifiee => "déjà certifiée",
+        EtatPiece.ModifieeDepuis => "modifiée depuis",
+        _ => "bloquée",
+    };
 
     public decimal TotalHT => Lines.Sum(ligne => ligne.MontantHT);
     public decimal TotalTTC => Lines.Sum(ligne => ligne.MontantTTC);
@@ -32,8 +65,12 @@ public sealed class InvoiceBatch
     public required IReadOnlyList<Constat> Constats { get; init; }
 
     public int Total => Conversions.Count;
-    public int Pretes => Conversions.Count(conversion => conversion.EstPrete);
-    public int Bloquees => Total - Pretes;
+    public int ACertifier => Compte(EtatPiece.ACertifier);
+    public int Bloquees => Compte(EtatPiece.Bloquee);
+    public int DejaCertifiees => Compte(EtatPiece.DejaCertifiee);
+    public int ModifieesDepuis => Compte(EtatPiece.ModifieeDepuis);
+
+    private int Compte(EtatPiece etat) => Conversions.Count(conversion => conversion.Etat == etat);
     public decimal TotalHT => Conversions.Sum(conversion => conversion.TotalHT);
     public decimal TotalTTC => Conversions.Sum(conversion => conversion.TotalTTC);
     public int Lignes => Conversions.Sum(conversion => conversion.Lines.Count);

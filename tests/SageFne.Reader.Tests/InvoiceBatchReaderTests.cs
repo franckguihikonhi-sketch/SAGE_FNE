@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using SageFne.Reader.Batch;
+using SageFne.Reader.Certification;
 using SageFne.Reader.Configuration;
 using SageFne.Reader.Data;
 using SageFne.Reader.Mapping;
@@ -101,10 +102,38 @@ public class InvoiceBatchReaderTests
         Identifiant = ncc,
     };
 
-    private static InvoiceBatchReader Lecteur(ISageInvoiceRepository depot)
+    /// <summary>Registre d'essai qui compte ses lectures.</summary>
+    internal sealed class RegistreCompteur : ICertificationLedger
+    {
+        public int Lectures { get; private set; }
+        public Dictionary<string, CertifiedInvoice> Entrees { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> pieces,
+            CancellationToken ct = default)
+        {
+            Lectures++;
+            return Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                pieces.Where(Entrees.ContainsKey).ToDictionary(piece => piece, piece => Entrees[piece]));
+        }
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            Entrees[certification.Piece] = certification;
+            return Task.CompletedTask;
+        }
+    }
+
+    private static InvoiceBatchReader Lecteur(
+        ISageInvoiceRepository depot,
+        ICertificationLedger? registre = null)
     {
         var options = Options.Create(new FneOptions { Template = "B2B", PaymentMethod = "deferred" });
-        return new InvoiceBatchReader(depot, new FneInvoiceMapper(options), options);
+        return new InvoiceBatchReader(
+            depot,
+            new FneInvoiceMapper(options),
+            registre ?? new RegistreCompteur(),
+            options);
     }
 
     private static DepotCompteur DepotDeTrois() => new()
@@ -164,7 +193,7 @@ public class InvoiceBatchReaderTests
         var lot = await Lecteur(depot).ReadAsync(new InvoiceQuery());
 
         Assert.Equal(3, lot.Total);
-        Assert.Equal(2, lot.Pretes);
+        Assert.Equal(2, lot.ACertifier);
         Assert.Equal(1, lot.Bloquees);
         Assert.Contains(lot.Conversions[1].Report.Constats, constat => constat.Code == "NCC_MANQUANT");
         // Les deux autres sont bien traduites.
@@ -182,7 +211,7 @@ public class InvoiceBatchReaderTests
 
         Assert.Null(lot.Conversions[1].Invoice);
         Assert.Contains(lot.Conversions[1].Report.Constats, constat => constat.Code == "CLIENT_INTROUVABLE");
-        Assert.Equal(2, lot.Pretes);
+        Assert.Equal(2, lot.ACertifier);
     }
 
     [Fact]

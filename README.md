@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 43 tests
+dotnet test                                    # 53 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -34,6 +34,7 @@ dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
 | `--du`, `--au` | Période, **bornes comprises** — « au 31 décembre » inclut les pièces datées du 31 à 23 h |
 | `--limite N` | Nombre maximal de pièces, 500 par défaut |
 | `--sortie DOSSIER` | Écrit un fichier JSON par pièce |
+| `--registre F` | Registre des certifications à consulter |
 | `--json` | Affiche le JSON de chaque pièce, et pas seulement le résumé |
 
 Une seule pièce demandée : son JSON s'affiche. Un lot : le résumé s'affiche, et le JSON
@@ -117,6 +118,46 @@ Une TVA n'est jamais inventée. Un taux positif que la nomenclature ne connaît 
 par exemple — n'est pas une exonération : la ligne ne part **ni** avec ce taux, **ni** en
 `TVAD`, et le contrôle le signale.
 
+## Les pièces déjà certifiées
+
+Une facture envoyée deux fois à la DGI, c'est un doublon qui ne se rattrape pas. Le lot
+doit donc savoir ce qui est déjà parti.
+
+**Cette information ne peut pas vivre dans Sage** : la base y est en lecture seule, et
+aucune zone n'y est prévue pour une référence FNE. Elle vit dans un **registre à nous**,
+un fichier JSON à côté de l'application (`Fne:CertificationLedgerPath`, ou `--registre`).
+
+Chaque pièce y est reconnue par son numéro **et par l'empreinte de ce qui a été envoyé** —
+un SHA-256 du corps de requête. D'où quatre états, et non deux :
+
+| État | Ce que ça veut dire |
+| --- | --- |
+| **à certifier** | Inconnue du registre, traduite et contrôlée : elle peut partir |
+| **déjà certifiée** | Dans le registre, empreinte identique : ne pas renvoyer |
+| **modifiée depuis** | Dans le registre, empreinte différente : Sage a changé après la certification |
+| **bloquée** | Une erreur empêche de la traduire |
+
+Le troisième état est le plus important. Une pièce certifiée puis modifiée dans Sage veut
+dire que **la facture remise au client ne correspond plus au document** : il faut sans
+doute un avoir puis une nouvelle facture. Ce n'est pas à l'outil d'en décider, mais c'est
+à lui de le voir — il le signale en erreur et ne renvoie rien.
+
+Seules les pièces « à certifier » sont publiées par `--json` et `--sortie`. Les autres
+apparaissent au résumé, avec leur raison.
+
+L'empreinte porte sur le **corps de requête**, pas sur les champs Sage : une modification
+qui ne change rien à ce qui part — un champ que le mapping n'utilise pas — ne déclenche
+pas d'alerte inutile.
+
+Le registre s'écrit par fichier temporaire puis renommage : une coupure en plein
+enregistrement laisse l'ancien registre intact plutôt qu'un fichier tronqué. Un registre
+illisible est signalé et traité comme vide : mieux vaut proposer de recertifier, ce que
+l'exploitant verra, qu'interrompre le traitement.
+
+> Rien n'inscrit encore de certification : l'envoi n'est pas écrit. `RecordAsync` existe et
+> est testé, il sera appelé à l'étape suivante. Le dry run hors base marque deux pièces
+> lui-même, pour montrer les états.
+
 ## Un lot, trois lectures
 
 Lire cinquante factures ne fait pas cent cinquante allers-retours vers SQL Server, mais
@@ -175,6 +216,8 @@ SageFne.sln
 │   ├── appsettings.Development.json     réglages du poste (jamais de mot de passe)
 │   ├── Batch/                           InvoiceBatchReader, InvoiceConversion,
 │   │                                    InvoiceBatch, CommandLine
+│   ├── Certification/                   ICertificationLedger, JsonCertificationLedger,
+│   │                                    CertifiedInvoice, InvoiceFingerprint
 │   ├── Configuration/FneOptions.cs
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
 │   │                                    SageCustomer, SageTax
@@ -191,8 +234,8 @@ SageFne.sln
 ## Prochaines étapes, pas encore faites
 
 - Types de document : seul `DO_Type = 6` est accepté. Les autres restent à confirmer.
-- Pièces déjà certifiées : rien ne les distingue encore, un lot les reprendrait.
 - Remises : lire `DL_Remise0N_REM_Type` pour interpréter la valeur.
 - `pointOfSale` et `establishment` : à renseigner dans `appsettings.json`.
 - Mode de règlement : figé à `deferred`, faute de source dans Sage.
-- L'envoi vers `/external/invoices/sign` n'est pas écrit.
+- L'envoi vers `/external/invoices/sign` n'est pas écrit — et avec lui, l'inscription au
+  registre des certifications.

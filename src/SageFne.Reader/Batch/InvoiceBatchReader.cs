@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using SageFne.Reader.Configuration;
+using SageFne.Reader.Certification;
 using SageFne.Reader.Data;
 using SageFne.Reader.Mapping;
 using SageFne.Reader.Models.Sage;
@@ -23,6 +24,7 @@ namespace SageFne.Reader.Batch;
 public sealed class InvoiceBatchReader(
     ISageInvoiceRepository repository,
     IFneInvoiceMapper mapper,
+    ICertificationLedger ledger,
     IOptions<FneOptions> options)
 {
     private readonly FneOptions _options = options.Value;
@@ -57,10 +59,13 @@ public sealed class InvoiceBatchReader(
         var clients = (await repository.GetCustomersAsync(comptes, cancellation))
             .ToDictionary(client => client.CtNum, StringComparer.OrdinalIgnoreCase);
 
+        // Le registre des certifications en une lecture lui aussi.
+        var deja = await ledger.LookupAsync(entetes.Select(entete => entete.Piece).ToList(), cancellation);
+
         var conversions = new List<InvoiceConversion>(entetes.Count);
         foreach (var entete in entetes)
         {
-            conversions.Add(Convertir(entete, parPiece, clients));
+            conversions.Add(Convertir(entete, parPiece, clients, deja));
         }
 
         return new InvoiceBatch { Conversions = conversions, Constats = constats.Constats };
@@ -69,7 +74,8 @@ public sealed class InvoiceBatchReader(
     private InvoiceConversion Convertir(
         SageDocumentHeader entete,
         IReadOnlyDictionary<string, List<SageDocumentLine>> parPiece,
-        IReadOnlyDictionary<string, SageCustomer> clients)
+        IReadOnlyDictionary<string, SageCustomer> clients,
+        IReadOnlyDictionary<string, CertifiedInvoice> deja)
     {
         var rapport = new CheckReport();
         var lignes = parPiece.TryGetValue(entete.Piece, out var trouvees) ? trouvees : [];
@@ -85,6 +91,10 @@ public sealed class InvoiceBatchReader(
             ? mapper.Map(entete, lignes, client, rapport)
             : null;
 
+        var empreinte = facture is null ? "" : InvoiceFingerprint.Compute(facture);
+        deja.TryGetValue(entete.Piece, out var certification);
+        var etat = Etat(entete, facture, rapport, empreinte, certification);
+
         return new InvoiceConversion
         {
             Header = entete,
@@ -92,6 +102,49 @@ public sealed class InvoiceBatchReader(
             Lines = lignes,
             Invoice = facture,
             Report = rapport,
+            Empreinte = empreinte,
+            Certification = certification,
+            Etat = etat,
         };
+    }
+
+    /// <summary>
+    /// Une pièce déjà certifiée ne se renvoie pas ; une pièce certifiée puis
+    /// modifiée ne se tait pas non plus. C'est l'empreinte du corps envoyé qui
+    /// les sépare : ce que la DGI a certifié contre ce que Sage contient
+    /// aujourd'hui.
+    /// </summary>
+    private static EtatPiece Etat(
+        SageDocumentHeader entete,
+        Models.Fne.FneInvoice? facture,
+        CheckReport rapport,
+        string empreinte,
+        CertifiedInvoice? certification)
+    {
+        if (certification is null)
+        {
+            return facture is not null && !rapport.ContientDesErreurs ? EtatPiece.ACertifier : EtatPiece.Bloquee;
+        }
+
+        var certifieeLe = certification.CertifieeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm");
+
+        if (certification.Empreinte == empreinte && empreinte != "")
+        {
+            rapport.Avertir(
+                "DEJA_CERTIFIEE",
+                $"Pièce {entete.Piece} certifiée le {certifieeLe}" +
+                $"{(certification.ReferenceFne == "" ? "" : $" sous {certification.ReferenceFne}")} : " +
+                "elle n'a pas changé depuis et ne doit pas être renvoyée.");
+            return EtatPiece.DejaCertifiee;
+        }
+
+        // Certifiée, mais le corps a changé : la facture remise au client ne
+        // correspond plus au document. Ce n'est pas à l'outil de trancher.
+        rapport.Erreur(
+            "MODIFIEE_APRES_CERTIFICATION",
+            $"Pièce {entete.Piece} certifiée le {certifieeLe}, puis modifiée dans Sage. " +
+            "La facture certifiée ne correspond plus au document : un avoir puis une nouvelle " +
+            "facture sont sans doute nécessaires. Rien n'est renvoyé.");
+        return EtatPiece.ModifieeDepuis;
     }
 }
