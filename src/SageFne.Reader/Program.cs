@@ -178,8 +178,10 @@ foreach (var conversion in lot.Conversions)
 Console.WriteLine($"  {new string('─', 90)}");
 Console.WriteLine(
     $"  {Pluriel(lot.Total, "pièce")}, {Pluriel(lot.Lignes, "ligne")}, {Somme(lot.TotalHT)} HT — " +
-    $"{Pluriel(lot.ACertifier, "à certifier")}, {Pluriel(lot.DejaCertifiees, "déjà certifiée")}, " +
-    $"{Pluriel(lot.ModifieesDepuis, "modifiée depuis")}, {Pluriel(lot.Bloquees, "bloquée")}.");
+    $"{Pluriel(lot.ACertifier, "à certifier", "à certifier")}, " +
+    $"{Pluriel(lot.DejaCertifiees, "déjà certifiée")}, " +
+    $"{Pluriel(lot.ModifieesDepuis, "modifiée depuis", "modifiées depuis")}, " +
+    $"{Pluriel(lot.Bloquees, "bloquée")}.");
 
 var constatsDuLot = lot.Constats
     .Select(constat => (Piece: "", Constat: constat))
@@ -253,7 +255,13 @@ static bool EstRenseignee(string chaine) =>
     && !chaine.Contains("SERVEUR_SQL", StringComparison.OrdinalIgnoreCase)
     && !chaine.Contains("MOT_DE_PASSE", StringComparison.OrdinalIgnoreCase);
 
-static string Pluriel(int nombre, string mot) => $"{nombre} {mot}{(nombre > 1 ? "s" : "")}";
+/// <summary>
+/// Accord en nombre. Le pluriel par défaut ajoute un « s », ce qui suffit pour
+/// « pièce » ou « ligne » mais pas pour un état comme « à certifier », qui est
+/// invariable, ni pour « modifiée depuis », dont seul l'adjectif s'accorde.
+/// </summary>
+static string Pluriel(int nombre, string singulier, string? pluriel = null) =>
+    $"{nombre} {(nombre > 1 ? pluriel ?? singulier + "s" : singulier)}";
 
 /// <summary>Bornes de dates d'un type, ou un tiret quand le dossier n'en a pas.</summary>
 static string Periode(DateTime? premiere, DateTime? derniere) =>
