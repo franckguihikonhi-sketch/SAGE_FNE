@@ -53,6 +53,7 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         Entete("1220", new DateTime(2025, 12, 4), "4111DEMOSA", totalHT: 129273m, totalTTC: 152542.14m),
         Entete("1221", new DateTime(2025, 12, 5), "4111DEMOSA", totalHT: 200000m, totalTTC: 221000m),
         Entete("1222", new DateTime(2025, 12, 8), "4111SANSNCC", totalHT: 50000m, totalTTC: 50750m),
+        Entete("1223", new DateTime(2025, 12, 9), "4111DEMOSA", totalHT: 54000m, totalTTC: 63720m),
     ];
 
     private static readonly SageDocumentLine[] Lignes =
@@ -74,6 +75,15 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         // Client sans NCC : la pièce doit être écartée, pas le lot.
         Ligne("1222", 1, "25MK033", "Maquereau 12 kg", 5m, 10000m, "CN",
             montantHT: 50000m, montantTTC: 50750m, taxe2: 1.5m, code2: "AIRSI"),
+
+        // Les deux formes de remise, pour que le prix net envoyé se vérifie :
+        // 10 % sur la première ligne, 200 F par unité sur la seconde.
+        Ligne("1223", 1, "6FF001", "Frites 7 mm - carton", 10m, 5000m, "SAC",
+            montantHT: 45000m, montantTTC: 53100m, taxe1: 18m, code1: "TVA",
+            remise1: 10m, remise1Type: SageRemise.Pourcentage),
+        Ligne("1223", 2, "6FF002", "Frites 9 mm - carton", 5m, 2000m, "SAC",
+            montantHT: 9000m, montantTTC: 10620m, taxe1: 18m, code1: "TVA",
+            remise1: 200m, remise1Type: SageRemise.Montant),
     ];
 
     /// <summary>
@@ -226,7 +236,9 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         decimal taxe1 = 0m,
         string code1 = "",
         decimal taxe2 = 0m,
-        string code2 = "") => new()
+        string code2 = "",
+        decimal remise1 = 0m,
+        short remise1Type = SageRemise.Pourcentage) => new()
     {
         Domaine = 0,
         Type = 6,
@@ -245,6 +257,8 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         CodeTaxe1 = code1,
         Taxe2 = taxe2,
         CodeTaxe2 = code2,
+        Remise1 = remise1,
+        Remise1Type = remise1Type,
         DocType = 6,
     };
 }

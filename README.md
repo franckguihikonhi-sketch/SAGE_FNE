@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 61 tests
+dotnet test                                    # 69 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -123,6 +123,37 @@ garantit que la TVA restera en position 1 et l'AIRSI en position 2.
 Une TVA n'est jamais inventée. Un taux positif que la nomenclature ne connaît pas — 12 %,
 par exemple — n'est pas une exonération : la ligne ne part **ni** avec ce taux, **ni** en
 `TVAD`, et le contrôle le signale.
+
+## Les remises
+
+FNE reçoit un prix unitaire et une quantité, puis fait la multiplication. Envoyer le prix
+**brut** d'une ligne remisée ferait donc certifier plus que ce que le client a payé — un
+faux qui ne se corrige que par un avoir.
+
+Sage porte trois remises en cascade par ligne, chacune avec sa valeur
+(`DL_Remise0NREM_Valeur`) et son type (`DL_Remise0NREM_Type` : 0 pour un pourcentage,
+1 pour un montant). **La valeur seule est ambiguë** : sur une ligne à 2 000, « 200 » vaut
+1 800 si c'est un montant et 1 980 si c'est un pourcentage.
+
+Le prix envoyé n'est pas recalculé depuis ces champs : il est **déduit de
+`DL_MontantHT`**, le net que Sage a lui-même calculé, divisé par la quantité. Ce chiffre
+est exact quelle que soit la lecture du type.
+
+Le recalcul en cascade sert alors de **contrôle** : quand il retrouve le net de Sage, la
+lecture des types est confirmée et le dry run l'écrit (`REMISE_APPLIQUEE`). Quand il tombe
+sur autre chose, c'est notre lecture qui est fausse — le prix de Sage part quand même,
+mais le constat `REMISE_NON_CONCORDANTE` le signale.
+
+```
+1223  [à noter] REMISE_APPLIQUEE — ligne 1 : remise 10 % sur 5000 —
+      prix net 4500 envoyé, conforme au montant calculé par Sage.
+```
+
+Le champ `discount` de FNE reste à 0, la remise étant déjà dans le prix. À confirmer sur
+la documentation DGI : si `discount` doit porter la remise pour l'afficher sur la facture
+certifiée, c'est le mapping qui changera, pas le total.
+
+Une remise portée par l'**entête** (`DO_Remise`) n'est pas encore lue.
 
 ## Les pièces déjà certifiées
 
@@ -260,7 +291,8 @@ SageFne.sln
 │   ├── Data/                            ISageInvoiceRepository, SageInvoiceRepository,
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
 │   │                                    CritereSql, ReadOnlyGuard
-│   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper, TaxMapping
+│   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,
+│   │                                    TaxMapping, RemiseMapping
 │   └── Validation/                      InvoiceValidator, FinancialChecks, CheckReport
 └── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,
                                         ligne de commande, garde-fou SQL
@@ -270,8 +302,8 @@ SageFne.sln
 
 - Types de document : seul `DO_Type = 6` est traité. `doctypes` montre ce que le dossier
   utilise réellement ; les autres types restent à confirmer avant d'être acceptés.
-- Remises : lire `DL_Remise0N_REM_Type` pour interpréter la valeur.
 - `pointOfSale` et `establishment` : à renseigner dans `appsettings.json`.
 - Mode de règlement : figé à `deferred`, faute de source dans Sage.
+- Remise d'entête (`DO_Remise`) : les remises de ligne sont lues, celle du document non.
 - L'envoi vers `/external/invoices/sign` n'est pas écrit — et avec lui, l'inscription au
   registre des certifications.

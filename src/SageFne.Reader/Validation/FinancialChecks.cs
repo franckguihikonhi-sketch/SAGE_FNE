@@ -22,30 +22,30 @@ public static class FinancialChecks
         foreach (var ligne in lignes)
         {
             var ou = $"ligne {ligne.Ligne}";
-            var brut = ligne.Quantite * ligne.PrixUnitaire;
-            var remises = ligne.Remise1 != 0m || ligne.Remise2 != 0m || ligne.Remise3 != 0m;
+            var remise = RemiseMapping.Read(ligne);
+            var brut = ligne.Quantite * remise.PrixUnitaireNet;
+            var ecart = brut - ligne.MontantHT;
 
-            if (remises)
+            if (Math.Abs(ecart) > Tolerance)
             {
-                // Sage range le type de remise (pourcentage ou valeur) dans
-                // DL_Remise0N_REM_Type, que nous ne lisons pas encore : le
-                // contrôle serait faux une fois sur deux. On le dit plutôt que
-                // de valider à tort.
+                var detail = remise.Remisee
+                    ? $" (prix net après remise {remise.Description})"
+                    : "";
                 rapport.Avertir(
-                    "REMISE_NON_INTERPRETEE",
-                    $"{ou} : remises {ligne.Remise1}/{ligne.Remise2}/{ligne.Remise3} présentes. " +
-                    "Le type de remise (% ou valeur) n'est pas encore lu : contrôle du HT non concluant.");
+                    "ECART_HT",
+                    $"{ou} : {ligne.Quantite} x {remise.PrixUnitaireNet}{detail} = {brut}, " +
+                    $"mais DL_MontantHT vaut {ligne.MontantHT} (écart de {ecart}).");
             }
-            else
+
+            // Une remise dont le recalcul concorde avec le net de Sage confirme
+            // notre lecture des types. On le note : c'est ce qui permettra de
+            // cesser de s'en méfier une fois vu sur de vraies pièces.
+            if (remise.Remisee && remise.Concordante)
             {
-                var ecart = brut - ligne.MontantHT;
-                if (Math.Abs(ecart) > Tolerance)
-                {
-                    rapport.Avertir(
-                        "ECART_HT",
-                        $"{ou} : {ligne.Quantite} x {ligne.PrixUnitaire} = {brut}, " +
-                        $"mais DL_MontantHT vaut {ligne.MontantHT} (écart de {ecart}).");
-                }
+                rapport.Avertir(
+                    "REMISE_APPLIQUEE",
+                    $"{ou} : remise {remise.Description} sur {ligne.PrixUnitaire} — " +
+                    $"prix net {remise.PrixUnitaireNet} envoyé, conforme au montant calculé par Sage.");
             }
 
             var attenduTTC = ligne.MontantHT * (1m + TaxMapping.TauxCumule(ligne) / 100m);

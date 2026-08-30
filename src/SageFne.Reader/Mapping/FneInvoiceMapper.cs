@@ -42,6 +42,12 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
                     $"ligne {ligne.Ligne} : aucun code de taxe FNE n'a pu être établi.");
             }
 
+            var remise = RemiseMapping.Read(ligne);
+            foreach (var avertissement in remise.Avertissements)
+            {
+                report?.Avertir("REMISE_NON_CONCORDANTE", $"ligne {ligne.Ligne} : {avertissement}");
+            }
+
             items.Add(new FneInvoiceItem
             {
                 Taxes = taxes.Taxes,
@@ -49,8 +55,12 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
                 Reference = ligne.ArticleReference,
                 Description = ligne.Designation,
                 Quantity = ligne.Quantite,
-                // FNE attend le prix unitaire HT, pas le montant de la ligne.
-                Amount = ligne.PrixUnitaire,
+                // FNE attend le prix unitaire HT, pas le montant de la ligne, et
+                // il le multiplie par la quantité. La remise est donc déduite du
+                // prix plutôt que déclarée à part : le total certifié est celui
+                // que le client a payé, sans dépendre de ce que FNE entend par
+                // « discount » — un point à confirmer sur la documentation DGI.
+                Amount = remise.PrixUnitaireNet,
                 Discount = 0m,
                 MeasurementUnit = ligne.Unite,
             });

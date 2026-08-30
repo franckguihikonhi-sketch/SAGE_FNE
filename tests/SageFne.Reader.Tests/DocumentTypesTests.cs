@@ -84,7 +84,7 @@ public class DocumentTypesTests
 
         var factures = types.Single(type => type.Type == 6);
         Assert.Equal("Facture", factures.LibelleUsuel);
-        Assert.Equal(4, factures.Nombre);
+        Assert.Equal(5, factures.Nombre);
         Assert.All(types, type => Assert.True(type.Exemples.Count <= 5));
         Assert.All(types, type => Assert.True(type.Exemples.Count <= type.Nombre));
     }

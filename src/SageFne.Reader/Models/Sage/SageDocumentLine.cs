@@ -26,9 +26,24 @@ public sealed class SageDocumentLine
     public string Unite { get; init; } = "";
     public decimal QuantiteUnite { get; init; }
 
+    /// <summary>
+    /// Les trois remises en cascade de Sage. La valeur seule ne dit rien : son
+    /// type (pourcentage ou montant) vit dans DL_Remise0NREM_Type.
+    /// </summary>
     public decimal Remise1 { get; init; }
+    public short Remise1Type { get; init; }
     public decimal Remise2 { get; init; }
+    public short Remise2Type { get; init; }
     public decimal Remise3 { get; init; }
+    public short Remise3Type { get; init; }
+
+    /// <summary>Les trois remises, dans l'ordre où Sage les applique.</summary>
+    public IEnumerable<SageRemise> Remises()
+    {
+        yield return new SageRemise(1, Remise1, Remise1Type);
+        yield return new SageRemise(2, Remise2, Remise2Type);
+        yield return new SageRemise(3, Remise3, Remise3Type);
+    }
 
     public decimal Taxe1 { get; init; }
     public string CodeTaxe1 { get; init; } = "";
