@@ -2,6 +2,16 @@ using SageFne.Reader.Data;
 
 namespace SageFne.Reader.Batch;
 
+/// <summary>Ce que la ligne de commande demande de faire.</summary>
+public enum Verbe
+{
+    /// <summary>Lire un lot de factures et le traduire au format FNE.</summary>
+    DryRun,
+
+    /// <summary>Inventorier les types de documents du dossier. Lecture seule.</summary>
+    TypesDocuments,
+}
+
 /// <summary>
 /// Lecture des arguments du dry run.
 /// </summary>
@@ -12,6 +22,7 @@ namespace SageFne.Reader.Batch;
 /// </remarks>
 public sealed record CommandLine
 {
+    public Verbe Verbe { get; init; } = Verbe.DryRun;
     public InvoiceQuery Query { get; init; } = new();
     /// <summary>Dossier où écrire un fichier JSON par pièce.</summary>
     public string? Sortie { get; init; }
@@ -31,6 +42,7 @@ public sealed record CommandLine
         string? sortie = null;
         string? registre = null;
         var afficherJson = false;
+        var verbe = Verbe.DryRun;
 
         for (var rang = 0; rang < args.Length; rang++)
         {
@@ -61,6 +73,9 @@ public sealed record CommandLine
                 case "--json":
                     afficherJson = true;
                     break;
+                case "doctypes":
+                    verbe = Verbe.TypesDocuments;
+                    break;
                 default:
                     if (argument.StartsWith('-')) erreurs.Add($"Option inconnue : {argument}");
                     else pieces.Add(argument);
@@ -70,6 +85,7 @@ public sealed record CommandLine
 
         return new CommandLine
         {
+            Verbe = verbe,
             Query = new InvoiceQuery
             {
                 Pieces = pieces,
@@ -98,6 +114,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- 1219 1220 1221      plusieurs pièces
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --au 2025-12-31
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
+          dotnet run --project src/SageFne.Reader -- doctypes            inventaire des types de documents
 
         Options :
           --du, --au     période, bornes comprises

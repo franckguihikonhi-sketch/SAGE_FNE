@@ -36,4 +36,15 @@ public interface ISageInvoiceRepository
 
     /// <summary>Paramétrage des taxes du dossier, pour information.</summary>
     Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Inventaire des types de documents présents dans le domaine des ventes.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostic : quels DO_Type ce dossier utilise, combien de documents
+    /// chacun porte, et quelques exemplaires pour juger sur pièce.
+    /// </remarks>
+    Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(
+        int exemplesParType = 5,
+        CancellationToken cancellation = default);
 }

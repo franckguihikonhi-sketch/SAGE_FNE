@@ -70,6 +70,65 @@ else
 }
 
 using var hote = builder.Build();
+
+// Diagnostic : inventaire des types de documents du domaine des ventes. Aucune
+// conversion, aucun registre, rien d'écrit — deux SELECT et un tableau.
+if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
+{
+    var depot = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+    var types = await depot.GetDocumentTypesAsync();
+
+    Titre("Types de documents — F_DOCENTETE, DO_Domaine = 0 (ventes)");
+    Console.WriteLine(connexionConfiguree
+        ? "Source : base Sage (SQL Server), en lecture seule."
+        : """
+          Source : jeu d'essai hors base. Aucune chaîne de connexion n'est
+          renseignée : voir README, « Où renseigner la connexion SQL ». Les
+          chiffres ci-dessous ne sont pas ceux du dossier HT.
+          """);
+
+    if (types.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucun document dans le domaine des ventes.");
+        return 0;
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"  {"DO_Type",7}  {"Libellé usuel",-24} {"Documents",9} {"Total TTC",18}  Période");
+    foreach (var type in types)
+    {
+        Console.WriteLine(
+            $"  {type.Type,7}  {Tronquer(type.LibelleUsuel, 24),-24} {type.Nombre,9} " +
+            $"{Somme(type.TotalTTC),18}  {Periode(type.PremiereDate, type.DerniereDate)}");
+    }
+
+    Console.WriteLine($"  {new string('─', 90)}");
+    Console.WriteLine($"  {Pluriel(types.Count, "type")}, {Pluriel(types.Sum(type => type.Nombre), "document")}.");
+
+    foreach (var type in types.Where(type => type.Exemples.Count > 0))
+    {
+        Titre($"DO_Type {type.Type} — {Pluriel(type.Exemples.Count, "exemple")} sur {type.Nombre}");
+        var colonneDocType = type.Exemples.Any(exemple => exemple.DocType is not null);
+        Console.WriteLine(
+            $"  {"DO_Piece",-14} {"DO_Date",-11} {"DO_Tiers",-16} {"DO_TotalTTC",18}" +
+            (colonneDocType ? "  DO_DocType" : ""));
+        foreach (var exemple in type.Exemples)
+        {
+            Console.WriteLine(
+                $"  {Tronquer(exemple.Piece, 14),-14} {exemple.Date,-11:dd/MM/yyyy} " +
+                $"{Tronquer(exemple.Tiers, 16),-16} {Somme(exemple.TotalTTC),18}" +
+                (colonneDocType ? $"  {exemple.DocType?.ToString() ?? "—",10}" : ""));
+        }
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        "Lecture seule : deux SELECT sur F_DOCENTETE, plus une consultation du " +
+        "catalogue pour savoir si la colonne DO_DocType existe. Rien n'a été écrit.");
+    return 0;
+}
+
 var lecteur = hote.Services.GetRequiredService<InvoiceBatchReader>();
 
 // Le jeu d'essai se marque lui-même : une pièce certifiée et inchangée, une
@@ -195,6 +254,12 @@ static bool EstRenseignee(string chaine) =>
     && !chaine.Contains("MOT_DE_PASSE", StringComparison.OrdinalIgnoreCase);
 
 static string Pluriel(int nombre, string mot) => $"{nombre} {mot}{(nombre > 1 ? "s" : "")}";
+
+/// <summary>Bornes de dates d'un type, ou un tiret quand le dossier n'en a pas.</summary>
+static string Periode(DateTime? premiere, DateTime? derniere) =>
+    premiere is null || derniere is null
+        ? "—"
+        : $"{premiere:dd/MM/yyyy} → {derniere:dd/MM/yyyy}";
 
 static string Somme(decimal valeur) => valeur.ToString("N2", CultureInfo.GetCultureInfo("fr-FR"));
 

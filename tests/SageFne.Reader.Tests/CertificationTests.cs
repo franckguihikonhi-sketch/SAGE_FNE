@@ -44,6 +44,9 @@ public class CertificationTests
 
         public Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<SageTaxDefinition>());
+
+        public Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(int e = 5, CancellationToken ct = default) =>
+            Task.FromResult(new List<SageDocumentTypeSummary>());
     }
 
     private static Depot DepotDUnePiece(decimal prixUnitaire = 2500m) => new()

@@ -76,6 +76,22 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
             montantHT: 50000m, montantTTC: 50750m, taxe2: 1.5m, code2: "AIRSI"),
     ];
 
+    /// <summary>
+    /// Documents d'autres types, pour que le diagnostic des types ait quelque
+    /// chose à montrer hors base. Ils n'entrent jamais dans un lot à certifier :
+    /// seul <see cref="Entetes"/> alimente la lecture des factures.
+    /// </summary>
+    private static readonly SageDocumentHeader[] AutresDocuments =
+    [
+        Document(0, "DEV0042", new DateTime(2025, 11, 26), "4111DEMOSA", 118000m),
+        Document(0, "DEV0043", new DateTime(2025, 11, 28), "4111SITASARL", 250000m),
+        Document(1, "CMD0101", new DateTime(2025, 11, 29), "4111DEMOSA", 118000m),
+        Document(3, "BL0500", new DateTime(2025, 12, 2), "4111SITASARL", 498339.625m),
+        Document(3, "BL0501", new DateTime(2025, 12, 4), "4111DEMOSA", 152542.14m),
+        Document(7, "1180", new DateTime(2025, 10, 31), "4111DEMOSA", 96000m),
+        Document(7, "1181", new DateTime(2025, 11, 4), "4111SITASARL", 74400m),
+    ];
+
     private static readonly SageTaxDefinition[] Taxes =
     [
         new() { Code = "AIRSI", Intitule = "AIRSI", Taux = 1.5m },
@@ -123,6 +139,41 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
     public Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken cancellation = default) =>
         Task.FromResult(Taxes.ToList());
 
+    /// <remarks>
+    /// Le jeu d'essai imite ce que la requête ramènerait : tous les types du
+    /// domaine des ventes, pas seulement le 6. DO_DocType est renseigné, comme
+    /// dans un dossier où la colonne existe.
+    /// </remarks>
+    public Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(
+        int exemplesParType = 5,
+        CancellationToken cancellation = default) =>
+        Task.FromResult(Entetes
+            .Concat(AutresDocuments)
+            .GroupBy(document => document.Type)
+            .OrderBy(groupe => groupe.Key)
+            .Select(groupe => new SageDocumentTypeSummary
+            {
+                Type = groupe.Key,
+                Nombre = groupe.Count(),
+                PremiereDate = groupe.Min(document => document.Date),
+                DerniereDate = groupe.Max(document => document.Date),
+                TotalTTC = groupe.Sum(document => document.TotalTTC),
+                Exemples = groupe
+                    .OrderByDescending(document => document.Date)
+                    .ThenByDescending(document => document.Piece)
+                    .Take(Math.Max(exemplesParType, 0))
+                    .Select(document => new SageDocumentSample
+                    {
+                        Piece = document.Piece,
+                        Date = document.Date,
+                        Tiers = document.Tiers,
+                        TotalTTC = document.TotalTTC,
+                        DocType = document.Type,
+                    })
+                    .ToList(),
+            })
+            .ToList());
+
     private static bool Retenue(InvoiceQuery query, SageDocumentHeader entete) =>
         (query.Pieces.Count == 0 || query.Pieces.Contains(entete.Piece))
         && (query.Depuis is null || entete.Date >= query.Depuis)
@@ -144,6 +195,22 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         TotalTTC = totalTTC,
         NetAPayer = totalTTC,
         Statut = 0,
+    };
+
+    private static SageDocumentHeader Document(
+        short type,
+        string piece,
+        DateTime date,
+        string tiers,
+        decimal totalTTC) => new()
+    {
+        Domaine = 0,
+        Type = type,
+        Piece = piece,
+        Date = date,
+        Tiers = tiers,
+        TotalTTC = totalTTC,
+        NetAPayer = totalTTC,
     };
 
     private static SageDocumentLine Ligne(

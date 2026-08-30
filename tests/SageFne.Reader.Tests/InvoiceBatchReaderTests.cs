@@ -68,6 +68,9 @@ public class InvoiceBatchReaderTests
 
         public Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<SageTaxDefinition>());
+
+        public Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(int e = 5, CancellationToken ct = default) =>
+            Task.FromResult(new List<SageDocumentTypeSummary>());
     }
 
     private static SageDocumentHeader Entete(string piece, string tiers, int jour) => new()

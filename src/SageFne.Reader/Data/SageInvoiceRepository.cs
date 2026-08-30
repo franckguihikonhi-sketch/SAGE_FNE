@@ -214,6 +214,158 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         return taxes;
     }
 
+    // --- Diagnostic des types de documents ---------------------------------
+
+    /// <remarks>
+    /// Deux lectures : le dénombrement par type, puis les derniers exemplaires
+    /// de chaque type. La colonne DO_DocType n'existe pas dans toutes les
+    /// versions du dossier ; on demande d'abord au catalogue si elle est là,
+    /// plutôt que de faire échouer la requête pour l'apprendre.
+    ///
+    /// Aucun filtre sur DO_Type ici : c'est précisément la question posée.
+    /// </remarks>
+    public async Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(
+        int exemplesParType = 5,
+        CancellationToken cancellation = default)
+    {
+        await using var connexion = await OuvrirAsync(cancellation);
+
+        var avecDocType = await ColonneExisteAsync(connexion, "F_DOCENTETE", "DO_DocType", cancellation);
+        var totaux = await LireTotauxAsync(connexion, cancellation);
+        Dictionary<short, IReadOnlyList<SageDocumentSample>> exemples = exemplesParType > 0
+            ? await LireExemplesAsync(connexion, avecDocType, exemplesParType, cancellation)
+            : new();
+
+        logger.LogDebug(
+            "{Nombre} type(s) de document dans le domaine des ventes ; DO_DocType {Presence}.",
+            totaux.Count,
+            avecDocType ? "présente" : "absente");
+
+        return totaux
+            .Select(total => new SageDocumentTypeSummary
+            {
+                Type = total.Type,
+                Nombre = total.Nombre,
+                PremiereDate = total.PremiereDate,
+                DerniereDate = total.DerniereDate,
+                TotalTTC = total.TotalTTC,
+                Exemples = exemples.TryGetValue(total.Type, out var trouves) ? trouves : [],
+            })
+            .ToList();
+    }
+
+    internal const string SqlTypesDocuments = """
+        select
+          e.DO_Type as DO_Type,
+          count(*) as Nombre,
+          min(e.DO_Date) as PremiereDate,
+          max(e.DO_Date) as DerniereDate,
+          sum(e.DO_TotalTTC) as TotalTTC
+        from F_DOCENTETE e
+        where e.DO_Domaine = @domaine
+        group by e.DO_Type
+        order by e.DO_Type
+        """;
+
+    /// <summary>
+    /// Les derniers documents de chaque type, numérotés par type puis filtrés :
+    /// une seule lecture au lieu d'une par type.
+    /// </summary>
+    internal static string SqlExemplesTypes(bool avecDocType)
+    {
+        var docType = avecDocType ? ", e.DO_DocType" : "";
+        var reprise = avecDocType ? ", DO_DocType" : "";
+
+        return $"""
+            select DO_Type, DO_Piece, DO_Date, DO_Tiers, DO_TotalTTC{reprise}
+            from (
+              select
+                e.DO_Type, e.DO_Piece, e.DO_Date, e.DO_Tiers, e.DO_TotalTTC{docType},
+                row_number() over (partition by e.DO_Type order by e.DO_Date desc, e.DO_Piece desc) as Rang
+              from F_DOCENTETE e
+              where e.DO_Domaine = @domaine
+            ) as Derniers
+            where Rang <= @exemples
+            order by DO_Type, Rang
+            """;
+    }
+
+    /// <summary>Le catalogue de la base, consulté en lecture comme le reste.</summary>
+    internal const string SqlColonneExiste = """
+        select count(*) as Presente
+        from INFORMATION_SCHEMA.COLUMNS
+        where TABLE_NAME = @table and COLUMN_NAME = @colonne
+        """;
+
+    private async Task<bool> ColonneExisteAsync(
+        SqlConnection connexion,
+        string table,
+        string colonne,
+        CancellationToken cancellation)
+    {
+        await using var commande = Commande(connexion, SqlColonneExiste);
+        Ajouter(commande, "@table", table);
+        Ajouter(commande, "@colonne", colonne);
+
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+        return await lecteur.ReadAsync(cancellation) && lecteur.Whole("Presente") > 0;
+    }
+
+    private async Task<List<SageDocumentTypeSummary>> LireTotauxAsync(
+        SqlConnection connexion,
+        CancellationToken cancellation)
+    {
+        await using var commande = Commande(connexion, SqlTypesDocuments);
+        Ajouter(commande, "@domaine", DomaineVente);
+
+        var totaux = new List<SageDocumentTypeSummary>();
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+        while (await lecteur.ReadAsync(cancellation))
+        {
+            totaux.Add(new SageDocumentTypeSummary
+            {
+                Type = lecteur.Small("DO_Type"),
+                Nombre = lecteur.Whole("Nombre"),
+                PremiereDate = lecteur.MomentOrNull("PremiereDate"),
+                DerniereDate = lecteur.MomentOrNull("DerniereDate"),
+                TotalTTC = lecteur.Amount("TotalTTC"),
+            });
+        }
+
+        return totaux;
+    }
+
+    private async Task<Dictionary<short, IReadOnlyList<SageDocumentSample>>> LireExemplesAsync(
+        SqlConnection connexion,
+        bool avecDocType,
+        int exemplesParType,
+        CancellationToken cancellation)
+    {
+        await using var commande = Commande(connexion, SqlExemplesTypes(avecDocType));
+        Ajouter(commande, "@domaine", DomaineVente);
+        Ajouter(commande, "@exemples", exemplesParType);
+
+        var parType = new Dictionary<short, List<SageDocumentSample>>();
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+        while (await lecteur.ReadAsync(cancellation))
+        {
+            var type = lecteur.Small("DO_Type");
+            if (!parType.TryGetValue(type, out var liste)) parType[type] = liste = [];
+            liste.Add(new SageDocumentSample
+            {
+                Piece = lecteur.Text("DO_Piece"),
+                Date = lecteur.Moment("DO_Date"),
+                Tiers = lecteur.Text("DO_Tiers"),
+                TotalTTC = lecteur.Amount("DO_TotalTTC"),
+                DocType = avecDocType ? lecteur.SmallOrNull("DO_DocType") : null,
+            });
+        }
+
+        return parType.ToDictionary(
+            entree => entree.Key,
+            entree => (IReadOnlyList<SageDocumentSample>)entree.Value);
+    }
+
     // --- Plomberie ---------------------------------------------------------
 
     /// <summary>

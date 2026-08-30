@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 53 tests
+dotnet test                                    # 61 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -27,6 +27,12 @@ dotnet run --project src/SageFne.Reader -- 1219                  # une pièce, a
 dotnet run --project src/SageFne.Reader -- 1219 1220 1221        # plusieurs pièces
 dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --au 2025-12-31
 dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
+```
+
+Et un diagnostic, en lecture seule lui aussi :
+
+```bash
+dotnet run --project src/SageFne.Reader -- doctypes              # inventaire des types de documents
 ```
 
 | Option | Effet |
@@ -158,6 +164,34 @@ l'exploitant verra, qu'interrompre le traitement.
 > est testé, il sera appelé à l'étape suivante. Le dry run hors base marque deux pièces
 > lui-même, pour montrer les états.
 
+## Quels types de documents ce dossier utilise ?
+
+`DO_Type = 6` est le seul type traité pour l'instant. Encore faut-il vérifier que c'est
+bien le bon dans **ce** dossier : le paramétrage varie d'une installation à l'autre, et
+une facture comptabilisée ne porte pas le même type qu'une facture en cours.
+
+```bash
+dotnet run --project src/SageFne.Reader -- doctypes
+```
+
+La commande lit `F_DOCENTETE` avec `DO_Domaine = 0` et donne, pour chaque `DO_Type`
+rencontré : le nombre de documents, le total TTC, la période couverte, et cinq
+exemplaires — `DO_Piece`, `DO_Date`, `DO_Tiers`, `DO_TotalTTC`, et `DO_DocType` quand
+la colonne existe dans le dossier.
+
+**Elle ne filtre pas sur `DO_Type`** : ce serait répondre « 6 » à la question posée. Le
+domaine borne la lecture, le type non.
+
+Deux `SELECT` : un dénombrement groupé, puis les derniers documents de chaque type
+numérotés par `row_number() over (partition by DO_Type ...)` — une seule lecture au lieu
+d'une par type. S'y ajoute une consultation de `INFORMATION_SCHEMA.COLUMNS`, parce que
+`DO_DocType` n'existe pas dans toutes les versions du dossier : mieux vaut demander au
+catalogue que faire échouer le diagnostic pour l'apprendre. Les trois requêtes passent par
+`ReadOnlyGuard`, comme les autres. Rien n'est écrit.
+
+Sans chaîne de connexion, la commande tourne sur le jeu d'essai et le dit : les chiffres
+affichés ne sont alors pas ceux du dossier.
+
 ## Un lot, trois lectures
 
 Lire cinquante factures ne fait pas cent cinquante allers-retours vers SQL Server, mais
@@ -220,7 +254,8 @@ SageFne.sln
 │   │                                    CertifiedInvoice, InvoiceFingerprint
 │   ├── Configuration/FneOptions.cs
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
-│   │                                    SageCustomer, SageTax
+│   │                                    SageCustomer, SageTax,
+│   │                                    SageDocumentTypeSummary
 │   ├── Models/Fne/                      FneInvoice, FneInvoiceItem, FneCustomTax
 │   ├── Data/                            ISageInvoiceRepository, SageInvoiceRepository,
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
@@ -233,7 +268,8 @@ SageFne.sln
 
 ## Prochaines étapes, pas encore faites
 
-- Types de document : seul `DO_Type = 6` est accepté. Les autres restent à confirmer.
+- Types de document : seul `DO_Type = 6` est traité. `doctypes` montre ce que le dossier
+  utilise réellement ; les autres types restent à confirmer avant d'être acceptés.
 - Remises : lire `DL_Remise0N_REM_Type` pour interpréter la valeur.
 - `pointOfSale` et `establishment` : à renseigner dans `appsettings.json`.
 - Mode de règlement : figé à `deferred`, faute de source dans Sage.

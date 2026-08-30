@@ -43,6 +43,20 @@ internal static class SqlReaderExtensions
         return valeur is DBNull or null ? default : Convert.ToDateTime(valeur);
     }
 
+    /// <summary>Un entier court qui peut légitimement ne pas être renseigné.</summary>
+    public static short? SmallOrNull(this DbDataReader reader, string colonne)
+    {
+        var valeur = reader[colonne];
+        return valeur is DBNull or null ? null : Convert.ToInt16(valeur);
+    }
+
+    /// <summary>Une date absente reste absente : elle ne devient pas 01/01/0001.</summary>
+    public static DateTime? MomentOrNull(this DbDataReader reader, string colonne)
+    {
+        var valeur = reader[colonne];
+        return valeur is DBNull or null ? null : Convert.ToDateTime(valeur);
+    }
+
     public static bool Flag(this DbDataReader reader, string colonne)
     {
         var valeur = reader[colonne];
