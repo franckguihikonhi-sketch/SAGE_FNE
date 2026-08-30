@@ -94,19 +94,49 @@ public class FneInvoiceMapperTests
     {
         var article = Premier(Ligne(taxe2: 1.5m, code2: "AIRSI"));
 
-        Assert.Empty(article.Taxes);
+        // La ligne n'a pas de TVA : elle est exonérée, et porte TVAD.
+        Assert.Equal(["TVAD"], article.Taxes);
         var prelevement = Assert.Single(article.CustomTaxes);
         Assert.Equal("AIRSI", prelevement.Name);
         Assert.Equal(1.5m, prelevement.Amount);
     }
 
     [Fact]
-    public void Sans_taxe_aucun_code_de_tva_n_est_invente()
+    public void Une_ligne_sans_tva_est_exoneree_et_porte_TVAD()
     {
         var article = Premier(Ligne());
 
-        Assert.Empty(article.Taxes);
+        // Exonération légale : le code que portent les factures certifiées du
+        // dossier. Ce n'est pas une TVA inventée, c'est l'absence de TVA dite
+        // dans la nomenclature de la DGI.
+        Assert.Equal(["TVAD"], article.Taxes);
         Assert.Empty(article.CustomTaxes);
+    }
+
+    [Fact]
+    public void Le_code_d_exoneration_est_parametrable()
+    {
+        // Un dossier exonéré par convention plutôt que par la loi.
+        var mappeur = new FneInvoiceMapper(Options.Create(new FneOptions
+        {
+            Template = "B2B",
+            PaymentMethod = "deferred",
+            ExemptionCode = "TVAC",
+        }));
+
+        var facture = mappeur.Map(Entete, [Ligne()], Client);
+
+        Assert.Equal(["TVAC"], facture.Items.Single().Taxes);
+    }
+
+    [Fact]
+    public void Un_taux_inconnu_n_est_pas_traite_comme_une_exoneration()
+    {
+        // 12 % n'existe pas dans la nomenclature : la ligne n'est pas exonérée
+        // pour autant, et il serait faux de la certifier en TVAD.
+        var article = Premier(Ligne(taxe1: 12m, code1: "TVA"));
+
+        Assert.Empty(article.Taxes);
     }
 
     [Fact]
@@ -134,6 +164,7 @@ public class FneInvoiceMapperTests
         var enPremier = Premier(Ligne(taxe1: 1.5m, code1: "AIRSI", taxe2: 18m, code2: "TVA"));
         var enTroisieme = Premier(Ligne(taxe1: 18m, code1: "TVA", taxe3: 1.5m, code3: "airsi"));
 
+
         Assert.Equal(["TVA"], enPremier.Taxes);
         Assert.Equal("AIRSI", Assert.Single(enPremier.CustomTaxes).Name);
         Assert.Equal(["TVA"], enTroisieme.Taxes);
@@ -147,6 +178,7 @@ public class FneInvoiceMapperTests
         Mappeur().Map(Entete, [Ligne(taxe1: 12m, code1: "TVA")], Client, rapport);
 
         Assert.Contains(rapport.Constats, constat => constat.Code == "TAUX_HORS_NOMENCLATURE");
+        Assert.Contains(rapport.Constats, constat => constat.Code == "LIGNE_SANS_CODE_TAXE");
         Assert.DoesNotContain(rapport.Constats, constat => constat.Severite == Severite.Erreur);
     }
 

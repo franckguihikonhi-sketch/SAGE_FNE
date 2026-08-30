@@ -14,6 +14,11 @@ namespace SageFne.Reader.Mapping;
 ///
 /// Les trois emplacements de taxe de Sage sont examinés : rien ne garantit que
 /// la TVA soit toujours en position 1 et l'AIRSI en position 2.
+///
+/// Une ligne sans TVA n'est pas une ligne sans code : FNE attend un code
+/// d'exonération, <c>TVAD</c> pour l'exonération légale — celui que portent les
+/// factures certifiées du dossier — ou <c>TVAC</c> pour l'exonération
+/// conventionnelle. Le code appliqué est paramétrable pour cette raison.
 /// </remarks>
 public static class TaxMapping
 {
@@ -26,6 +31,12 @@ public static class TaxMapping
     /// <summary>Écart admis entre le taux lu et un taux de la nomenclature.</summary>
     private const decimal Tolerance = 0.001m;
 
+    /// <summary>Code d'exonération légale, celui des factures du dossier.</summary>
+    public const string ExonerationLegale = "TVAD";
+
+    /// <summary>Code d'exonération conventionnelle.</summary>
+    public const string ExonerationConventionnelle = "TVAC";
+
     /// <summary>Prélèvements qui ne sont pas une TVA et passent en customTaxes.</summary>
     private static readonly string[] Prelevements = ["AIRSI"];
 
@@ -34,11 +45,17 @@ public static class TaxMapping
         IReadOnlyList<FneCustomTax> CustomTaxes,
         IReadOnlyList<string> Avertissements);
 
-    public static Resultat Read(SageDocumentLine ligne)
+    /// <param name="codeExoneration">
+    /// Code appliqué quand la ligne ne porte aucune TVA. <c>TVAD</c> par défaut.
+    /// </param>
+    public static Resultat Read(SageDocumentLine ligne, string codeExoneration = ExonerationLegale)
     {
         var taxes = new List<string>();
         var custom = new List<FneCustomTax>();
         var avertissements = new List<string>();
+        // Un taux positif que la nomenclature ne connaît pas n'est pas une
+        // exonération : la ligne ne doit surtout pas partir en TVAD.
+        var tauxInconnu = false;
 
         foreach (var taxe in ligne.Taxes())
         {
@@ -60,10 +77,16 @@ public static class TaxMapping
             // Un taux qui n'est ni 18, ni 9, ni 0 : on ne l'invente pas.
             if (taxe.Taux != 0m)
             {
+                tauxInconnu = true;
                 avertissements.Add(
                     $"ligne {ligne.Ligne} : taux de {taxe.Taux} % à l'emplacement {taxe.Emplacement} " +
                     $"(code « {taxe.Code} ») hors nomenclature FNE, il n'est pas repris.");
             }
+        }
+
+        if (taxes.Count == 0 && !tauxInconnu)
+        {
+            taxes.Add(codeExoneration);
         }
 
         return new Resultat(taxes, custom, avertissements);

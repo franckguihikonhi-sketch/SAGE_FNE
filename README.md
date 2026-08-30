@@ -81,14 +81,20 @@ ligne qui décide.**
 | --- | --- | --- |
 | 18 % | `TVA` | `taxes` |
 | 9 % | `TVAB` | `taxes` |
-| 0 % | *(rien)* | — |
+| Aucune TVA | `TVAD` | `taxes` |
 | AIRSI 1,5 % | `AIRSI` | `customTaxes` |
+
+Une ligne sans TVA n'est pas une ligne sans code : FNE attend un code
+d'exonération. `TVAD` (exonération légale) est appliqué par défaut — c'est celui que
+portent les factures certifiées du dossier. Un dossier exonéré par convention change
+`Fne:ExemptionCode` en `TVAC` dans `appsettings.json`, sans toucher au code.
 
 Les **trois** emplacements de taxe de Sage sont examinés (`DL_Taxe1/2/3`) : rien ne
 garantit que la TVA restera en position 1 et l'AIRSI en position 2.
 
-Une TVA n'est jamais inventée : une ligne sans taux part sans code, et le contrôle le
-signale.
+Une TVA n'est jamais inventée. Un taux positif que la nomenclature ne connaît pas — 12 %,
+par exemple — n'est pas une exonération : la ligne ne part **ni** avec ce taux, **ni** en
+`TVAD`, et le contrôle le signale.
 
 ## Contrôles financiers
 
@@ -136,7 +142,6 @@ SageFne.sln
 ## Prochaines étapes, pas encore faites
 
 - Types de document : seul `DO_Type = 6` est accepté. Les autres restent à confirmer.
-- Exonérations : FNE distingue `TVAC` et `TVAD`. À trancher avec la DGI.
 - Remises : lire `DL_Remise0N_REM_Type` pour interpréter la valeur.
 - `pointOfSale` et `establishment` : à renseigner dans `appsettings.json`.
 - Mode de règlement : figé à `deferred`, faute de source dans Sage.

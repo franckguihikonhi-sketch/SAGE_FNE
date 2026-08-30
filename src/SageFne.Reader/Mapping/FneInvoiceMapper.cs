@@ -27,7 +27,7 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
 
         foreach (var ligne in lines.OrderBy(ligne => ligne.Ligne))
         {
-            var taxes = TaxMapping.Read(ligne);
+            var taxes = TaxMapping.Read(ligne, _options.ExemptionCode);
             foreach (var avertissement in taxes.Avertissements)
             {
                 report?.Avertir("TAUX_HORS_NOMENCLATURE", avertissement);
@@ -35,13 +35,11 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
 
             if (taxes.Taxes.Count == 0)
             {
-                // FNE distingue l'exonération conventionnelle (TVAC) de
-                // l'exonération légale (TVAD). Tant que le dossier ne dit pas
-                // laquelle s'applique, la ligne part sans code de TVA.
+                // Sans TVA reconnue et sans exonération applicable : la ligne
+                // porte un taux que la nomenclature ne connaît pas.
                 report?.Avertir(
-                    "LIGNE_SANS_TVA",
-                    $"ligne {ligne.Ligne} : aucun taux de TVA sur la ligne, aucun code n'est ajouté. " +
-                    "À confirmer avec la DGI si l'exonération doit porter TVAC ou TVAD.");
+                    "LIGNE_SANS_CODE_TAXE",
+                    $"ligne {ligne.Ligne} : aucun code de taxe FNE n'a pu être établi.");
             }
 
             items.Add(new FneInvoiceItem
