@@ -16,10 +16,30 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 22 tests
-dotnet run --project src/SageFne.Reader        # dry run de la pièce 1219
-dotnet run --project src/SageFne.Reader -- 1220   # une autre pièce
+dotnet test                                    # 39 tests
 ```
+
+Le dry run lit **un lot** de factures :
+
+```bash
+dotnet run --project src/SageFne.Reader                          # toutes les pièces, dans la limite
+dotnet run --project src/SageFne.Reader -- 1219                  # une pièce, avec son JSON
+dotnet run --project src/SageFne.Reader -- 1219 1220 1221        # plusieurs pièces
+dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --au 2025-12-31
+dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
+```
+
+| Option | Effet |
+| --- | --- |
+| `--du`, `--au` | Période, **bornes comprises** — « au 31 décembre » inclut les pièces datées du 31 à 23 h |
+| `--limite N` | Nombre maximal de pièces, 500 par défaut |
+| `--sortie DOSSIER` | Écrit un fichier JSON par pièce |
+| `--json` | Affiche le JSON de chaque pièce, et pas seulement le résumé |
+
+Une seule pièce demandée : son JSON s'affiche. Un lot : le résumé s'affiche, et le JSON
+seulement si vous le demandez — sinon la console devient illisible.
+
+Le code de sortie vaut 1 dès qu'une pièce est bloquée : de quoi enchaîner dans un script.
 
 ## Où renseigner la connexion SQL
 
@@ -51,9 +71,10 @@ Server=MON-SERVEUR\SAGE;Database=HT;Integrated Security=True;TrustServerCertific
 ```
 
 **Tant que la chaîne n'est pas renseignée**, le dry run tourne sur un jeu d'essai hors
-base, calqué sur la pièce 1219 relevée dans le dossier. Le mapping et les contrôles
-s'exécutent réellement ; seule la lecture SQL est court-circuitée. Dès que la chaîne est
-en place, c'est la base qui parle.
+base : la pièce 1219 relevée dans le dossier, et trois pièces bâties autour d'elle pour
+couvrir une TVA à 18 %, une TVA à 9 % avec prélèvement, et un client sans NCC. Le mapping
+et les contrôles s'exécutent réellement ; seule la lecture SQL est court-circuitée. Dès que
+la chaîne est en place, c'est la base qui parle.
 
 ### Le compte SQL
 
@@ -96,6 +117,26 @@ Une TVA n'est jamais inventée. Un taux positif que la nomenclature ne connaît 
 par exemple — n'est pas une exonération : la ligne ne part **ni** avec ce taux, **ni** en
 `TVAD`, et le contrôle le signale.
 
+## Un lot, trois lectures
+
+Lire cinquante factures ne fait pas cent cinquante allers-retours vers SQL Server, mais
+**trois** : les entêtes, puis toutes les lignes du lot, puis tous les clients. Le
+regroupement se fait ensuite en mémoire. Sur un mois de facturation, c'est la différence
+entre une seconde et une minute — et la base n'est pas tenue occupée pendant que le lot
+défile. Un test le vérifie en comptant les appels au dépôt.
+
+Au-delà de 500 pièces ou de 500 comptes tiers, les listes sont découpées en tranches :
+SQL Server plafonne à 2 100 paramètres par commande.
+
+**Une pièce en défaut n'interrompt pas le lot.** Elle ressort marquée « bloquée », les
+autres sont traduites. Un comptable veut voir tout ce qui cloche en une fois, pas le
+découvrir une erreur après l'autre.
+
+Les lignes d'un lot sont rattachées à leur entête par `DO_Piece` **et** `DO_Type` : filtrer
+sur le seul numéro ramènerait aussi les lignes d'un document d'un autre type portant le
+même numéro. La lecture d'une pièce isolée, elle, suit la spécification d'origine et filtre
+sur le domaine et le numéro seuls.
+
 ## Contrôles financiers
 
 Pour chaque ligne, le montant est recalculé et comparé à ce que Sage a stocké, avec une
@@ -128,20 +169,25 @@ SageFne.sln
 │   ├── Program.cs                       dry run : lecture, mapping, JSON, contrôles
 │   ├── appsettings.json                 gabarit de connexion et paramètres FNE
 │   ├── appsettings.Development.json     réglages du poste (jamais de mot de passe)
+│   ├── Batch/                           InvoiceBatchReader, InvoiceConversion,
+│   │                                    InvoiceBatch, CommandLine
 │   ├── Configuration/FneOptions.cs
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
 │   │                                    SageCustomer, SageTax
 │   ├── Models/Fne/                      FneInvoice, FneInvoiceItem, FneCustomTax
 │   ├── Data/                            ISageInvoiceRepository, SageInvoiceRepository,
-│   │                                    DemoSageInvoiceRepository, ReadOnlyGuard
+│   │                                    DemoSageInvoiceRepository, InvoiceQuery,
+│   │                                    CritereSql, ReadOnlyGuard
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper, TaxMapping
 │   └── Validation/                      InvoiceValidator, FinancialChecks, CheckReport
-└── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, garde-fou SQL
+└── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,
+                                        ligne de commande, garde-fou SQL
 ```
 
 ## Prochaines étapes, pas encore faites
 
 - Types de document : seul `DO_Type = 6` est accepté. Les autres restent à confirmer.
+- Pièces déjà certifiées : rien ne les distingue encore, un lot les reprendrait.
 - Remises : lire `DL_Remise0N_REM_Type` pour interpréter la valeur.
 - `pointOfSale` et `establishment` : à renseigner dans `appsettings.json`.
 - Mode de règlement : figé à `deferred`, faute de source dans Sage.
