@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  # Sur la branche par défaut seulement : sans cela, une branche avec PR ouverte
+  # déclenche deux fois le même travail, une fois par « push » et une fois par
+  # « pull_request ».
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 # Un push qui suit de près le précédent annule le premier : inutile de payer
@@ -64,15 +67,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Le mot de passe SQL et la clé FNE n'ont jamais leur place ici. Un
-      # gabarit peut porter « MOT_DE_PASSE » ; une vraie valeur, non.
+      # Le mot de passe SQL et la clé FNE n'ont jamais leur place ici. Le script
+      # se vérifie d'abord sur un faux secret : un détecteur cassé doit échouer,
+      # pas afficher « rien trouvé ».
       - name: Chercher des valeurs en dur
-        run: |
-          set -euo pipefail
-          motifs='"(ApiKey|Password)"\s*:\s*"(?!(\s*|MOT_DE_PASSE|A_COMPLETER|UTILISATEUR))'
-          if grep -rEn --include='*.json' --include='*.cs' --include='*.yml' \
-               "$motifs" . 2>/dev/null | grep -v '/bin/\|/obj/'; then
-            echo "::error::Une clé ou un mot de passe semble écrit en dur."
-            exit 1
-          fi
-          echo "Rien trouvé."
+        run: ./.github/scripts/verifier-secrets.sh

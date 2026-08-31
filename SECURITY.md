@@ -17,7 +17,10 @@ passent par `IdentifiantSql` puis sont vérifiés au catalogue.
 
 **Aucun secret dans le dépôt.** `appsettings.json` ne porte que des gabarits.
 La chaîne SQL et la clé FNE vivent dans `dotnet user-secrets`. La CI échoue si
-une valeur en dur apparaît.
+une valeur en dur apparaît — et **le détecteur se vérifie lui-même** sur un faux
+secret avant de scanner : un motif cassé fait échouer le contrôle au lieu
+d'afficher « rien trouvé ». La première version ne cherchait rien et passait au
+vert, ce qui est pire qu'absent.
 
 **La clé ne s'affiche jamais en clair**, ni en console, ni dans les journaux :
 quatre caractères à chaque bout, le reste masqué.
