@@ -459,6 +459,16 @@ public sealed class InvoiceSender(
         // Une référence lue dans la réponse de la DGI n'est pas une déclaration
         // humaine : elle ne se corrige pas, elle fait foi. Seule une
         // réconciliation manuelle repose sur une lecture, donc peut être fautive.
+        if (trace.Source == SourceCertification.Inconnue)
+        {
+            return new DeblocageResultat(
+                false,
+                $"L'origine de la certification de la pièce {piece} n'est pas établie : cette " +
+                "entrée a été écrite avant que le registre ne consigne sa source. Une " +
+                "correction ne se fait pas à l'aveugle — établissez-la d'abord avec " +
+                $"« reparer-source {piece} », qui dira ce que les preuves internes désignent.");
+        }
+
         if (trace.Source != SourceCertification.ReconciliationManuelle)
         {
             return new DeblocageResultat(
@@ -535,6 +545,117 @@ public sealed class InvoiceSender(
             EtatFne.Certified);
     }
 
+    /// <summary>
+    /// Établit l'origine d'une certification que le registre ne qualifie pas.
+    /// </summary>
+    /// <remarks>
+    /// Les entrées écrites avant que le registre ne consigne sa source se
+    /// relisent « origine inconnue ». Ce n'est pas un détail d'affichage : les
+    /// corrections sont réservées aux déclarations humaines, et une
+    /// réconciliation manuelle qu'on ne sait plus reconnaître devient
+    /// incorrigible.
+    ///
+    /// La requalification ne repose que sur des preuves internes à l'entrée, et
+    /// ne conclut jamais qu'à la réconciliation manuelle : elle seule laisse une
+    /// attestation textuelle sans ambiguïté. Déduire « réponse de la plateforme »
+    /// d'une absence de preuve serait refaire l'erreur qui rend cette commande
+    /// nécessaire.
+    ///
+    /// Rien d'autre ne bouge : ni l'état, ni l'identité, ni l'empreinte, ni
+    /// l'horodatage, ni la référence — même fautive. Une chose à la fois.
+    /// </remarks>
+    public async Task<DeblocageResultat> ReparerSourceAsync(
+        string piece,
+        bool confirme,
+        CancellationToken cancellation = default)
+    {
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion?.Certification is not { } trace)
+        {
+            return new DeblocageResultat(
+                false,
+                conversion is null
+                    ? $"Aucune facture au numéro {piece} dans Sage."
+                    : $"La pièce {piece} ne porte aucune trace au registre : il n'y a rien à réparer.");
+        }
+
+        var diagnostic = SourceHeuristique.Diagnostiquer(trace);
+
+        if (!diagnostic.Concluante)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Source actuelle   {Nommer(trace.Source)}\n" +
+                $"  Source proposée   aucune\n" +
+                $"  Justification     {diagnostic.Justification}");
+        }
+
+        var quand = DateTimeOffset.Now;
+        var note =
+            $"Réparation du {quand:dd/MM/yyyy à HH:mm} : source « {trace.Source} » corrigée en " +
+            $"« {diagnostic.Proposee} ». {diagnostic.Justification}";
+
+        if (!confirme)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Source actuelle   {Nommer(trace.Source)}\n" +
+                $"  Source proposée   {Nommer(diagnostic.Proposee)}\n" +
+                $"  Justification     {diagnostic.Justification}\n" +
+                $"  Inchangé          état {trace.Etat}, identité {trace.Identite}, " +
+                $"empreinte {trace.Empreinte}, " +
+                $"certifiée le {trace.CertifieeLe.ToLocalTime():dd/MM/yyyy à HH:mm}, " +
+                $"référence « {(trace.SansReference ? "aucune" : trace.ReferenceFne)} »\n" +
+                "  Rien n'a été écrit : la confirmation manque.",
+                ConfirmationManque: true);
+        }
+
+        string? sauvegarde = null;
+        if (registre is JsonCertificationLedger surFichier)
+        {
+            try
+            {
+                sauvegarde = await surFichier.SauvegarderAsync(cancellation);
+            }
+            catch (Exception erreur) when (erreur is IOException or UnauthorizedAccessException)
+            {
+                return new DeblocageResultat(
+                    false,
+                    $"Le registre n'a pas pu être sauvegardé : {erreur.Message} Rien n'a été " +
+                    "réparé — une écriture sans copie préalable ne se défait pas.");
+            }
+        }
+
+        await registre.RecordAsync((trace with { Source = diagnostic.Proposee }).AvecMotif(note), cancellation);
+        logger.LogInformation(
+            "Pièce {Piece} : source requalifiée en {Source}. Sauvegarde : {Sauvegarde}",
+            piece, diagnostic.Proposee, sauvegarde ?? "aucune");
+
+        return new DeblocageResultat(
+            true,
+            $"La source est maintenant « {Nommer(diagnostic.Proposee)} ». Rien d'autre n'a " +
+            "changé : la pièce reste certifiée et non renvoyable." +
+            (sauvegarde is null ? "" : $"\n  Sauvegarde : {sauvegarde}"),
+            trace.Etat);
+    }
+
+    /// <summary>Le nom d'une source, tel qu'un exploitant peut le lire.</summary>
+    public static string Nommer(SourceCertification source) => source switch
+    {
+        SourceCertification.ReconciliationManuelle => "Réconciliation manuelle / portail DGI",
+        SourceCertification.Middleware => "Réponse de la plateforme, lue par le middleware",
+        SourceCertification.Import => "Import d'un registre antérieur",
+        _ => "Inconnue — entrée antérieure au suivi de la source",
+    };
+
+    /// <remarks>
+    /// La source est posée ici, explicitement, et non laissée au défaut : cette
+    /// trace naît d'un envoi que le middleware a fait lui-même. Compter sur le
+    /// défaut d'une énumération pour dire quelque chose de vrai est l'erreur qui
+    /// a rendu une réconciliation manuelle indiscernable d'une réponse de la DGI.
+    /// </remarks>
     private static CertifiedInvoice Trace(InvoiceConversion conversion, EtatFne etat) => new()
     {
         Identite = conversion.Header.Identite,
@@ -542,5 +663,6 @@ public sealed class InvoiceSender(
         CertifieeLe = DateTimeOffset.Now,
         Empreinte = conversion.Empreinte,
         Etat = etat,
+        Source = SourceCertification.Middleware,
     };
 }

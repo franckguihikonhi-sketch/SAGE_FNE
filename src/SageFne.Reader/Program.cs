@@ -394,6 +394,44 @@ if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
     return fichier.Existe ? 0 : 1;
 }
 
+// Établir l'origine d'une certification que le registre ne qualifie pas. Les
+// entrées antérieures au suivi de la source se relisent « inconnue », et une
+// réconciliation manuelle qu'on ne reconnaît plus devient incorrigible.
+if (ligneDeCommande.Verbe == Verbe.ReparerSource)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine("reparer-source attend un numéro de pièce, par exemple : reparer-source 1052");
+        return 2;
+    }
+
+    var numeroRepare = ligneDeCommande.Query.Pieces[0];
+    Titre($"Origine de la certification — pièce {numeroRepare}");
+    Console.WriteLine("Aucune API n'est appelée. Sage reste en lecture seule.");
+    Console.WriteLine("Seule la source change : ni l'état, ni l'identité, ni l'empreinte,");
+    Console.WriteLine("ni l'horodatage, ni la référence.");
+    Console.WriteLine();
+
+    var reparation = await hote.Services.GetRequiredService<InvoiceSender>()
+        .ReparerSourceAsync(numeroRepare, ligneDeCommande.Confirme);
+
+    Console.WriteLine($"  {reparation.Message}");
+
+    if (reparation.ConfirmationManque)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Pour appliquer : ajoutez --confirmer.");
+    }
+
+    if (reparation.Applique)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Vérifiez : dotnet run --project src\\SageFne.Reader -- statut {numeroRepare}");
+    }
+
+    return reparation.Applique ? 0 : 1;
+}
+
 // Corriger une réconciliation fautive. La certification reste acquise : seule
 // la référence s'en va. Aucune API, et une copie du registre avant écriture.
 if (ligneDeCommande.Verbe == Verbe.CorrigerReconciliation)
@@ -542,17 +580,20 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
         Console.WriteLine($"  État          {connue.Etat}");
         Console.WriteLine($"  Référence FNE {(connue.SansReference ? manquante : connue.ReferenceFne)}");
         Console.WriteLine($"  Jeton (QR)    {(connue.Token == "" ? manquante : connue.Token)}");
-        Console.WriteLine($"  Source        {connue.Source switch
-        {
-            SourceCertification.ReconciliationManuelle => "Réconciliation manuelle / portail DGI",
-            SourceCertification.Import => "Import d'un registre antérieur",
-            _ => "Réponse de la plateforme, lue par le middleware",
-        }}");
+        Console.WriteLine($"  Source        {InvoiceSender.Nommer(connue.Source)}");
         Console.WriteLine($"  Horodatage    {connue.CertifieeLe.ToLocalTime():dd/MM/yyyy à HH:mm:ss}");
         Console.WriteLine($"  Identité      {connue.Identite}");
         Console.WriteLine($"  Empreinte     {(connue.Empreinte == "" ? "— aucune —" : connue.Empreinte)}");
 
         if (connue.Erreur != "") Console.WriteLine($"  Réponse       {connue.Erreur}");
+
+        if (connue.Source == SourceCertification.Inconnue)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  Cette entrée est antérieure au suivi de la source. Tant que son");
+            Console.WriteLine("  origine n'est pas établie, elle ne peut pas être corrigée :");
+            Console.WriteLine($"    dotnet run --project src\\SageFne.Reader -- reparer-source {numeroStatut}");
+        }
 
         foreach (var ligne in connue.Motif.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {

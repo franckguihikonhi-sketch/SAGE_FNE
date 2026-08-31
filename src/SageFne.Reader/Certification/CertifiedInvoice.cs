@@ -82,9 +82,17 @@ public sealed record CertifiedInvoice
     /// repose sur la lecture d'un humain. Les confondre rendrait tout audit
     /// impossible.
     /// </remarks>
+    /// <remarks>
+    /// Sans initialiseur, volontairement : le défaut est
+    /// <see cref="SourceCertification.Inconnue"/>, et une entrée dépourvue de
+    /// <c>source</c> doit se relire ainsi. Un initialiseur à
+    /// <see cref="SourceCertification.Middleware"/> a d'abord été posé ici, et
+    /// il court-circuitait la valeur zéro : les entrées anciennes se déclaraient
+    /// « réponse de la DGI » sans que rien ne l'ait jamais affirmé.
+    /// </remarks>
     [JsonPropertyName("source")]
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public SourceCertification Source { get; init; } = SourceCertification.Middleware;
+    public SourceCertification Source { get; init; }
 
     /// <summary>
     /// Ce qu'un humain a déclaré, et pourquoi.

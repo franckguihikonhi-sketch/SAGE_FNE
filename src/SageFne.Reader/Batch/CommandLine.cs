@@ -76,6 +76,11 @@ public enum Verbe
     /// Corriger une réconciliation fautive sans défaire la certification.
     /// </summary>
     CorrigerReconciliation,
+
+    /// <summary>
+    /// Établir l'origine d'une certification que le registre ne qualifie pas.
+    /// </summary>
+    ReparerSource,
 }
 
 /// <summary>
@@ -229,6 +234,10 @@ public sealed record CommandLine
                 case "corriger-réconciliation":
                     verbe = Verbe.CorrigerReconciliation;
                     break;
+                case "reparer-source":
+                case "réparer-source":
+                    verbe = Verbe.ReparerSource;
+                    break;
                 case "--sans-reference":
                 case "--sans-référence":
                     sansReference = true;
@@ -333,6 +342,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- statut 1052        ce que le registre sait d'une pièce
           dotnet run --project src/SageFne.Reader -- registre-info      où vit le registre, ce qu'il contient
           dotnet run --project src/SageFne.Reader -- reconcilier 1052 --reference REF --confirmer
+          dotnet run --project src/SageFne.Reader -- reparer-source 1052   origine d'une entrée ancienne
           dotnet run --project src/SageFne.Reader -- corriger-reconciliation 1052 --supprimer-reference ...
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --reference REF --confirmer

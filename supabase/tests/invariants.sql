@@ -307,3 +307,59 @@ select case when message like 'référence TA_REFERENCE_FNE -> aucune%'
   from certification_evenements
  where certification_id = (select id from certifications where identite = '0/6/1060')
  order by id desc limit 1;
+
+\echo '--- La source par défaut n''affirme rien ---'
+insert into certifications (dossier_id, identite, piece, etat, environnement, reference_fne)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1063', '1063', 'certified',
+        'test', 'REF-1063');
+
+select case when source = 'inconnue'
+            then 'OK     une source non renseignée reste inconnue'
+            else format('ÉCHEC — le défaut affirme « %s »', source) end
+  from certifications where identite = '0/6/1063';
+
+\echo '--- Requalifier sur preuves internes ---'
+insert into certifications (dossier_id, identite, piece, etat, environnement,
+                            reference_fne, erreur)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1064', '1064', 'certified',
+        'test', 'TA_REFERENCE_FNE',
+        'Réconciliation manuelle du 31/08/2026 à 22:42. Certification constatée sur le portail DGI par l''exploitant, non observée par le middleware.');
+
+select case when requalifier_source((select id from certifications where identite = '0/6/1064'))
+                 = 'reconciliation_manuelle'
+            then 'OK     l''attestation complète requalifie l''entrée'
+            else 'ÉCHEC — requalification refusée' end;
+
+-- Rien d'autre n'a bougé : c'est toute la prudence de l'opération.
+select case when etat = 'certified' and reference_fne = 'TA_REFERENCE_FNE'
+                 and identite = '0/6/1064' and reconciliee_le is not null
+            then 'OK     la requalification ne touche que la source'
+            else 'ÉCHEC — la requalification a altéré autre chose' end
+  from certifications where identite = '0/6/1064';
+
+-- Et la référence fautive devient retirable, ce qui était le but.
+update certifications set reference_fne = null, motif = 'Aucune référence au portail.'
+ where identite = '0/6/1064';
+
+select case when reference_fne is null and etat = 'certified'
+            then 'OK     la fausse référence part une fois la source établie'
+            else 'ÉCHEC — la référence n''a pas pu être retirée' end
+  from certifications where identite = '0/6/1064';
+
+\echo '--- Ce que la requalification refuse ---'
+select attendre_echec($$
+  select requalifier_source((select id from certifications where identite = '0/6/1063'))$$,
+  'une requalification sans attestation');
+
+select attendre_echec($$
+  select requalifier_source((select id from certifications where identite = '0/6/1064'))$$,
+  'la requalification d''une ligne qui se déclare déjà');
+
+insert into certifications (dossier_id, identite, piece, etat, environnement, erreur)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1065', '1065', 'error',
+        'test',
+        'Réconciliation manuelle du 31/08/2026. Certification constatée sur le portail DGI par l''exploitant, non observée par le middleware.');
+
+select attendre_echec($$
+  select requalifier_source((select id from certifications where identite = '0/6/1065'))$$,
+  'la requalification d''une entrée non certifiée');

@@ -12,6 +12,27 @@ namespace SageFne.Reader.Certification;
 /// </remarks>
 public enum SourceCertification
 {
+    /// <summary>
+    /// Rien ne dit d'où vient cette ligne.
+    /// </summary>
+    /// <remarks>
+    /// Première valeur de l'énumération, donc celle que prend le champ quand il
+    /// est absent du JSON — les entrées écrites avant l'ajout de <c>source</c>
+    /// sont dans ce cas.
+    ///
+    /// Ce n'était pas ainsi au départ : <see cref="Middleware"/> occupait la
+    /// place, si bien qu'une entrée sans <c>source</c> se relisait « la DGI l'a
+    /// dit », c'est-à-dire l'affirmation la plus forte que le champ sache
+    /// porter. Une réconciliation manuelle réelle s'est ainsi retrouvée classée
+    /// réponse de plateforme, et devenue incorrigible — les corrections étant
+    /// justement réservées aux déclarations humaines.
+    ///
+    /// La valeur par défaut d'une énumération ne doit jamais être une
+    /// affirmation. Elle est ici l'aveu d'une ignorance, ce qu'elle est
+    /// réellement.
+    /// </remarks>
+    Inconnue,
+
     /// <summary>Le middleware a envoyé la facture et lu la réponse de la DGI.</summary>
     Middleware,
 

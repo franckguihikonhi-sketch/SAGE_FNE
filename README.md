@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 364 tests
+dotnet test                                    # 395 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -42,6 +42,7 @@ dotnet run --project src/SageFne.Reader -- envoyer 1052          # montre la req
 dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   # envoie pour de vrai
 dotnet run --project src/SageFne.Reader -- statut 1052           # ce que le registre sait d'une pièce
 dotnet run --project src/SageFne.Reader -- registre-info         # où vit le registre, ce qu'il contient
+dotnet run --project src/SageFne.Reader -- reparer-source 1052   # origine d'une entrée ancienne
 dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
 ```
 
@@ -422,6 +423,46 @@ la seule chose qui restera, dans six mois, pour expliquer l'absence de numéro.
 **L'absence de référence ne rend jamais une pièce envoyable.** C'est l'identité Sage
 `domaine/DO_DocType/DO_Piece` qui bloque le renvoi, jamais le numéro de la DGI. Une pièce
 `Certified` sans référence est aussi bloquée qu'une autre, et des tests le verrouillent.
+
+### Une valeur par défaut ne doit jamais être une affirmation
+
+`SourceCertification` disait d'où vient ce que le registre affirme : réponse de la DGI lue
+par le middleware, ou référence relevée à la main sur le portail. `Middleware` en occupait
+la première place — donc la valeur d'un champ absent — et un initialiseur de propriété la
+posait en plus explicitement.
+
+Une entrée écrite **avant l'existence du champ** se relisait donc « la DGI l'a dit » : la
+plus forte affirmation que le champ sache porter, tirée d'une absence d'information. Une
+réconciliation manuelle réelle s'est ainsi retrouvée classée réponse de plateforme, et
+devenue **incorrigible** — les corrections étant réservées aux déclarations humaines, qui
+seules peuvent être fautives.
+
+`Inconnue` occupe maintenant la place zéro, et chaque écriture déclare sa source
+explicitement : `Trace()` pose `Middleware` pour un envoi réel, `ReconcilierAsync` pose
+`ReconciliationManuelle`. Des tests vérifient qu'aucune écriture ne laisse la source au
+défaut.
+
+### Établir l'origine d'une entrée ancienne
+
+```powershell
+dotnet run --project src\SageFne.Reader -- reparer-source 1052
+```
+
+Sans `--confirmer`, elle affiche la source actuelle, celle qu'elle propose, et sur quoi
+elle se fonde. Rien n'est écrit.
+
+La requalification ne repose que sur des **preuves internes à l'entrée**, et ne conclut
+jamais qu'à la réconciliation manuelle : elle seule laisse une attestation textuelle sans
+ambiguïté — « réconciliation manuelle », « constatée sur le portail DGI par l'exploitant »,
+« non observée par le middleware », exigées **ensemble**. Prises isolément, ces mentions
+peuvent figurer dans un motif saisi à la main.
+
+Déduire « réponse de la plateforme » d'une absence de preuve serait refaire exactement
+l'erreur qui rend cette commande nécessaire : une vraie réponse FNE n'est jamais reclassée,
+et une ligne qui se déclare déjà n'est pas rediagnostiquée.
+
+Seule la source change. Ni l'état, ni l'identité, ni l'empreinte, ni l'horodatage, ni la
+référence — même fautive. Une copie du registre est prise avant écriture.
 
 ### Corriger une réconciliation fautive
 

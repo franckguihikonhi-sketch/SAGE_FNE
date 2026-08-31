@@ -1441,3 +1441,524 @@ public class SauvegardeDuRegistreTests : IDisposable
             throw new InvalidOperationException("aucune API ne doit être appelée");
     }
 }
+
+/// <summary>
+/// La valeur par défaut d'une énumération ne doit jamais être une affirmation.
+/// </summary>
+/// <remarks>
+/// <c>Middleware</c> occupait la place zéro de <see cref="SourceCertification"/>,
+/// et un initialiseur de propriété la posait en plus explicitement. Une entrée
+/// écrite avant l'existence du champ se relisait donc « la DGI l'a dit » — la
+/// plus forte affirmation que le champ sache porter. Une réconciliation
+/// manuelle réelle s'est ainsi retrouvée incorrigible, les corrections étant
+/// réservées aux déclarations humaines.
+/// </remarks>
+public class SourceDesEntreesTests
+{
+    /// <summary>Ce que le registre contenait avant l'ajout du champ.</summary>
+    private const string AncienneEntree = """
+        [
+          {
+            "identite": "0/6/1052",
+            "piece": "1052",
+            "referenceFne": "TA_REFERENCE_FNE",
+            "token": "",
+            "certifieeLe": "2026-08-31T22:42:11.000+00:00",
+            "empreinte": "bb4ac4b0",
+            "etat": "Certified",
+            "reponse": "",
+            "erreur": "Réconciliation manuelle du 31/08/2026 à 22:42. Certification constatée sur le portail DGI par l'exploitant, non observée par le middleware."
+          }
+        ]
+        """;
+
+    [Fact]
+    public void Une_entree_sans_source_se_relit_inconnue_et_non_middleware()
+    {
+        var entrees = System.Text.Json.JsonSerializer.Deserialize<List<CertifiedInvoice>>(AncienneEntree)!;
+
+        Assert.Equal(SourceCertification.Inconnue, Assert.Single(entrees).Source);
+    }
+
+    [Fact]
+    public void Une_entree_neuve_sans_source_declaree_est_inconnue()
+    {
+        // Le défaut du type lui-même, indépendamment du JSON.
+        Assert.Equal(
+            SourceCertification.Inconnue,
+            new CertifiedInvoice { Identite = "0/6/1", Piece = "1" }.Source);
+    }
+
+    [Fact]
+    public void Inconnue_occupe_la_valeur_zero()
+    {
+        // C'est elle que prend tout champ non renseigné, quel que soit le chemin.
+        Assert.Equal(0, (int)SourceCertification.Inconnue);
+        Assert.Equal(default, SourceCertification.Inconnue);
+    }
+
+    [Theory]
+    [InlineData(SourceCertification.ReconciliationManuelle)]
+    [InlineData(SourceCertification.Middleware)]
+    [InlineData(SourceCertification.Import)]
+    [InlineData(SourceCertification.Inconnue)]
+    public void La_source_survit_a_un_aller_retour_JSON(SourceCertification source)
+    {
+        var origine = new CertifiedInvoice
+        {
+            Identite = "0/6/1052",
+            Piece = "1052",
+            Etat = EtatFne.Certified,
+            Source = source,
+        };
+
+        var relue = System.Text.Json.JsonSerializer.Deserialize<CertifiedInvoice>(
+            System.Text.Json.JsonSerializer.Serialize(origine))!;
+
+        Assert.Equal(source, relue.Source);
+    }
+
+    [Fact]
+    public void La_source_s_ecrit_en_toutes_lettres()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new CertifiedInvoice
+        {
+            Identite = "0/6/1052",
+            Piece = "1052",
+            Source = SourceCertification.ReconciliationManuelle,
+        });
+
+        Assert.Contains("\"ReconciliationManuelle\"", json);
+    }
+
+    // --- Le diagnostic d'origine --------------------------------------------
+
+    private static CertifiedInvoice Ancienne(string attestation, EtatFne etat = EtatFne.Certified) => new()
+    {
+        Identite = "0/6/1052",
+        Piece = "1052",
+        ReferenceFne = "TA_REFERENCE_FNE",
+        Empreinte = "bb4ac4b0",
+        Etat = etat,
+        Erreur = attestation,
+    };
+
+    private const string Attestation =
+        "Réconciliation manuelle du 31/08/2026 à 22:42. Certification constatée sur le " +
+        "portail DGI par l'exploitant, non observée par le middleware.";
+
+    [Fact]
+    public void L_attestation_complete_designe_une_reconciliation_manuelle()
+    {
+        var diagnostic = SourceHeuristique.Diagnostiquer(Ancienne(Attestation));
+
+        Assert.True(diagnostic.Concluante);
+        Assert.Equal(SourceCertification.ReconciliationManuelle, diagnostic.Proposee);
+    }
+
+    [Fact]
+    public void L_attestation_se_lit_aussi_depuis_le_motif()
+    {
+        // Elle partait dans « erreur » avant que « motif » n'existe ; les deux
+        // zones doivent être examinées.
+        var diagnostic = SourceHeuristique.Diagnostiquer(
+            Ancienne("") with { Motif = Attestation });
+
+        Assert.True(diagnostic.Concluante);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Réconciliation manuelle du 31/08/2026.")]
+    [InlineData("Certification constatée sur le portail DGI par l'exploitant.")]
+    [InlineData("{\"reference\":\"2304903U26000000930\",\"status\":\"signed\"}")]
+    public void Un_fragment_ne_suffit_pas_a_requalifier(string texte)
+    {
+        // Les trois marques sont exigées ensemble : prises isolément, elles
+        // peuvent figurer dans un motif saisi à la main.
+        var diagnostic = SourceHeuristique.Diagnostiquer(Ancienne(texte));
+
+        Assert.False(diagnostic.Concluante);
+        Assert.Equal(SourceCertification.Inconnue, diagnostic.Proposee);
+    }
+
+    [Fact]
+    public void Une_vraie_reponse_de_plateforme_n_est_jamais_requalifiee()
+    {
+        var reponse = Ancienne("") with
+        {
+            Source = SourceCertification.Middleware,
+            Reponse = """{"reference":"2304903U26000000930"}""",
+            ReferenceFne = "2304903U26000000930",
+        };
+
+        var diagnostic = SourceHeuristique.Diagnostiquer(reponse);
+
+        Assert.False(diagnostic.Concluante);
+        Assert.Equal(SourceCertification.Middleware, diagnostic.Proposee);
+    }
+
+    [Fact]
+    public void Une_entree_deja_qualifiee_n_est_pas_rediagnostiquee()
+    {
+        // Même avec l'attestation : une ligne qui se déclare fait foi.
+        var diagnostic = SourceHeuristique.Diagnostiquer(
+            Ancienne(Attestation) with { Source = SourceCertification.Middleware });
+
+        Assert.False(diagnostic.Concluante);
+    }
+
+    [Fact]
+    public void Une_entree_non_certifiee_n_a_pas_d_origine_a_etablir()
+    {
+        var diagnostic = SourceHeuristique.Diagnostiquer(Ancienne(Attestation, EtatFne.Error));
+
+        Assert.False(diagnostic.Concluante);
+    }
+}
+
+/// <summary>
+/// Réparer l'origine d'une entrée, sans toucher à rien d'autre.
+/// </summary>
+public class ReparationSourceTests : IDisposable
+{
+    private readonly string _dossier = Path.Combine(
+        Path.GetTempPath(), $"registre-{Guid.NewGuid():N}");
+
+    private string Chemin => Path.Combine(_dossier, "certifications.json");
+
+    public ReparationSourceTests() => Directory.CreateDirectory(_dossier);
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dossier)) Directory.Delete(_dossier, recursive: true);
+    }
+
+    private sealed class ClientMuet : IFneApiClient
+    {
+        public bool Appele { get; private set; }
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default)
+        {
+            Appele = true;
+            return Task.FromResult(new FneSignResult(true, 200, "NE-DOIT-PAS-PARTIR"));
+        }
+    }
+
+    private const string Attestation =
+        "Réconciliation manuelle du 31/08/2026 à 22:42. Certification constatée sur le " +
+        "portail DGI par l'exploitant, non observée par le middleware.";
+
+    private static IOptions<FneOptions> Reglages() => Options.Create(new FneOptions
+    {
+        PointOfSale = "FISH-AFRIC",
+        Establishment = "FISH-AFRIC",
+        Template = "B2B",
+        PaymentMethod = "deferred",
+    });
+
+    private async Task<(InvoiceSender Expediteur, JsonCertificationLedger Registre,
+        ClientMuet Client, InvoiceBatchReader Lecteur, string Empreinte)> Monter(
+        string attestation = Attestation,
+        SourceCertification source = SourceCertification.Inconnue)
+    {
+        var registre = new JsonCertificationLedger(Chemin, NullLogger<JsonCertificationLedger>.Instance);
+        var reglages = Reglages();
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        // L'empreinte réelle : la pièce doit ressortir « déjà certifiée ».
+        var vide = await lecteur.ReadAsync(InvoiceQuery.Piece("1221"));
+        var empreinte = vide.Conversions[0].Empreinte;
+
+        await registre.RecordAsync(new CertifiedInvoice
+        {
+            Identite = "0/6/1221",
+            Piece = "1221",
+            ReferenceFne = "TA_REFERENCE_FNE",
+            Empreinte = empreinte,
+            Etat = EtatFne.Certified,
+            Source = source,
+            Erreur = attestation,
+            CertifieeLe = new DateTimeOffset(2026, 8, 31, 22, 42, 11, TimeSpan.Zero),
+        });
+
+        var client = new ClientMuet();
+        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance),
+            registre, client, lecteur, empreinte);
+    }
+
+    private string[] Sauvegardes() => Directory.GetFiles(_dossier, "*.sauvegarde");
+
+    private async Task<CertifiedInvoice> Relire() =>
+        (await new JsonCertificationLedger(Chemin, NullLogger<JsonCertificationLedger>.Instance)
+            .LookupAsync(["0/6/1221"]))["0/6/1221"];
+
+    [Fact]
+    public async Task Sans_confirmation_rien_n_est_ecrit_ni_sauvegarde()
+    {
+        var (expediteur, _, _, _, _) = await Monter();
+
+        var resultat = await expediteur.ReparerSourceAsync("1221", confirme: false);
+
+        Assert.False(resultat.Applique);
+        Assert.True(resultat.ConfirmationManque);
+        Assert.Contains("Source proposée", resultat.Message);
+        Assert.Contains("Réconciliation manuelle", resultat.Message);
+        Assert.Empty(Sauvegardes());
+        Assert.Equal(SourceCertification.Inconnue, (await Relire()).Source);
+    }
+
+    [Fact]
+    public async Task La_reparation_sauvegarde_avant_d_ecrire()
+    {
+        var (expediteur, _, _, _, _) = await Monter();
+
+        var resultat = await expediteur.ReparerSourceAsync("1221", confirme: true);
+
+        Assert.True(resultat.Applique);
+        var copie = Assert.Single(Sauvegardes());
+        Assert.DoesNotContain("ReconciliationManuelle", await File.ReadAllTextAsync(copie));
+    }
+
+    [Fact]
+    public async Task La_reparation_ne_change_que_la_source()
+    {
+        var (expediteur, _, _, _, empreinte) = await Monter();
+        var avant = await Relire();
+
+        await expediteur.ReparerSourceAsync("1221", confirme: true);
+        var apres = await Relire();
+
+        Assert.Equal(SourceCertification.ReconciliationManuelle, apres.Source);
+
+        // Tout le reste, à l'identique — y compris la fausse référence : une
+        // chose à la fois.
+        Assert.Equal(EtatFne.Certified, apres.Etat);
+        Assert.Equal(avant.Identite, apres.Identite);
+        Assert.Equal(avant.Piece, apres.Piece);
+        Assert.Equal(empreinte, apres.Empreinte);
+        Assert.Equal(avant.CertifieeLe, apres.CertifieeLe);
+        Assert.Equal("TA_REFERENCE_FNE", apres.ReferenceFne);
+        Assert.Equal(avant.Erreur, apres.Erreur);
+        Assert.Contains("Réparation du", apres.Motif);
+    }
+
+    [Fact]
+    public async Task Une_entree_sans_preuve_n_est_pas_reparee()
+    {
+        var (expediteur, _, _, _, _) = await Monter(attestation: "certifiée, sans plus de détail");
+
+        var resultat = await expediteur.ReparerSourceAsync("1221", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("Source proposée   aucune", resultat.Message);
+        Assert.Empty(Sauvegardes());
+        Assert.Equal(SourceCertification.Inconnue, (await Relire()).Source);
+    }
+
+    [Fact]
+    public async Task Une_vraie_reponse_de_plateforme_n_est_pas_touchee()
+    {
+        var (expediteur, _, _, _, _) = await Monter(
+            attestation: Attestation, source: SourceCertification.Middleware);
+
+        var resultat = await expediteur.ReparerSourceAsync("1221", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(Sauvegardes());
+        Assert.Equal(SourceCertification.Middleware, (await Relire()).Source);
+    }
+
+    [Fact]
+    public async Task La_piece_reste_bloquee_pendant_et_apres_la_reparation()
+    {
+        var (expediteur, _, client, lecteur, _) = await Monter();
+
+        var avant = await lecteur.ReadAsync(InvoiceQuery.Piece("1221"));
+        await expediteur.ReparerSourceAsync("1221", confirme: true);
+        var apres = await lecteur.ReadAsync(InvoiceQuery.Piece("1221"));
+        var envoi = await expediteur.EnvoyerAsync("1221", confirme: true);
+
+        Assert.Equal(EtatPiece.DejaCertifiee, avant.Conversions[0].Etat);
+        Assert.Equal(EtatPiece.DejaCertifiee, apres.Conversions[0].Etat);
+        Assert.False(client.Appele);
+        Assert.False(envoi.Reussi);
+    }
+
+    [Fact]
+    public async Task La_correction_de_reference_renvoie_a_la_reparation()
+    {
+        // Le message doit nommer le remède, pas laisser croire à une référence
+        // venue de la DGI.
+        var (expediteur, _, _, _, _) = await Monter();
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            "1221", "TA_REFERENCE_FNE", "motif", supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("reparer-source", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Reparer_puis_corriger_mene_a_l_etat_attendu()
+    {
+        // Le parcours complet, tel qu'il sera exécuté sur la 1052.
+        var (expediteur, _, client, lecteur, empreinte) = await Monter();
+
+        await expediteur.ReparerSourceAsync("1221", confirme: true);
+        var correction = await expediteur.CorrigerReferenceAsync(
+            "1221", "TA_REFERENCE_FNE", "Aucune référence FNE visible sur le portail/PDF TEST",
+            supprimerJeton: true, confirme: true);
+
+        Assert.True(correction.Applique);
+        var finale = await Relire();
+
+        Assert.Equal(EtatFne.Certified, finale.Etat);
+        Assert.True(finale.SansReference);
+        Assert.Equal("", finale.Token);
+        Assert.Equal(SourceCertification.ReconciliationManuelle, finale.Source);
+        Assert.Equal("0/6/1221", finale.Identite);
+        Assert.Equal(empreinte, finale.Empreinte);
+        Assert.Equal(new DateTimeOffset(2026, 8, 31, 22, 42, 11, TimeSpan.Zero), finale.CertifieeLe);
+
+        // Et surtout : toujours pas renvoyable.
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece("1221"));
+        Assert.Equal(EtatPiece.DejaCertifiee, lot.Conversions[0].Etat);
+        Assert.False((await expediteur.EnvoyerAsync("1221", confirme: true)).Reussi);
+        Assert.False(client.Appele);
+
+        // Deux écritures, donc deux copies : chacune garde l'état d'avant.
+        Assert.Equal(2, Sauvegardes().Length);
+    }
+
+    [Fact]
+    public async Task Une_piece_sans_trace_n_a_pas_de_source_a_reparer()
+    {
+        var registre = new JsonCertificationLedger(Chemin, NullLogger<JsonCertificationLedger>.Instance);
+        var reglages = Reglages();
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+        var expediteur = new InvoiceSender(
+            lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance);
+
+        var resultat = await expediteur.ReparerSourceAsync("1221", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("aucune trace", resultat.Message);
+    }
+}
+
+/// <summary>
+/// Toute écriture déclare sa source : aucune ne compte sur le défaut.
+/// </summary>
+public class SourceToujoursExpliciteTests
+{
+    private sealed class Registre : ICertificationLedger
+    {
+        public List<CertifiedInvoice> Ecritures { get; } = [];
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                new Dictionary<string, CertifiedInvoice>());
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            Ecritures.Add(certification);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ClientQuiRepond(FneSignResult reponse) : IFneApiClient
+    {
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default) =>
+            Task.FromResult(reponse);
+    }
+
+    private static (InvoiceSender Expediteur, Registre Registre) Monter(FneSignResult reponse)
+    {
+        var registre = new Registre();
+        var reglages = Options.Create(new FneOptions
+        {
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            Template = "B2B",
+            PaymentMethod = "deferred",
+        });
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        return (new InvoiceSender(
+            lecteur, registre, new ClientQuiRepond(reponse), NullLogger<InvoiceSender>.Instance),
+            registre);
+    }
+
+    [Fact]
+    public async Task Un_envoi_reel_se_declare_Middleware_a_chaque_ecriture()
+    {
+        // Y compris la trace « Sending » posée avant l'appel : elle naît d'un
+        // envoi que le middleware fait lui-même.
+        var (expediteur, registre) = Monter(new FneSignResult(true, 200, "REF", "QR"));
+
+        await expediteur.EnvoyerAsync("1221", confirme: true);
+
+        Assert.NotEmpty(registre.Ecritures);
+        Assert.All(registre.Ecritures,
+            ecriture => Assert.Equal(SourceCertification.Middleware, ecriture.Source));
+    }
+
+    [Fact]
+    public async Task Un_echec_se_declare_Middleware_aussi()
+    {
+        var (expediteur, registre) = Monter(
+            new FneSignResult(false, 422, CorpsBrut: "{}", Erreur: "refus"));
+
+        await expediteur.EnvoyerAsync("1221", confirme: true);
+
+        Assert.All(registre.Ecritures,
+            ecriture => Assert.Equal(SourceCertification.Middleware, ecriture.Source));
+    }
+
+    [Fact]
+    public async Task Une_reconciliation_se_declare_ReconciliationManuelle()
+    {
+        var (expediteur, registre) = Monter(new FneSignResult(true, 200, "REF"));
+
+        await expediteur.ReconcilierAsync("1221", "REF-PORTAIL", null, confirme: true);
+
+        Assert.Equal(
+            SourceCertification.ReconciliationManuelle,
+            Assert.Single(registre.Ecritures).Source);
+    }
+
+    [Fact]
+    public async Task Une_reconciliation_sans_reference_se_declare_aussi()
+    {
+        var (expediteur, registre) = Monter(new FneSignResult(true, 200, "REF"));
+
+        await expediteur.ReconcilierAsync(
+            "1221", null, null, confirme: true, sansReference: true, motif: "aucune au portail");
+
+        Assert.Equal(
+            SourceCertification.ReconciliationManuelle,
+            Assert.Single(registre.Ecritures).Source);
+    }
+
+    [Fact]
+    public async Task Aucune_ecriture_ne_laisse_la_source_inconnue()
+    {
+        // La garantie générale : le défaut ne doit jamais atteindre le disque.
+        var (expediteur, registre) = Monter(new FneSignResult(true, 200, "REF"));
+
+        await expediteur.EnvoyerAsync("1221", confirme: true);
+        await expediteur.ReconcilierAsync("1222", "REF-2", null, confirme: true);
+
+        Assert.All(registre.Ecritures,
+            ecriture => Assert.NotEqual(SourceCertification.Inconnue, ecriture.Source));
+    }
+}
