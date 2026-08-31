@@ -60,7 +60,23 @@ public sealed class InvoiceBatchReader(
             .ToDictionary(client => client.CtNum, StringComparer.OrdinalIgnoreCase);
 
         // Le registre des certifications en une lecture lui aussi.
-        var deja = await ledger.LookupAsync(entetes.Select(entete => entete.Piece).ToList(), cancellation);
+        // Le registre est interrogé sur l'identité stable, pas sur le numéro :
+        // une facture certifiée en type 6 doit rester reconnue une fois passée
+        // en 7, et un bon de livraison de même numéro ne doit pas la masquer.
+        var deja = await ledger.LookupAsync(entetes.Select(entete => entete.Identite).ToList(), cancellation);
+
+        // Le même document ne doit apparaître qu'une fois. S'il ressort deux
+        // fois, c'est que la comptabilisation a laissé deux lignes plutôt que
+        // d'en modifier une : sans ce contrôle, il partirait deux fois.
+        foreach (var double_ in entetes.GroupBy(entete => entete.Identite).Where(groupe => groupe.Count() > 1))
+        {
+            constats.Erreur(
+                "PIECE_EN_DOUBLE",
+                $"La pièce {double_.First().Piece} ressort {double_.Count()} fois " +
+                $"(DO_Type {string.Join(" et ", double_.Select(entete => entete.Type).Distinct())}). " +
+                "Une facture et sa version comptabilisée coexistent : le lot ne peut pas " +
+                "trancher laquelle envoyer, et rien ne part tant que ce n'est pas éclairci.");
+        }
 
         var conversions = new List<InvoiceConversion>(entetes.Count);
         foreach (var entete in entetes)
@@ -92,7 +108,7 @@ public sealed class InvoiceBatchReader(
             : null;
 
         var empreinte = facture is null ? "" : InvoiceFingerprint.Compute(facture);
-        deja.TryGetValue(entete.Piece, out var certification);
+        deja.TryGetValue(entete.Identite, out var certification);
         var etat = Etat(entete, facture, rapport, empreinte, certification);
 
         return new InvoiceConversion

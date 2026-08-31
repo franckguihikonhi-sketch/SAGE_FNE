@@ -54,6 +54,10 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         Entete("1221", new DateTime(2025, 12, 5), "4111DEMOSA", totalHT: 200000m, totalTTC: 221000m),
         Entete("1222", new DateTime(2025, 12, 8), "4111SANSNCC", totalHT: 50000m, totalTTC: 50750m),
         Entete("1223", new DateTime(2025, 12, 9), "4111DEMOSA", totalHT: 54000m, totalTTC: 63720m),
+        // Comptabilisée : DO_Type 7, DO_DocType 6. C'est le cas le plus fréquent
+        // du dossier réel — 913 documents sur 1 008 relevés.
+        Entete("1224", new DateTime(2025, 12, 10), "4111DEMOSA", totalHT: 80000m, totalTTC: 94400m,
+            type: SageDocumentTypes.FactureComptabilisee),
     ];
 
     private static readonly SageDocumentLine[] Lignes =
@@ -84,6 +88,10 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         Ligne("1223", 2, "6FF002", "Frites 9 mm - carton", 5m, 2000m, "SAC",
             montantHT: 9000m, montantTTC: 10620m, taxe1: 18m, code1: "TVA",
             remise1: 200m, remise1Type: SageRemise.Montant),
+
+        // La ligne d'une facture comptabilisée se lit comme les autres.
+        Ligne("1224", 1, "13110001", "Tenderloin chain off", 8m, 10000m, "KG",
+            montantHT: 80000m, montantTTC: 94400m, taxe1: 18m, code1: "TVA"),
     ];
 
     /// <summary>
@@ -178,9 +186,38 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
                         Date = document.Date,
                         Tiers = document.Tiers,
                         TotalTTC = document.TotalTTC,
-                        DocType = document.Type,
+                        DocType = document.DocType,
                     })
                     .ToList(),
+            })
+            .ToList());
+
+    public Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(
+        string piece,
+        CancellationToken cancellation = default) =>
+        Task.FromResult(Entetes
+            .Concat(AutresDocuments)
+            .Where(document => document.Piece == piece)
+            .OrderBy(document => document.Type)
+            .ToList());
+
+    /// <remarks>
+    /// Le jeu d'essai n'en fabrique aucun : la comptabilisation modifie la ligne
+    /// en place, elle n'en crée pas une seconde. C'est l'hypothèse que la vraie
+    /// base doit confirmer.
+    /// </remarks>
+    public Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(
+        CancellationToken cancellation = default) =>
+        Task.FromResult(Entetes
+            .Concat(AutresDocuments)
+            .GroupBy(document => document.Piece)
+            .Where(groupe => groupe.Select(document => document.Type).Distinct().Count() > 1)
+            .Select(groupe => new SageDocumentDuplicate
+            {
+                Piece = groupe.Key,
+                Nombre = groupe.Count(),
+                Types = groupe.Select(document => document.Type).Distinct().Order().ToList(),
+                DocTypes = groupe.Select(document => document.DocType).Distinct().Order().ToList(),
             })
             .ToList());
 
@@ -194,10 +231,13 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         DateTime date,
         string tiers,
         decimal totalHT,
-        decimal totalTTC) => new()
+        decimal totalTTC,
+        short type = SageDocumentTypes.Facture) => new()
     {
         Domaine = 0,
-        Type = 6,
+        Type = type,
+        // La comptabilisation change DO_Type, jamais DO_DocType.
+        DocType = SageDocumentTypes.Facture,
         Piece = piece,
         Date = date,
         Tiers = tiers,
@@ -216,6 +256,7 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
     {
         Domaine = 0,
         Type = type,
+        DocType = type == SageDocumentTypes.FactureComptabilisee ? SageDocumentTypes.Facture : type,
         Piece = piece,
         Date = date,
         Tiers = tiers,
@@ -241,7 +282,7 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         short remise1Type = SageRemise.Pourcentage) => new()
     {
         Domaine = 0,
-        Type = 6,
+        Type = Entetes.First(entete => entete.Piece == piece).Type,
         Piece = piece,
         Ligne = rang,
         CtNum = Entetes.First(entete => entete.Piece == piece).Tiers,

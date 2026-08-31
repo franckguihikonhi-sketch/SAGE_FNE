@@ -20,8 +20,17 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     /// <summary>Domaine 0 = ventes.</summary>
     private const short DomaineVente = 0;
 
-    /// <summary>Type 6 = facture. Les autres types restent à confirmer.</summary>
-    private const short TypeFacture = 6;
+    /// <summary>
+    /// Les deux états d'une facture : 6 avant comptabilisation, 7 après. Sage
+    /// fait passer DO_Type de l'un à l'autre sur la même ligne — c'est le même
+    /// document, et le lot doit voir les deux.
+    /// </summary>
+    private const short TypeFacture = SageDocumentTypes.Facture;
+    private const short TypeComptabilisee = SageDocumentTypes.FactureComptabilisee;
+
+    /// <summary>Le filtre de type, écrit une fois pour toutes les requêtes.</summary>
+    private const string FiltreTypesFacture =
+        "DO_Type in (@typeFacture, @typeComptabilisee)";
 
     /// <summary>
     /// SQL Server plafonne à 2 100 paramètres par commande : les listes sont
@@ -30,7 +39,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     private const int TailleTranche = 500;
 
     private const string ColonnesEntete = """
-        e.DO_Domaine, e.DO_Type, e.DO_Piece, e.DO_Date, e.DO_Tiers,
+        e.DO_Domaine, e.DO_Type, e.DO_DocType, e.DO_Piece, e.DO_Date, e.DO_Tiers,
         e.DO_TotalHT, e.DO_TotalTTC, e.DO_NetAPayer, e.DO_Statut
         """;
 
@@ -56,19 +65,22 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
     public async Task<SageDocumentHeader?> GetInvoiceAsync(string piece, CancellationToken cancellation = default)
     {
+        // Une pièce comptabilisée et sa version d'avant portent le même numéro :
+        // c'est l'état le plus avancé qui décrit le document aujourd'hui.
         var sql = $"""
             select top (1)
             {ColonnesEntete}
             from F_DOCENTETE e
             where e.DO_Domaine = @domaine
-              and e.DO_Type = @type
+              and e.{FiltreTypesFacture}
               and e.DO_Piece = @piece
+            order by e.DO_Type desc
             """;
 
         await using var connexion = await OuvrirAsync(cancellation);
         await using var commande = Commande(connexion, sql);
         Ajouter(commande, "@domaine", DomaineVente);
-        Ajouter(commande, "@type", TypeFacture);
+        AjouterTypes(commande);
         Ajouter(commande, "@piece", piece);
 
         await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
@@ -117,7 +129,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
                 {ColonnesEntete}
                 from F_DOCENTETE e
                 where e.DO_Domaine = @domaine
-                  and e.DO_Type = @type
+                  and e.{FiltreTypesFacture}
                 {criteres.Where(tranche)}
                 order by e.DO_Date, e.DO_Piece
                 """;
@@ -125,7 +137,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             await using var connexion = await OuvrirAsync(cancellation);
             await using var commande = Commande(connexion, sql);
             Ajouter(commande, "@domaine", DomaineVente);
-            Ajouter(commande, "@type", TypeFacture);
+            AjouterTypes(commande);
             Ajouter(commande, "@limite", query.Limite);
             criteres.Appliquer(commande, tranche);
 
@@ -149,7 +161,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             await using var connexion = await OuvrirAsync(cancellation);
             await using var commande = Commande(connexion, SqlLignes(criteres, tranche));
             Ajouter(commande, "@domaine", DomaineVente);
-            Ajouter(commande, "@type", TypeFacture);
+            AjouterTypes(commande);
             criteres.Appliquer(commande, tranche);
 
             lignes.AddRange(await LireLignesAsync(commande, cancellation));
@@ -368,6 +380,78 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             entree => (IReadOnlyList<SageDocumentSample>)entree.Value);
     }
 
+    /// <remarks>Aucun filtre de type : c'est tout l'intérêt de cette lecture.</remarks>
+    public async Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(
+        string piece,
+        CancellationToken cancellation = default)
+    {
+        var sql = $"""
+            select
+            {ColonnesEntete}
+            from F_DOCENTETE e
+            where e.DO_Domaine = @domaine
+              and e.DO_Piece = @piece
+            order by e.DO_Type
+            """;
+
+        await using var connexion = await OuvrirAsync(cancellation);
+        await using var commande = Commande(connexion, sql);
+        Ajouter(commande, "@domaine", DomaineVente);
+        Ajouter(commande, "@piece", piece);
+
+        var entetes = new List<SageDocumentHeader>();
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+        while (await lecteur.ReadAsync(cancellation)) entetes.Add(LireEntete(lecteur));
+        return entetes;
+    }
+
+    internal const string SqlPiecesMultiTypes = """
+        select
+          e.DO_Piece as DO_Piece,
+          count(*) as Nombre,
+          count(distinct e.DO_Type) as Types,
+          min(e.DO_Type) as TypeMin,
+          max(e.DO_Type) as TypeMax,
+          min(e.DO_DocType) as DocTypeMin,
+          max(e.DO_DocType) as DocTypeMax
+        from F_DOCENTETE e
+        where e.DO_Domaine = @domaine
+        group by e.DO_Piece
+        having count(distinct e.DO_Type) > 1
+        order by e.DO_Piece
+        """;
+
+    public async Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(
+        CancellationToken cancellation = default)
+    {
+        await using var connexion = await OuvrirAsync(cancellation);
+        await using var commande = Commande(connexion, SqlPiecesMultiTypes);
+        Ajouter(commande, "@domaine", DomaineVente);
+
+        var doublons = new List<SageDocumentDuplicate>();
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+        while (await lecteur.ReadAsync(cancellation))
+        {
+            // Le groupement ne rend que les bornes : deux types distincts sont
+            // exactement décrits par leur minimum et leur maximum, et au-delà
+            // de deux, ces bornes suffisent à donner l'alerte.
+            var min = lecteur.Small("TypeMin");
+            var max = lecteur.Small("TypeMax");
+            var docMin = lecteur.Small("DocTypeMin");
+            var docMax = lecteur.Small("DocTypeMax");
+
+            doublons.Add(new SageDocumentDuplicate
+            {
+                Piece = lecteur.Text("DO_Piece"),
+                Nombre = lecteur.Whole("Nombre"),
+                Types = min == max ? [min] : [min, max],
+                DocTypes = docMin == docMax ? [docMin] : [docMin, docMax],
+            });
+        }
+
+        return doublons;
+    }
+
     // --- Plomberie ---------------------------------------------------------
 
     /// <summary>
@@ -375,22 +459,28 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     /// </summary>
     /// <remarks>
     /// Les lignes se rattachent à leur entête par le domaine, le numéro de
-    /// pièce <b>et le type</b> : filtrer sur le seul numéro ramènerait aussi
-    /// les lignes d'un document d'un autre type portant le même numéro — un
-    /// bon de livraison 1219 en même temps que la facture 1219.
+    /// pièce <b>et la famille de type</b> : filtrer sur le seul numéro
+    /// ramènerait aussi les lignes d'un document d'un autre type portant le même
+    /// numéro — un bon de livraison 1219 en même temps que la facture 1219.
+    ///
+    /// La famille, et non l'égalité stricte des DO_Type : la comptabilisation
+    /// fait passer l'entête de 6 à 7, et exiger <c>e.DO_Type = l.DO_Type</c>
+    /// ramènerait zéro ligne si les deux tables n'étaient pas exactement en
+    /// phase. Les deux côtés restent bornés à {6, 7}, ce qui écarte toujours le
+    /// bon de livraison.
     /// </remarks>
     internal static string SqlLignes(CritereSql criteres, InvoiceQuery query) => $"""
         select
         {ColonnesLignes}
         from F_DOCLIGNE l
         where l.DO_Domaine = @domaine
+          and l.{FiltreTypesFacture}
           and exists (
                 select 1
                 from F_DOCENTETE e
                 where e.DO_Domaine = l.DO_Domaine
-                  and e.DO_Type = l.DO_Type
                   and e.DO_Piece = l.DO_Piece
-                  and e.DO_Type = @type
+                  and e.{FiltreTypesFacture}
                 {criteres.Where(query)}
           )
         order by l.DO_Piece, l.DL_Ligne
@@ -420,6 +510,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     {
         Domaine = lecteur.Small("DO_Domaine"),
         Type = lecteur.Small("DO_Type"),
+        DocType = lecteur.Small("DO_DocType"),
         Piece = lecteur.Text("DO_Piece"),
         Date = lecteur.Moment("DO_Date"),
         Tiers = lecteur.Text("DO_Tiers"),
@@ -500,4 +591,11 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
     private static void Ajouter(SqlCommand commande, string nom, int valeur) =>
         commande.Parameters.Add(nom, SqlDbType.Int).Value = valeur;
+
+    /// <summary>Les deux états d'une facture, liés d'un seul geste.</summary>
+    private static void AjouterTypes(SqlCommand commande)
+    {
+        Ajouter(commande, "@typeFacture", TypeFacture);
+        Ajouter(commande, "@typeComptabilisee", TypeComptabilisee);
+    }
 }

@@ -20,11 +20,11 @@ public class SqlLignesTests
     {
         var sql = Requete(InvoiceQuery.Piece("1219"));
 
-        // Sans le type, un bon de livraison 1219 apporterait ses lignes à la
-        // facture 1219.
-        Assert.Contains("e.DO_Type = l.DO_Type", sql);
+        // Sans le filtre de type, un bon de livraison 1219 apporterait ses
+        // lignes à la facture 1219.
         Assert.Contains("e.DO_Piece = l.DO_Piece", sql);
-        Assert.Contains("e.DO_Type = @type", sql);
+        Assert.Contains("l.DO_Type in (@typeFacture, @typeComptabilisee)", sql);
+        Assert.Contains("e.DO_Type in (@typeFacture, @typeComptabilisee)", sql);
         Assert.Contains("e.DO_Piece in (@piece0)", sql);
     }
 
@@ -36,8 +36,8 @@ public class SqlLignesTests
 
         // Seul le critère change ; la jointure, elle, est la même.
         const string jointure =
-            "where e.DO_Domaine = l.DO_Domaine and e.DO_Type = l.DO_Type " +
-            "and e.DO_Piece = l.DO_Piece and e.DO_Type = @type";
+            "where e.DO_Domaine = l.DO_Domaine and e.DO_Piece = l.DO_Piece " +
+            "and e.DO_Type in (@typeFacture, @typeComptabilisee)";
 
         Assert.Contains(jointure, Aplatir(unitaire));
         Assert.Contains(jointure, Aplatir(lot));
@@ -55,6 +55,19 @@ public class SqlLignesTests
         Assert.Contains("e.DO_Date >= @depuis", sql);
         Assert.Contains("e.DO_Date < @jusqua", sql);
         Assert.DoesNotContain("@piece0", sql);
+    }
+
+    [Fact]
+    public void La_comptabilisation_ne_fait_pas_disparaitre_les_lignes()
+    {
+        // L'entête passe de DO_Type 6 à 7 quand la facture est comptabilisée.
+        // Exiger e.DO_Type = l.DO_Type ramènerait zéro ligne si F_DOCLIGNE
+        // n'avait pas suivi au même instant : les deux côtés sont bornés à la
+        // famille {6, 7}, pas contraints à l'égalité.
+        var sql = Aplatir(Requete(InvoiceQuery.Piece("1219")));
+
+        Assert.DoesNotContain("e.DO_Type = l.DO_Type", sql);
+        Assert.Contains("l.DO_Type in (@typeFacture, @typeComptabilisee)", sql);
     }
 
     [Fact]

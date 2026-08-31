@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 69 tests
+dotnet test                                    # 83 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -33,6 +33,7 @@ Et un diagnostic, en lecture seule lui aussi :
 
 ```bash
 dotnet run --project src/SageFne.Reader -- doctypes              # inventaire des types de documents
+dotnet run --project src/SageFne.Reader -- detail 1219           # relevé complet d'une pièce
 ```
 
 | Option | Effet |
@@ -195,6 +196,67 @@ l'exploitant verra, qu'interrompre le traitement.
 > est testé, il sera appelé à l'étape suivante. Le dry run hors base marque deux pièces
 > lui-même, pour montrer les états.
 
+## Les types de documents, et pourquoi 6 et 7 sont la même facture
+
+Relevé sur le dossier HT :
+
+| DO_Type | Libellé | Documents | Traitement |
+| --- | --- | --- | --- |
+| 3 | Bon de livraison | 2 | **écarté** — rien n'y est dû |
+| 4 | Bon de retour | 2 | **écarté** — appelle un avoir, pas une facture |
+| 6 | Facture | 91 | candidate à la certification |
+| 7 | Facture comptabilisée | 913 | candidate — **c'est la même facture qu'en 6** |
+
+Les documents de type 7 portent tous `DO_DocType = 6`. C'est la signature d'un
+changement d'état, pas d'un nouveau document : quand une facture est comptabilisée, Sage
+fait passer `DO_Type` de 6 à 7 **sur la ligne existante** et laisse `DO_DocType` à 6, la
+trace du type d'origine.
+
+Deux conséquences.
+
+**Le lot lit 6 et 7.** Ne lire que le 6 laisserait 913 factures sur 1 004 hors du champ.
+
+**L'identité d'une facture ne peut pas s'appuyer sur `DO_Type`, qui bouge.** Le registre
+des certifications est donc indexé sur `domaine / DO_DocType / DO_Piece` — par exemple
+`0/6/1219`. Cette clé ne change pas à la comptabilisation : une facture certifiée en type 6
+reste reconnue une fois passée en 7, et ne repart pas.
+
+`DO_Piece` seul ne conviendrait pas non plus : Sage numérote par souche, et un bon de
+livraison peut porter le même numéro qu'une facture sans être le même document.
+
+### La vérification qui tranche
+
+Si la comptabilisation modifiait la ligne au lieu de la remplacer, aucun numéro de pièce
+ne devrait porter à la fois `DO_Type` 6 et 7. `doctypes` pose la question directement :
+
+```
+Un même numéro sous plusieurs types
+───────────────────────────────────
+  Aucun. Chaque numéro de pièce ne porte qu'un seul DO_Type.
+```
+
+Si des numéros portaient les deux, le lot refuserait de les envoyer (`PIECE_EN_DOUBLE`)
+plutôt que de risquer une double certification.
+
+### Les avoirs
+
+`DO_Type = 4` n'est pas traité. Un bon de retour certifié comme une vente facturerait au
+client ce qu'il vient de rendre : la logique des avoirs demande son propre travail, et
+elle n'est pas écrite.
+
+## Le relevé d'une pièce
+
+```bash
+dotnet run --project src/SageFne.Reader -- detail 1219
+```
+
+Tout ce que porte la pièce, d'un côté Sage et de l'autre FNE : les documents qui partagent
+son numéro et lesquels sont retenus, le client et son NCC, chaque ligne avec sa quantité,
+son prix unitaire brut, sa remise, son prix net, son taux de TVA, son code FNE et son
+AIRSI, les totaux recalculés depuis les lignes face à ceux de l'entête, **les champs FNE
+obligatoires encore manquants**, les valeurs supposées faute de source dans Sage, et le
+JSON qui partirait.
+
 ## Quels types de documents ce dossier utilise ?
 
 `DO_Type = 6` est le seul type traité pour l'instant. Encore faut-il vérifier que c'est
@@ -285,23 +347,24 @@ SageFne.sln
 │   │                                    CertifiedInvoice, InvoiceFingerprint
 │   ├── Configuration/FneOptions.cs
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
-│   │                                    SageCustomer, SageTax,
-│   │                                    SageDocumentTypeSummary
+│   │                                    SageCustomer, SageTax, SageRemise,
+│   │                                    SageDocumentTypes, SageDocumentTypeSummary,
+│   │                                    SageDocumentDuplicate
 │   ├── Models/Fne/                      FneInvoice, FneInvoiceItem, FneCustomTax
 │   ├── Data/                            ISageInvoiceRepository, SageInvoiceRepository,
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
 │   │                                    CritereSql, ReadOnlyGuard
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,
 │   │                                    TaxMapping, RemiseMapping
-│   └── Validation/                      InvoiceValidator, FinancialChecks, CheckReport
+│   └── Validation/                      InvoiceValidator, FinancialChecks,
+│                                        FneCompleteness, CheckReport
 └── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,
                                         ligne de commande, garde-fou SQL
 ```
 
 ## Prochaines étapes, pas encore faites
 
-- Types de document : seul `DO_Type = 6` est traité. `doctypes` montre ce que le dossier
-  utilise réellement ; les autres types restent à confirmer avant d'être acceptés.
+- Avoirs : `DO_Type = 4` (bon de retour) est écarté. Leur traitement reste à écrire.
 - `pointOfSale` et `establishment` : à renseigner dans `appsettings.json`.
 - Mode de règlement : figé à `deferred`, faute de source dans Sage.
 - Remise d'entête (`DO_Remise`) : les remises de ligne sont lues, celle du document non.

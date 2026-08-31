@@ -28,13 +28,13 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
     public bool EstIllisible { get; private set; }
 
     public async Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
-        IReadOnlyCollection<string> pieces,
+        IReadOnlyCollection<string> identites,
         CancellationToken cancellation = default)
     {
         var toutes = await LireAsync(cancellation);
-        return pieces
+        return identites
             .Where(toutes.ContainsKey)
-            .ToDictionary(piece => piece, piece => toutes[piece], StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(identite => identite, identite => toutes[identite], StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task RecordAsync(CertifiedInvoice certification, CancellationToken cancellation = default)
@@ -45,7 +45,7 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
             var toutes = await LireAsync(cancellation);
             var registre = new Dictionary<string, CertifiedInvoice>(toutes, StringComparer.OrdinalIgnoreCase)
             {
-                [certification.Piece] = certification,
+                [certification.Identite] = certification,
             };
 
             var dossier = Path.GetDirectoryName(Path.GetFullPath(chemin));
@@ -55,7 +55,7 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
             var provisoire = $"{chemin}.tmp";
             await File.WriteAllTextAsync(
                 provisoire,
-                JsonSerializer.Serialize(registre.Values.OrderBy(entree => entree.Piece), Options),
+                JsonSerializer.Serialize(registre.Values.OrderBy(entree => entree.Identite), Options),
                 cancellation);
             File.Move(provisoire, chemin, overwrite: true);
         }
@@ -75,8 +75,8 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
             var entrees = JsonSerializer.Deserialize<List<CertifiedInvoice>>(contenu) ?? [];
             EstIllisible = false;
             return entrees
-                .Where(entree => !string.IsNullOrWhiteSpace(entree.Piece))
-                .ToDictionary(entree => entree.Piece, StringComparer.OrdinalIgnoreCase);
+                .Where(entree => !string.IsNullOrWhiteSpace(entree.Identite))
+                .ToDictionary(entree => entree.Identite, StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception erreur) when (erreur is JsonException or IOException)
         {

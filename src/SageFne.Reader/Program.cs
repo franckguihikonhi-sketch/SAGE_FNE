@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using SageFne.Reader.Batch;
 using SageFne.Reader.Certification;
@@ -12,6 +13,7 @@ using SageFne.Reader.Configuration;
 using SageFne.Reader.Data;
 using SageFne.Reader.Mapping;
 using SageFne.Reader.Models.Fne;
+using SageFne.Reader.Models.Sage;
 using SageFne.Reader.Validation;
 
 // Dry run : lire un lot de factures Sage, les traduire au format FNE, les
@@ -79,13 +81,7 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
     var types = await depot.GetDocumentTypesAsync();
 
     Titre("Types de documents — F_DOCENTETE, DO_Domaine = 0 (ventes)");
-    Console.WriteLine(connexionConfiguree
-        ? "Source : base Sage (SQL Server), en lecture seule."
-        : """
-          Source : jeu d'essai hors base. Aucune chaîne de connexion n'est
-          renseignée : voir README, « Où renseigner la connexion SQL ». Les
-          chiffres ci-dessous ne sont pas ceux du dossier HT.
-          """);
+    Console.WriteLine(Source(connexionConfiguree));
 
     if (types.Count == 0)
     {
@@ -122,11 +118,219 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
         }
     }
 
+    // La question décisive : une facture comptabilisée est-elle la même ligne
+    // passée de 6 à 7, ou une seconde ligne ? Si aucun numéro ne porte les deux
+    // types, c'est une modification en place et rien ne peut partir deux fois.
+    var multiples = await depot.GetPiecesMultiTypesAsync();
+    var factureEtComptabilisee = multiples.Where(doublon => doublon.MemeFacture).ToList();
+
+    Titre("Un même numéro sous plusieurs types");
+    if (multiples.Count == 0)
+    {
+        Console.WriteLine("  Aucun. Chaque numéro de pièce ne porte qu'un seul DO_Type.");
+        Console.WriteLine();
+        Console.WriteLine(
+            "  C'est la réponse attendue : la comptabilisation fait passer DO_Type de 6 à 7\n" +
+            "  sur la ligne existante. Une facture certifiée avant comptabilisation reste donc\n" +
+            "  la même pièce après, et ne peut pas être envoyée deux fois.");
+    }
+    else
+    {
+        Console.WriteLine($"  {"DO_Piece",-14} {"Documents",9}  Types      DO_DocType");
+        foreach (var doublon in multiples.Take(20))
+        {
+            Console.WriteLine(
+                $"  {Tronquer(doublon.Piece, 14),-14} {doublon.Nombre,9}  " +
+                $"{string.Join(", ", doublon.Types),-9}  {string.Join(", ", doublon.DocTypes)}" +
+                (doublon.MemeFacture ? "   ← facture ET comptabilisée" : ""));
+        }
+
+        if (multiples.Count > 20) Console.WriteLine($"  … et {multiples.Count - 20} autres.");
+
+        Console.WriteLine();
+        Console.WriteLine(factureEtComptabilisee.Count == 0
+            ? "  Aucun de ces numéros ne porte à la fois DO_Type 6 et 7 : ce sont des souches\n" +
+              "  qui se croisent (un bon de livraison et une facture au même numéro), pas des\n" +
+              "  factures dupliquées. Le registre inclut le type d'origine, elles ne se\n" +
+              "  confondront pas."
+            : $"  ATTENTION : {Pluriel(factureEtComptabilisee.Count, "numéro")} portent à la fois\n" +
+              "  DO_Type 6 et DO_Type 7. La comptabilisation aurait alors dupliqué le document\n" +
+              "  au lieu de le modifier, et la même facture pourrait être certifiée deux fois.\n" +
+              "  Le lot refuse d'envoyer ces pièces tant que ce n'est pas éclairci.");
+    }
+
     Console.WriteLine();
     Console.WriteLine(
-        "Lecture seule : deux SELECT sur F_DOCENTETE, plus une consultation du " +
+        "Lecture seule : trois SELECT sur F_DOCENTETE, plus une consultation du " +
         "catalogue pour savoir si la colonne DO_DocType existe. Rien n'a été écrit.");
     return 0;
+}
+
+// Relevé complet d'une pièce : ce que Sage porte, ce que FNE recevrait, et ce
+// qui manque encore. Lecture seule, aucun envoi.
+if (ligneDeCommande.Verbe == Verbe.Detail)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine("detail attend un numéro de pièce, par exemple : detail 1219");
+        return 2;
+    }
+
+    var numero = ligneDeCommande.Query.Pieces[0];
+    var depot = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+    var reglages = hote.Services.GetRequiredService<IOptions<FneOptions>>().Value;
+
+    Titre($"Pièce {numero} — relevé complet");
+    Console.WriteLine(Source(connexionConfiguree));
+
+    // 1. Tous les documents portant ce numéro, sans filtre de type : c'est ce
+    //    qui permet de dire « ce n'est pas une facture » plutôt que « rien ».
+    var portants = await depot.GetDocumentsByPieceAsync(numero);
+
+    Titre($"Documents portant le numéro {numero}");
+    if (portants.Count == 0)
+    {
+        Console.WriteLine($"  Aucun document au numéro {numero} dans le domaine des ventes.");
+        return 1;
+    }
+
+    Console.WriteLine($"  {"DO_Type",7} {"Libellé",-24} {"DO_DocType",10} {"DO_Date",-11} {"DO_Tiers",-16} {"DO_TotalTTC",16}  Retenu");
+    foreach (var document in portants)
+    {
+        var retenu = SageDocumentTypes.EstFacture(document.Type) ? "oui" : "non";
+        Console.WriteLine(
+            $"  {document.Type,7} {Tronquer(SageDocumentTypes.Libelle(document.Type), 24),-24} " +
+            $"{document.DocType,10} {document.Date,-11:dd/MM/yyyy} {Tronquer(document.Tiers, 16),-16} " +
+            $"{Somme(document.TotalTTC),16}  {retenu}");
+    }
+
+    foreach (var ecarte in portants.Where(document => !SageDocumentTypes.EstFacture(document.Type)))
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  DO_Type {ecarte.Type} écarté — {SageDocumentTypes.RaisonExclusion(ecarte.Type)}");
+    }
+
+    var factures = portants.Where(document => SageDocumentTypes.EstFacture(document.Type)).ToList();
+    if (factures.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Aucune facture au numéro {numero} : rien à certifier.");
+        return 1;
+    }
+
+    if (factures.Select(facture => facture.Identite).Distinct().Count() > 1
+        || factures.Count > 1)
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  ATTENTION : {factures.Count} factures portent ce numéro. Si l'une est en " +
+            "DO_Type 6 et l'autre en 7, la comptabilisation a dupliqué le document au lieu " +
+            "de le modifier — le lot refusera de l'envoyer.");
+    }
+
+    var entete = factures[^1];
+    Console.WriteLine();
+    Console.WriteLine($"  Identité retenue pour le registre : {entete.Identite}");
+    Console.WriteLine(
+        $"  DO_Type {entete.Type} ({SageDocumentTypes.Libelle(entete.Type)}), " +
+        $"DO_DocType {entete.DocType} — " +
+        (entete.EstComptabilisee
+            ? "comptabilisée : c'est la même facture qu'en DO_Type 6, pas une nouvelle."
+            : "non encore comptabilisée."));
+
+    // 2. La conversion réelle, contrôles compris.
+    var lecteurDetail = hote.Services.GetRequiredService<InvoiceBatchReader>();
+    var releve = await lecteurDetail.ReadAsync(InvoiceQuery.Piece(numero));
+    var piece = releve.Conversions.FirstOrDefault();
+
+    if (piece is null)
+    {
+        Titre("Résultat");
+        Constats(releve.Constats);
+        return 1;
+    }
+
+    Titre("Client");
+    Console.WriteLine($"  DO_Tiers        {piece.Header.Tiers}");
+    Console.WriteLine($"  CT_Intitule     {piece.Customer?.Intitule ?? "— client introuvable dans F_COMPTET —"}");
+    Console.WriteLine($"  CT_Identifiant  {Renseigne(piece.Customer?.Identifiant)}   (NCC)");
+    Console.WriteLine($"  CT_Telephone    {Renseigne(piece.Customer?.Telephone)}");
+    Console.WriteLine($"  CT_EMail        {Renseigne(piece.Customer?.Email)}");
+
+    Titre($"Lignes — {Pluriel(piece.Lines.Count, "ligne")}");
+    Console.WriteLine(
+        $"  {"N°",3} {"AR_Ref",-14} {"Désignation",-28} {"Qté",10} {"PU HT",13} " +
+        $"{"Remise",10} {"PU net",13} {"TVA",8} {"Code",6} {"AIRSI",7} {"HT",14} {"TTC",14}");
+
+    foreach (var ligne in piece.Lines)
+    {
+        var remise = RemiseMapping.Read(ligne);
+        var taxes = TaxMapping.Read(ligne, reglages.ExemptionCode);
+        var tva = TaxMapping.TauxTva(ligne);
+        var airsi = TaxMapping.TauxPrelevements(ligne);
+
+        Console.WriteLine(
+            $"  {ligne.Ligne,3} {Tronquer(ligne.ArticleReference, 14),-14} " +
+            $"{Tronquer(ligne.Designation, 28),-28} {Nombre(ligne.Quantite),10} " +
+            $"{Nombre(ligne.PrixUnitaire),13} {Nombre(remise.RemiseUnitaire),10} " +
+            $"{Nombre(remise.PrixUnitaireNet),13} {Pourcent(tva),8} " +
+            $"{(taxes.Taxes.Count > 0 ? taxes.Taxes[0] : "—"),6} {Pourcent(airsi),7} " +
+            $"{Somme(ligne.MontantHT),14} {Somme(ligne.MontantTTC),14}");
+    }
+
+    Titre("Totaux");
+    Console.WriteLine($"  Total HT calculé depuis les lignes    {Somme(piece.TotalHT),18}");
+    Console.WriteLine($"  Total TTC calculé depuis les lignes   {Somme(piece.TotalTTC),18}");
+    Console.WriteLine($"  DO_TotalHT (entête)                   {Somme(entete.TotalHT),18}");
+    Console.WriteLine($"  DO_TotalTTC (entête)                  {Somme(entete.TotalTTC),18}");
+    Console.WriteLine($"  DO_NetAPayer (entête)                 {Somme(entete.NetAPayer),18}");
+
+    if (piece.Report.Constats.Count > 0)
+    {
+        Titre("Contrôles");
+        Constats(piece.Report.Constats);
+    }
+
+    // 3. Ce qui manque encore pour que la DGI accepte.
+    if (piece.Invoice is { } facture)
+    {
+        var manques = FneCompleteness.Verifier(facture, reglages.Template);
+
+        Titre("Champs FNE obligatoires manquants");
+        if (manques.Count == 0)
+        {
+            Console.WriteLine("  Aucun : tous les champs obligatoires sont renseignés.");
+        }
+        else
+        {
+            foreach (var manque in manques)
+            {
+                Console.WriteLine($"  MANQUANT  {manque.Champ}");
+                Console.WriteLine($"            source : {manque.Origine}");
+                Console.WriteLine($"            {manque.Consequence}");
+            }
+        }
+
+        Titre("Valeurs supposées, faute de source dans Sage");
+        foreach (var hypothese in FneCompleteness.Hypotheses(facture))
+        {
+            Console.WriteLine($"  {hypothese.Champ} — {hypothese.Origine}");
+            Console.WriteLine($"    {hypothese.Consequence}");
+        }
+
+        Titre($"JSON FNE — pièce {numero}");
+        Console.WriteLine(JsonSerializer.Serialize(facture, JsonFne()));
+    }
+    else
+    {
+        Titre("JSON FNE");
+        Console.WriteLine("  Non produit : les contrôles ci-dessus l'empêchent.");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Lecture seule. Aucun envoi, aucune écriture dans Sage.");
+    return piece.Invoice is null ? 1 : 0;
 }
 
 var lecteur = hote.Services.GetRequiredService<InvoiceBatchReader>();
@@ -141,7 +345,8 @@ if (hote.Services.GetRequiredService<ICertificationLedger>() is DemoCertificatio
     foreach (var piece in apercu.Conversions.Where(conversion => conversion.Invoice is not null))
     {
         var empreinte = piece.Header.Piece == "1220" ? "empreinte-d-avant-modification" : piece.Empreinte;
-        demonstration.MarquerCertifiee(piece.Header.Piece, empreinte, DateTimeOffset.Now.AddDays(-2));
+        demonstration.MarquerCertifiee(
+            piece.Header.Identite, piece.Header.Piece, empreinte, DateTimeOffset.Now.AddDays(-2));
     }
 }
 
@@ -200,13 +405,7 @@ if (constatsDuLot.Count > 0)
     }
 }
 
-var options = new JsonSerializerOptions
-{
-    WriteIndented = true,
-    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-    Converters = { new DecimalJsonConverter() },
-};
+var options = JsonFne();
 
 // Une seule pièce : on affiche son JSON, comme à l'étape précédente. Un lot :
 // seulement si on le demande, sinon la console devient illisible.
@@ -260,6 +459,32 @@ static bool EstRenseignee(string chaine) =>
 /// « pièce » ou « ligne » mais pas pour un état comme « à certifier », qui est
 /// invariable, ni pour « modifiée depuis », dont seul l'adjectif s'accorde.
 /// </summary>
+/// <summary>D'où viennent les chiffres affichés : la base, ou le jeu d'essai.</summary>
+static string Source(bool connectee) => connectee
+    ? "Source : base Sage (SQL Server), en lecture seule."
+    : """
+      Source : jeu d'essai hors base. Aucune chaîne de connexion n'est
+      renseignée : voir README, « Où renseigner la connexion SQL ». Les
+      chiffres ci-dessous ne sont pas ceux du dossier HT.
+      """;
+
+static JsonSerializerOptions JsonFne() => new()
+{
+    WriteIndented = true,
+    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+    Converters = { new DecimalJsonConverter() },
+};
+
+/// <summary>Un champ vide se dit, il ne s'affiche pas en blanc.</summary>
+static string Renseigne(string? valeur) =>
+    string.IsNullOrWhiteSpace(valeur) ? "— vide —" : valeur;
+
+static string Nombre(decimal valeur) => valeur.ToString("N2", CultureInfo.GetCultureInfo("fr-FR"));
+
+static string Pourcent(decimal taux) =>
+    taux == 0m ? "—" : $"{taux.ToString("0.##", CultureInfo.GetCultureInfo("fr-FR"))} %";
+
 static string Pluriel(int nombre, string singulier, string? pluriel = null) =>
     $"{nombre} {(nombre > 1 ? pluriel ?? singulier + "s" : singulier)}";
 

@@ -106,4 +106,19 @@ public static class TaxMapping
     /// <summary>Somme des taux appliqués à la ligne, TVA et prélèvements confondus.</summary>
     public static decimal TauxCumule(SageDocumentLine ligne) =>
         ligne.Taxes().Where(taxe => taxe.EstRenseignee).Sum(taxe => taxe.Taux);
+
+    /// <summary>
+    /// Le taux de TVA de la ligne : celui des emplacements qui n'est pas un
+    /// prélèvement. Zéro quand la ligne est exonérée.
+    /// </summary>
+    public static decimal TauxTva(SageDocumentLine ligne) =>
+        ligne.Taxes()
+            .Where(taxe => taxe.EstRenseignee && !EstPrelevement(taxe.Code))
+            .Sum(taxe => taxe.Taux);
+
+    /// <summary>Le cumul des prélèvements de la ligne — l'AIRSI, aujourd'hui.</summary>
+    public static decimal TauxPrelevements(SageDocumentLine ligne) =>
+        ligne.Taxes()
+            .Where(taxe => taxe.EstRenseignee && EstPrelevement(taxe.Code))
+            .Sum(taxe => taxe.Taux);
 }

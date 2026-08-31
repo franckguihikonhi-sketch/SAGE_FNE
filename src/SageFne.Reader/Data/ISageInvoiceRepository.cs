@@ -47,4 +47,28 @@ public interface ISageInvoiceRepository
     Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(
         int exemplesParType = 5,
         CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Tous les documents portant ce numéro de pièce, quel que soit leur type.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostic : le lot ne lit que les factures, donc demander une pièce qui
+    /// se trouve être un bon de livraison ne renvoie rien, sans dire pourquoi.
+    /// Cette lecture-là voit tout et permet de l'expliquer.
+    /// </remarks>
+    Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(
+        string piece,
+        CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Numéros de pièce présents sous plusieurs types à la fois.
+    /// </summary>
+    /// <remarks>
+    /// La question décisive sur la relation 6 → 7 : si la comptabilisation
+    /// modifie la ligne existante, aucun numéro ne porte les deux types et le
+    /// risque de double certification n'existe pas. S'il en sort, il faut le
+    /// savoir avant d'envoyer quoi que ce soit.
+    /// </remarks>
+    Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(
+        CancellationToken cancellation = default);
 }

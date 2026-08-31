@@ -16,9 +16,10 @@ public sealed class DemoCertificationLedger : ICertificationLedger
     /// L'empreinte de la 1219 est calculée au démarrage sur la traduction
     /// réelle : le jeu d'essai reste vrai même si le mapping évolue.
     /// </summary>
-    public void MarquerCertifiee(string piece, string empreinte, DateTimeOffset quand) =>
-        _registre[piece] = new CertifiedInvoice
+    public void MarquerCertifiee(string identite, string piece, string empreinte, DateTimeOffset quand) =>
+        _registre[identite] = new CertifiedInvoice
         {
+            Identite = identite,
             Piece = piece,
             ReferenceFne = $"2304903U26{piece.PadLeft(8, '0')}",
             Token = "jeu-d-essai",
@@ -27,14 +28,14 @@ public sealed class DemoCertificationLedger : ICertificationLedger
         };
 
     public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
-        IReadOnlyCollection<string> pieces,
+        IReadOnlyCollection<string> identites,
         CancellationToken cancellation = default) =>
         Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
-            pieces.Where(_registre.ContainsKey).ToDictionary(piece => piece, piece => _registre[piece]));
+            identites.Where(_registre.ContainsKey).ToDictionary(identite => identite, identite => _registre[identite]));
 
     public Task RecordAsync(CertifiedInvoice certification, CancellationToken cancellation = default)
     {
-        _registre[certification.Piece] = certification;
+        _registre[certification.Identite] = certification;
         return Task.CompletedTask;
     }
 }

@@ -47,6 +47,12 @@ public class CertificationTests
 
         public Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(int e = 5, CancellationToken ct = default) =>
             Task.FromResult(new List<SageDocumentTypeSummary>());
+
+        public Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(string p, CancellationToken ct = default) =>
+            Task.FromResult(Entetes.Where(entete => entete.Piece == p).ToList());
+
+        public Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageDocumentDuplicate>());
     }
 
     private static Depot DepotDUnePiece(decimal prixUnitaire = 2500m) => new()
@@ -105,6 +111,7 @@ public class CertificationTests
         var premiere = await Convertir(depot, registre);
         await registre.RecordAsync(new CertifiedInvoice
         {
+            Identite = "0/6/1219",
             Piece = "1219",
             ReferenceFne = "2304903U26000000930",
             CertifieeLe = DateTimeOffset.Now.AddDays(-1),
@@ -127,6 +134,7 @@ public class CertificationTests
         var avant = await Convertir(DepotDUnePiece(prixUnitaire: 2500m), registre);
         await registre.RecordAsync(new CertifiedInvoice
         {
+            Identite = "0/6/1219",
             Piece = "1219",
             CertifieeLe = DateTimeOffset.Now.AddDays(-1),
             Empreinte = avant.Empreinte,
@@ -179,6 +187,7 @@ public class JsonCertificationLedgerTests : IDisposable
 
     private static CertifiedInvoice Entree(string piece, string empreinte = "abc") => new()
     {
+        Identite = $"0/6/{piece}",
         Piece = piece,
         ReferenceFne = $"REF{piece}",
         CertifieeLe = new DateTimeOffset(2025, 12, 3, 10, 0, 0, TimeSpan.Zero),
@@ -200,10 +209,10 @@ public class JsonCertificationLedgerTests : IDisposable
         await registre.RecordAsync(Entree("1219"));
         await registre.RecordAsync(Entree("1220"));
 
-        var connues = await Registre().LookupAsync(["1219", "1221"]);
+        var connues = await Registre().LookupAsync(["0/6/1219", "0/6/1221"]);
 
         Assert.Single(connues);
-        Assert.Equal("REF1219", connues["1219"].ReferenceFne);
+        Assert.Equal("REF1219", connues["0/6/1219"].ReferenceFne);
     }
 
     [Fact]
@@ -213,7 +222,7 @@ public class JsonCertificationLedgerTests : IDisposable
         await registre.RecordAsync(Entree("1219", empreinte: "avant"));
         await registre.RecordAsync(Entree("1219", empreinte: "apres"));
 
-        var connues = await registre.LookupAsync(["1219"]);
+        var connues = await registre.LookupAsync(["0/6/1219"]);
 
         Assert.Equal("apres", Assert.Single(connues.Values).Empreinte);
     }

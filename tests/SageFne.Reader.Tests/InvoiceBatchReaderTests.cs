@@ -71,6 +71,12 @@ public class InvoiceBatchReaderTests
 
         public Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(int e = 5, CancellationToken ct = default) =>
             Task.FromResult(new List<SageDocumentTypeSummary>());
+
+        public Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(string p, CancellationToken ct = default) =>
+            Task.FromResult(Entetes.Where(entete => entete.Piece == p).ToList());
+
+        public Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageDocumentDuplicate>());
     }
 
     private static SageDocumentHeader Entete(string piece, string tiers, int jour) => new()
@@ -112,17 +118,17 @@ public class InvoiceBatchReaderTests
         public Dictionary<string, CertifiedInvoice> Entrees { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
-            IReadOnlyCollection<string> pieces,
+            IReadOnlyCollection<string> identites,
             CancellationToken ct = default)
         {
             Lectures++;
             return Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
-                pieces.Where(Entrees.ContainsKey).ToDictionary(piece => piece, piece => Entrees[piece]));
+                identites.Where(Entrees.ContainsKey).ToDictionary(id => id, id => Entrees[id]));
         }
 
         public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
         {
-            Entrees[certification.Piece] = certification;
+            Entrees[certification.Identite] = certification;
             return Task.CompletedTask;
         }
     }

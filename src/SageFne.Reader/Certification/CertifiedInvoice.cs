@@ -18,6 +18,20 @@ namespace SageFne.Reader.Certification;
 /// </remarks>
 public sealed record CertifiedInvoice
 {
+    /// <summary>
+    /// Clé du registre : domaine / type d'origine / numéro de pièce.
+    /// </summary>
+    /// <remarks>
+    /// Le numéro seul ne peut pas servir de clé. Sage fait passer DO_Type de 6
+    /// à 7 quand la facture est comptabilisée : c'est le même document, et il
+    /// doit rester reconnu comme certifié. À l'inverse, un bon de livraison peut
+    /// porter le même numéro qu'une facture sans être le même document.
+    /// DO_DocType et DO_Piece, eux, ne bougent ni l'un ni l'autre.
+    /// </remarks>
+    [JsonPropertyName("identite")]
+    public required string Identite { get; init; }
+
+    /// <summary>Numéro de pièce, pour la lisibilité du registre.</summary>
     [JsonPropertyName("piece")]
     public required string Piece { get; init; }
 

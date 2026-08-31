@@ -10,6 +10,9 @@ public enum Verbe
 
     /// <summary>Inventorier les types de documents du dossier. Lecture seule.</summary>
     TypesDocuments,
+
+    /// <summary>Relevé complet d'une pièce : Sage d'un côté, FNE de l'autre.</summary>
+    Detail,
 }
 
 /// <summary>
@@ -76,6 +79,9 @@ public sealed record CommandLine
                 case "doctypes":
                     verbe = Verbe.TypesDocuments;
                     break;
+                case "detail":
+                    verbe = Verbe.Detail;
+                    break;
                 default:
                     if (argument.StartsWith('-')) erreurs.Add($"Option inconnue : {argument}");
                     else pieces.Add(argument);
@@ -115,6 +121,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --au 2025-12-31
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
           dotnet run --project src/SageFne.Reader -- doctypes            inventaire des types de documents
+          dotnet run --project src/SageFne.Reader -- detail 1219         relevé complet d'une pièce
 
         Options :
           --du, --au     période, bornes comprises
