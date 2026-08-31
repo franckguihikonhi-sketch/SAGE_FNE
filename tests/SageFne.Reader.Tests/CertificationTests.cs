@@ -243,19 +243,20 @@ public class JsonCertificationLedgerTests : IDisposable
     }
 
     [Fact]
-    public async Task Un_registre_illisible_est_signale_sans_arreter_le_lot()
+    public async Task Un_registre_illisible_arrete_tout()
     {
         Directory.CreateDirectory(_dossier);
         var chemin = Path.Combine(_dossier, "casse.json");
         await File.WriteAllTextAsync(chemin, "{ ceci n'est pas du JSON");
 
         var registre = new JsonCertificationLedger(chemin, NullLogger<JsonCertificationLedger>.Instance);
-        var connues = await registre.LookupAsync(["1219"]);
 
-        // Traité comme vide : mieux vaut proposer de recertifier — l'exploitant
-        // le verra — que d'interrompre le traitement.
-        Assert.Empty(connues);
-        Assert.True(registre.EstIllisible);
+        // Ce test disait l'inverse : le registre était traité comme vide, au
+        // motif que l'exploitant le verrait passer. Il ne le voyait pas — et un
+        // registre vide veut dire « rien n'a jamais été certifié », ce qui
+        // rendait envoyables des factures que la DGI avait déjà certifiées.
+        await Assert.ThrowsAsync<RegistreIllisibleException>(
+            () => registre.LookupAsync(["0/6/1219"]));
     }
 
     [Fact]

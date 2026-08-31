@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 316 tests
+dotnet test                                    # 342 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -41,6 +41,7 @@ dotnet run --project src/SageFne.Reader -- fne-check             # vérifie l'ac
 dotnet run --project src/SageFne.Reader -- envoyer 1052          # montre la requête, n'envoie rien
 dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   # envoie pour de vrai
 dotnet run --project src/SageFne.Reader -- statut 1052           # ce que le registre sait d'une pièce
+dotnet run --project src/SageFne.Reader -- registre-info         # où vit le registre, ce qu'il contient
 dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
 ```
 
@@ -346,6 +347,60 @@ la DGI l'a peut-être enregistré, et un doublon ne se rattrape pas.
 Une réponse **5xx** compte comme une issue inconnue, pas comme un refus : la plateforme a
 pu enregistrer la facture avant d'échouer. Un **4xx** est net — la requête a été rejetée,
 rien n'a été créé.
+
+### Le registre est la seule mémoire d'une certification
+
+Sage n'en porte aucune trace : l'accès y est en lecture seule, et rien n'y prévoit de zone
+pour une référence FNE. **Perdre ce fichier fait repartir à la DGI des factures déjà
+certifiées**, et un doublon ne se corrige que par un avoir.
+
+Il vit donc dans les données d'application de l'utilisateur — `%APPDATA%\SageFne\` sous
+Windows — et non plus à côté de l'exécutable. Ce dernier emplacement était une faute :
+`bin\Debug\net8.0\` est une sortie de compilation, que `dotnet clean`, une suppression de
+`bin` ou un clone neuf effacent sans prévenir. **Une certification réelle y a été perdue.**
+
+```powershell
+dotnet run --project src\SageFne.Reader -- registre-info
+```
+
+Chemin absolu, origine de ce chemin, présence du fichier, taille, date de dernière
+modification, nombre d'entrées et leur liste, environnement TEST ou PRODUCTION. Aucune clé
+n'y figure — la commande ne lit pas la configuration d'accès. Si un registre subsiste à
+l'ancien emplacement, elle le signale sans rien déplacer.
+
+**Un registre illisible arrête tout.** Il fut un temps traité comme vide, et c'était le
+défaut à ne pas commettre : « vide » veut dire « rien n'a jamais été certifié ». Un fichier
+tronqué rendait donc envoyable l'intégralité des factures déjà certifiées. Toute commande
+refuse désormais de s'exécuter et renvoie à `registre-info`, seule commande à savoir
+décrire un registre qu'elle n'utilise pas.
+
+### Rattraper une certification dont la trace manque
+
+Quand une facture est certifiée sans que le registre l'ait su — registre perdu, envoi passé
+par un autre outil, réponse égarée — elle repartirait au prochain envoi.
+
+```powershell
+dotnet run --project src\SageFne.Reader -- reconcilier 1052 `
+  --reference "2304903U26000000930" --token "…" --confirmer
+```
+
+Aucune API n'est appelée : nous n'avons pas de quoi interroger la DGI sur une facture. La
+référence vient de l'exploitant, qui l'a relevée sur le portail ou sur le PDF. La trace le
+dit en toutes lettres, pour que personne ne la prenne plus tard pour un aller-retour
+automatique.
+
+Sans `--reference`, la commande refuse. Sans `--confirmer`, elle montre ce qu'elle
+inscrirait et s'arrête. `--token` est facultatif : tous les PDF ne le portent pas. Une
+pièce déjà `Certified` n'est jamais réécrite.
+
+Une pièce que nos propres contrôles bloquent — un NCC manquant, par exemple — se réconcilie
+tout de même. Si la DGI l'a certifiée, le refuser la laisserait envoyable, ce qui est
+précisément le danger : la réalité constatée l'emporte sur notre opinion du document.
+
+L'empreinte inscrite est celle du document **tel qu'il est aujourd'hui**, et non celle du
+corps réellement envoyé, qui est perdu avec la trace. Si la pièce a changé dans Sage depuis
+sa certification, la réconciliation grave cette version-là. C'est le prix du rattrapage, et
+la commande le dit.
 
 ### Savoir où en est une pièce
 

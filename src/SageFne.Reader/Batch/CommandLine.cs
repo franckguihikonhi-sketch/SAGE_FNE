@@ -59,6 +59,18 @@ public enum Verbe
     /// peut partir.
     /// </remarks>
     Statut,
+
+    /// <summary>Où vit le registre, ce qu'il pèse, ce qu'il contient.</summary>
+    RegistreInfo,
+
+    /// <summary>
+    /// Inscrire au registre une certification constatée sur le portail DGI.
+    /// </summary>
+    /// <remarks>
+    /// La seule façon de rattraper une certification dont la trace a été
+    /// perdue. N'appelle aucune API : la référence vient de l'exploitant.
+    /// </remarks>
+    Reconcilier,
 }
 
 /// <summary>
@@ -95,6 +107,9 @@ public sealed record CommandLine
 
     /// <summary>Le portail ne connaît pas la pièce : elle peut repartir.</summary>
     public bool NonCertifiee { get; init; }
+
+    /// <summary>Jeton de vérification (QR), pour <c>reconcilier</c>.</summary>
+    public string? Jeton { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -112,6 +127,7 @@ public sealed record CommandLine
         var verbe = Verbe.DryRun;
         var confirme = false;
         string? reference = null;
+        string? jeton = null;
         var nonCertifiee = false;
 
         for (var rang = 0; rang < args.Length; rang++)
@@ -171,6 +187,18 @@ public sealed record CommandLine
                 case "status":
                     verbe = Verbe.Statut;
                     break;
+                case "registre-info":
+                    verbe = Verbe.RegistreInfo;
+                    break;
+                case "reconcilier":
+                case "réconcilier":
+                    verbe = Verbe.Reconcilier;
+                    break;
+                case "--token":
+                case "--jeton":
+                    jeton = Valeur() ?? "";
+                    if (jeton is "") erreurs.Add("--token attend le jeton lu sur le portail DGI.");
+                    break;
                 case "--reference":
                 case "--référence":
                     reference = Valeur() ?? "";
@@ -210,6 +238,7 @@ public sealed record CommandLine
             Sortie = sortie,
             Registre = registre,
             Reference = reference,
+            Jeton = jeton,
             NonCertifiee = nonCertifiee,
             AfficherJson = afficherJson,
             Erreurs = erreurs,
@@ -240,6 +269,8 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
           dotnet run --project src/SageFne.Reader -- statut 1052        ce que le registre sait d'une pièce
+          dotnet run --project src/SageFne.Reader -- registre-info      où vit le registre, ce qu'il contient
+          dotnet run --project src/SageFne.Reader -- reconcilier 1052 --reference REF --confirmer
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --reference REF --confirmer
 
@@ -254,5 +285,9 @@ public sealed record CommandLine
         Débloquer une pièce restée « en suspens » — après l'avoir cherchée sur le portail DGI :
           --non-certifiee   le portail ne la connaît pas : elle redevient à certifier
           --reference REF   le portail la porte sous cette référence : elle est classée certifiée
+
+        Réconcilier une certification dont la trace manque au registre :
+          --reference REF   référence FNE relevée sur le portail ou le PDF (obligatoire)
+          --token JETON     jeton du QR code, s'il figure sur le PDF
         """;
 }

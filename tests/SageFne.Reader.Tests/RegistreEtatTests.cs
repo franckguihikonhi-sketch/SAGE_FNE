@@ -603,3 +603,359 @@ public class RegistreSurFichierTests : IDisposable
         Assert.Equal("REF", relues["0/6/1052"].ReferenceFne);
     }
 }
+
+/// <summary>
+/// Un registre illisible n'est pas un registre vide.
+/// </summary>
+/// <remarks>
+/// C'était le défaut le plus dangereux du lot : un fichier tronqué était lu
+/// comme « aucune pièce certifiée », et toutes les factures déjà certifiées
+/// redevenaient envoyables. Il ne s'est vu qu'après la disparition d'une trace
+/// réelle.
+/// </remarks>
+public class RegistreIllisibleTests : IDisposable
+{
+    private readonly string _chemin = Path.Combine(
+        Path.GetTempPath(), $"registre-casse-{Guid.NewGuid():N}.json");
+
+    public void Dispose()
+    {
+        if (File.Exists(_chemin)) File.Delete(_chemin);
+    }
+
+    private JsonCertificationLedger Registre() =>
+        new(_chemin, NullLogger<JsonCertificationLedger>.Instance);
+
+    [Theory]
+    [InlineData("""[{"identite":"0/6/1052","piece":""")]
+    [InlineData("pas du json du tout")]
+    [InlineData("{")]
+    public async Task Un_fichier_tronque_leve_au_lieu_de_passer_pour_vide(string contenu)
+    {
+        await File.WriteAllTextAsync(_chemin, contenu);
+
+        var erreur = await Assert.ThrowsAsync<RegistreIllisibleException>(
+            () => Registre().LookupAsync(["0/6/1052"]));
+
+        Assert.Equal(_chemin, erreur.Chemin);
+        Assert.Contains("illisible", erreur.Message);
+    }
+
+    [Fact]
+    public async Task Un_lot_ne_se_juge_pas_sur_un_registre_illisible()
+    {
+        // La conséquence qui compte : sans cela, le lot annoncerait « à
+        // certifier » des pièces que la DGI a déjà certifiées.
+        await File.WriteAllTextAsync(_chemin, "{");
+        var reglages = Options.Create(new FneOptions
+        {
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            Template = "B2B",
+            PaymentMethod = "deferred",
+        });
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), Registre(), reglages);
+
+        await Assert.ThrowsAsync<RegistreIllisibleException>(
+            () => lecteur.ReadAsync(InvoiceQuery.Piece("1221")));
+    }
+
+    [Fact]
+    public async Task Le_diagnostic_decrit_un_registre_illisible_sans_lever()
+    {
+        // C'est la commande qu'on lance quand tout le reste refuse : elle doit
+        // répondre, pas échouer à son tour.
+        await File.WriteAllTextAsync(_chemin, "{");
+
+        var etat = await Registre().EtatDuFichierAsync();
+
+        Assert.True(etat.Existe);
+        Assert.NotNull(etat.Illisible);
+        Assert.Null(etat.Entrees);
+        Assert.True(etat.Octets > 0);
+        Assert.Equal(Path.GetFullPath(_chemin), etat.Chemin);
+    }
+
+    [Fact]
+    public async Task Le_diagnostic_compte_les_entrees_d_un_registre_sain()
+    {
+        await Registre().RecordAsync(new CertifiedInvoice
+        {
+            Identite = "0/6/1052",
+            Piece = "1052",
+            ReferenceFne = "REF",
+            Etat = EtatFne.Certified,
+        });
+
+        var etat = await Registre().EtatDuFichierAsync();
+
+        Assert.True(etat.Existe);
+        Assert.Null(etat.Illisible);
+        Assert.Equal("1052", Assert.Single(etat.Entrees!).Piece);
+    }
+
+    [Fact]
+    public async Task Un_registre_absent_n_est_pas_un_registre_illisible()
+    {
+        // Rien n'a encore été inscrit : c'est un état normal, pas une panne.
+        var etat = await Registre().EtatDuFichierAsync();
+
+        Assert.False(etat.Existe);
+        Assert.Null(etat.Illisible);
+        Assert.Empty(await Registre().LookupAsync(["0/6/1052"]));
+    }
+}
+
+/// <summary>
+/// Le registre par défaut ne doit pas vivre dans une sortie de compilation.
+/// </summary>
+public class CheminDurableTests
+{
+    [Fact]
+    public void Le_registre_par_defaut_ne_vit_plus_dans_bin()
+    {
+        // La trace d'une certification réelle a disparu parce que le registre
+        // était posé dans bin\Debug\net8.0\, que dotnet clean efface.
+        var chemin = ServicesMiddleware.CheminRegistre(
+            null, null, "/app/bin/Debug/net8.0", connexionSageConfiguree: true);
+
+        Assert.NotNull(chemin);
+        Assert.DoesNotContain("bin", chemin);
+        Assert.DoesNotContain("Debug", chemin);
+        Assert.EndsWith("certifications.json", chemin);
+    }
+
+    [Fact]
+    public void Le_chemin_durable_est_absolu()
+    {
+        Assert.True(Path.IsPathRooted(ServicesMiddleware.CheminDurable()));
+    }
+
+    [Fact]
+    public void L_ancien_emplacement_reste_calculable_pour_le_diagnostic()
+    {
+        // Un registre écrit avant le changement s'y trouve encore : le
+        // diagnostic doit pouvoir aller le montrer.
+        Assert.Equal(
+            Path.Combine("/app/bin/Debug/net8.0", "certifications.json"),
+            ServicesMiddleware.AncienChemin("/app/bin/Debug/net8.0"));
+    }
+
+    [Fact]
+    public void Un_chemin_explicite_l_emporte_toujours()
+    {
+        Assert.Equal("/data/reg.json",
+            ServicesMiddleware.CheminRegistre(null, "/data/reg.json", "/app", true));
+        Assert.Equal("/autre/reg.json",
+            ServicesMiddleware.CheminRegistre("/autre/reg.json", "/data/reg.json", "/app", true));
+    }
+}
+
+/// <summary>
+/// Rattraper une certification dont la trace manque, sans rien inventer.
+/// </summary>
+public class ReconciliationTests
+{
+    private sealed class Registre(CertifiedInvoice? entree) : ICertificationLedger
+    {
+        private readonly Dictionary<string, CertifiedInvoice> _entrees =
+            entree is null
+                ? new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase)
+                    { [entree.Identite] = entree };
+
+        public List<CertifiedInvoice> Ecritures { get; } = [];
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                identites.Where(_entrees.ContainsKey)
+                    .ToDictionary(identite => identite, identite => _entrees[identite]));
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            Ecritures.Add(certification);
+            _entrees[certification.Identite] = certification;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ClientInterdit : IFneApiClient
+    {
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default) =>
+            throw new InvalidOperationException("reconcilier ne doit appeler aucune API");
+    }
+
+    private const string Piece = "1221";
+    private const string Reference = "2304903U26000000930";
+
+    private static (InvoiceSender Expediteur, Registre Registre) Monter(CertifiedInvoice? entree = null)
+    {
+        var registre = new Registre(entree);
+        var reglages = Options.Create(new FneOptions
+        {
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            Template = "B2B",
+            PaymentMethod = "deferred",
+        });
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        return (new InvoiceSender(
+            lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance), registre);
+    }
+
+    [Fact]
+    public async Task Sans_reference_rien_ne_s_inscrit()
+    {
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, null, null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--reference", resultat.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Une_reference_vide_ne_vaut_pas_reference(string reference)
+    {
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, reference, null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+    }
+
+    [Fact]
+    public async Task Sans_confirmation_rien_ne_s_inscrit_mais_tout_est_montre()
+    {
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, Reference, "QR", confirme: false);
+
+        Assert.False(resultat.Applique);
+        Assert.True(resultat.ConfirmationManque);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains(Reference, resultat.Message);
+        Assert.Contains("0/6/1221", resultat.Message);
+        Assert.Contains("Réconciliation manuelle", resultat.Message);
+    }
+
+    [Fact]
+    public async Task La_reconciliation_inscrit_tout_ce_qu_il_faut()
+    {
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, Reference, "QR-1052", confirme: true);
+
+        Assert.True(resultat.Applique);
+        var inscrite = Assert.Single(registre.Ecritures);
+        Assert.Equal(EtatFne.Certified, inscrite.Etat);
+        Assert.Equal(Reference, inscrite.ReferenceFne);
+        Assert.Equal("QR-1052", inscrite.Token);
+        Assert.Equal("0/6/1221", inscrite.Identite);
+        Assert.Equal(Piece, inscrite.Piece);
+        Assert.NotEqual("", inscrite.Empreinte);
+        Assert.Contains("Réconciliation manuelle", inscrite.Erreur);
+    }
+
+    [Fact]
+    public async Task Le_jeton_est_facultatif()
+    {
+        // Tous les PDF ne le portent pas ; l'absence ne doit pas bloquer.
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, Reference, null, confirme: true);
+
+        Assert.True(resultat.Applique);
+        Assert.Equal("", registre.Ecritures[^1].Token);
+    }
+
+    [Fact]
+    public async Task Une_reconciliation_empeche_tout_renvoi()
+    {
+        // Sa raison d'être : la pièce ne doit plus jamais partir.
+        var (expediteur, registre) = Monter();
+
+        await expediteur.ReconcilierAsync(Piece, Reference, "QR", confirme: true);
+        var apresReconciliation = registre.Ecritures.Count;
+        var envoi = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.False(envoi.Reussi);
+        Assert.Contains("déjà certifiée", envoi.Message);
+        Assert.Equal(apresReconciliation, registre.Ecritures.Count);
+    }
+
+    [Fact]
+    public async Task Une_certification_existante_ne_se_reecrit_pas()
+    {
+        var (expediteur, registre) = Monter(new CertifiedInvoice
+        {
+            Identite = "0/6/1221",
+            Piece = Piece,
+            ReferenceFne = "REF-ORIGINE",
+            Etat = EtatFne.Certified,
+            Empreinte = "peu importe",
+        });
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, "REF-AUTRE", null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("REF-ORIGINE", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_tentative_en_erreur_se_reconcilie()
+    {
+        // Le cas réel : un envoi refusé, puis une certification obtenue
+        // autrement. La trace d'échec ne doit pas empêcher le rattrapage.
+        var (expediteur, registre) = Monter(new CertifiedInvoice
+        {
+            Identite = "0/6/1221",
+            Piece = Piece,
+            Etat = EtatFne.Error,
+            Empreinte = "peu importe",
+        });
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, Reference, null, confirme: true);
+
+        Assert.True(resultat.Applique);
+        Assert.Equal(EtatFne.Certified, registre.Ecritures[^1].Etat);
+    }
+
+    [Fact]
+    public async Task Une_piece_absente_de_Sage_ne_se_reconcilie_pas()
+    {
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync("999999", Reference, null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+    }
+
+    [Fact]
+    public async Task Une_piece_que_nos_controles_bloquent_se_reconcilie_quand_meme()
+    {
+        // 1222 n'a pas de NCC : nos contrôles la refusent à l'envoi. Mais si la
+        // DGI l'a certifiée — c'est ce que l'exploitant atteste — le refuser
+        // laisserait la pièce envoyable, ce qui est exactement le danger. La
+        // réalité constatée l'emporte sur notre opinion du document.
+        var (expediteur, registre) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync("1222", Reference, null, confirme: true);
+
+        Assert.True(resultat.Applique);
+        Assert.Equal(EtatFne.Certified, registre.Ecritures[^1].Etat);
+    }
+}

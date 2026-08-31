@@ -265,6 +265,108 @@ public sealed class InvoiceSender(
             classee.Etat);
     }
 
+    /// <summary>
+    /// Inscrit au registre une certification constatée hors du middleware.
+    /// </summary>
+    /// <remarks>
+    /// Le rattrapage d'une trace perdue. Le registre est la seule mémoire d'une
+    /// certification — Sage n'en porte aucune — et cette mémoire peut manquer :
+    /// registre effacé, envoi passé par un autre outil, réponse perdue. Sans ce
+    /// rattrapage, la facture repartirait à la DGI et y prendrait une seconde
+    /// référence.
+    ///
+    /// Aucune API n'est appelée. La référence vient de l'exploitant, qui l'a
+    /// relevée sur le portail ou sur le PDF : c'est lui qui atteste, et la trace
+    /// le dit pour que personne ne la prenne plus tard pour un aller-retour
+    /// automatique.
+    ///
+    /// L'empreinte inscrite est celle du document <b>tel qu'il est aujourd'hui</b>,
+    /// et non celle du corps réellement envoyé, qui est perdu avec la trace. Si
+    /// la pièce a changé dans Sage depuis sa certification, la réconciliation
+    /// grave cette version-là et l'écart avec la facture certifiée devient
+    /// invisible. C'est le prix du rattrapage, et il est dit à l'écran.
+    /// </remarks>
+    public async Task<DeblocageResultat> ReconcilierAsync(
+        string piece,
+        string? reference,
+        string? jeton,
+        bool confirme,
+        CancellationToken cancellation = default)
+    {
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            return new DeblocageResultat(
+                false,
+                "Une réconciliation demande la référence FNE relevée sur le portail ou sur le " +
+                "PDF : --reference \"…\". Sans elle, la trace ne permettrait pas de retrouver la " +
+                "facture chez la DGI, et n'aurait pas d'objet.");
+        }
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion is null)
+        {
+            return new DeblocageResultat(false, $"Aucune facture au numéro {piece} dans Sage.");
+        }
+
+        if (conversion.Certification is { Etat: EtatFne.Certified } dejaLa)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est déjà certifiée au registre" +
+                $"{(dejaLa.ReferenceFne == "" ? "" : $" sous {dejaLa.ReferenceFne}")} : " +
+                "il n'y a rien à réconcilier, et une certification ne se réécrit pas.");
+        }
+
+        if (conversion.Empreinte == "")
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} ne se traduit pas au format FNE aujourd'hui : son empreinte " +
+                "ne peut pas être calculée, et la trace serait inexploitable. Corrigez d'abord " +
+                "ce qui la bloque — « statut " + piece + " » les énumère.");
+        }
+
+        var quand = DateTimeOffset.Now;
+        var attestation =
+            $"Réconciliation manuelle du {quand:dd/MM/yyyy à HH:mm}. Certification constatée " +
+            $"sur le portail DGI par l'exploitant, non observée par le middleware. Empreinte " +
+            "inscrite : celle du document au moment de la réconciliation.";
+
+        if (!confirme)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Rien n'a été inscrit : la confirmation manque. Serait inscrit — référence " +
+                $"{reference}, jeton « {(string.IsNullOrWhiteSpace(jeton) ? "aucun" : jeton)} », " +
+                $"identité {conversion.Header.Identite}, empreinte {conversion.Empreinte}, " +
+                "état Certified. " + attestation,
+                ConfirmationManque: true);
+        }
+
+        var reconciliee = new CertifiedInvoice
+        {
+            Identite = conversion.Header.Identite,
+            Piece = conversion.Header.Piece,
+            ReferenceFne = reference.Trim(),
+            Token = jeton?.Trim() ?? "",
+            CertifieeLe = quand,
+            Empreinte = conversion.Empreinte,
+            Etat = EtatFne.Certified,
+            Erreur = attestation,
+        };
+
+        await registre.RecordAsync(reconciliee, cancellation);
+        logger.LogInformation(
+            "Pièce {Piece} réconciliée manuellement sous {Reference}.", piece, reference);
+
+        return new DeblocageResultat(
+            true,
+            $"La pièce {piece} est inscrite certifiée sous {reference}. Elle ne repartira plus.",
+            EtatFne.Certified);
+    }
+
     private static CertifiedInvoice Trace(InvoiceConversion conversion, EtatFne etat) => new()
     {
         Identite = conversion.Header.Identite,

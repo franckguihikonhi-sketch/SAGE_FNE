@@ -376,7 +376,9 @@ public class CheminRegistreTests
         // ?? ne retombait pas sur le défaut, et le registre recevait "".
         var chemin = ServicesMiddleware.CheminRegistre(null, "", Dossier, connexionSageConfiguree: true);
 
-        Assert.Equal(Path.Combine(Dossier, "certifications.json"), chemin);
+        // Le défaut n'est plus le dossier de l'exécutable : il y était exposé à
+        // dotnet clean, et une certification réelle y a été perdue.
+        Assert.Equal(ServicesMiddleware.CheminDurable(), chemin);
     }
 
     [Theory]

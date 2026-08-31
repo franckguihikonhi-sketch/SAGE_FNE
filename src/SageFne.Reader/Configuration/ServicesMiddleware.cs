@@ -85,6 +85,9 @@ public static class ServicesMiddleware
         return services;
     }
 
+    /// <summary>Nom du fichier de registre, partout où il est écrit.</summary>
+    public const string NomDuRegistre = "certifications.json";
+
     /// <summary>
     /// Où écrire le registre des certifications, ou null pour le garder en
     /// mémoire.
@@ -99,7 +102,7 @@ public static class ServicesMiddleware
     public static string? CheminRegistre(
         string? demandeEnLigneDeCommande,
         string? configure,
-        string dossierParDefaut,
+        string dossierDeLExecutable,
         bool connexionSageConfiguree)
     {
         if (!string.IsNullOrWhiteSpace(demandeEnLigneDeCommande)) return demandeEnLigneDeCommande.Trim();
@@ -107,10 +110,41 @@ public static class ServicesMiddleware
 
         // Sans base réelle, rien ne mérite d'être écrit sur le disque : le jeu
         // d'essai garde son registre en mémoire.
-        return connexionSageConfiguree
-            ? Path.Combine(dossierParDefaut, "certifications.json")
-            : null;
+        return connexionSageConfiguree ? CheminDurable() : null;
     }
+
+    /// <summary>
+    /// Le registre par défaut, dans les données d'application de l'utilisateur.
+    /// </summary>
+    /// <remarks>
+    /// Il a d'abord été posé à côté de l'exécutable — c'est-à-dire dans
+    /// <c>bin\Debug\net8.0\</c>. C'était une faute : ce dossier est une sortie
+    /// de compilation, que <c>dotnet clean</c>, une suppression de <c>bin</c> ou
+    /// un clone neuf effacent sans prévenir. Le registre est la seule mémoire
+    /// d'une certification — Sage n'en porte aucune trace — et le perdre fait
+    /// repartir vers la DGI des factures déjà certifiées.
+    ///
+    /// <c>%APPDATA%</c> sous Windows, <c>~/.config</c> ailleurs : ces dossiers
+    /// survivent aux compilations, et sont sauvegardés par les outils courants.
+    /// </remarks>
+    public static string CheminDurable() => Path.Combine(
+        Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData,
+            Environment.SpecialFolderOption.Create),
+        "SageFne",
+        NomDuRegistre);
+
+    /// <summary>
+    /// L'ancien emplacement par défaut, à côté de l'exécutable.
+    /// </summary>
+    /// <remarks>
+    /// Conservé pour que le diagnostic puisse aller y regarder : un registre
+    /// écrit avant ce changement s'y trouve encore, et il vaut mieux le montrer
+    /// à l'exploitant que le laisser disparaître en silence. Rien n'est déplacé
+    /// automatiquement — un registre se déplace en connaissance de cause.
+    /// </remarks>
+    public static string AncienChemin(string dossierDeLExecutable) =>
+        Path.Combine(dossierDeLExecutable, NomDuRegistre);
 
     /// <summary>
     /// Une chaîne restée au gabarit n'est pas une chaîne : mieux vaut le jeu

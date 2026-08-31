@@ -12,9 +12,10 @@ namespace SageFne.Reader.Certification;
 /// qu'un fichier tronqué. Perdre le registre reviendrait à recertifier des
 /// pièces déjà envoyées à la DGI.
 ///
-/// Un registre illisible n'arrête pas un lot : il est signalé et traité comme
-/// vide, à charge pour l'exploitant de le restaurer avant d'envoyer quoi que
-/// ce soit.
+/// Un registre illisible arrête tout. Il fut un temps traité comme vide, ce
+/// qui était l'erreur à ne pas commettre : « vide » veut dire « rien n'a jamais
+/// été certifié », et un fichier tronqué aurait fait repartir vers la DGI toutes
+/// les factures déjà certifiées.
 /// </remarks>
 public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertificationLedger> logger)
     : ICertificationLedger
@@ -37,7 +38,56 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
     public string Chemin => _chemin;
 
     /// <summary>Vrai quand le fichier existe mais n'a pas pu être lu.</summary>
+    /// <remarks>
+    /// Renseigné par <see cref="EtatDuFichierAsync"/>, qui regarde sans lever,
+    /// pour que le diagnostic puisse décrire un registre que les autres
+    /// opérations refusent d'utiliser.
+    /// </remarks>
     public bool EstIllisible { get; private set; }
+
+    /// <summary>
+    /// Tout ce que le registre contient. Sert au diagnostic, pas au traitement.
+    /// </summary>
+    public async Task<IReadOnlyList<CertifiedInvoice>> ToutAsync(CancellationToken cancellation = default)
+    {
+        var toutes = await LireAsync(cancellation);
+        return toutes.Values.OrderBy(entree => entree.Identite).ToList();
+    }
+
+    /// <summary>
+    /// Ce qu'on peut dire du fichier sans exiger qu'il soit lisible.
+    /// </summary>
+    /// <remarks>
+    /// Le diagnostic doit pouvoir décrire un registre corrompu : c'est
+    /// précisément le cas où l'exploitant a besoin de savoir où il est et ce
+    /// qu'il pèse. Cette méthode ne lève donc pas.
+    /// </remarks>
+    public async Task<RegistreFichier> EtatDuFichierAsync(CancellationToken cancellation = default)
+    {
+        var complet = Path.GetFullPath(_chemin);
+
+        if (!File.Exists(complet))
+        {
+            EstIllisible = false;
+            return new RegistreFichier(complet, Existe: false);
+        }
+
+        var fiche = new FileInfo(complet);
+
+        try
+        {
+            var entrees = await ToutAsync(cancellation);
+            return new RegistreFichier(
+                complet, Existe: true, Octets: fiche.Length,
+                ModifieLe: fiche.LastWriteTime, Entrees: entrees);
+        }
+        catch (RegistreIllisibleException erreur)
+        {
+            return new RegistreFichier(
+                complet, Existe: true, Octets: fiche.Length,
+                ModifieLe: fiche.LastWriteTime, Illisible: erreur.Message);
+        }
+    }
 
     public async Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
         IReadOnlyCollection<string> identites,
@@ -92,9 +142,14 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
         }
         catch (Exception erreur) when (erreur is JsonException or IOException)
         {
+            // Ne surtout pas rendre un dictionnaire vide : l'appelant y lirait
+            // « aucune pièce certifiée » et laisserait tout repartir.
+            // Sans l'exception au journal : elle est relancée, et l'appelant
+            // la présentera proprement. La journaliser ici ferait cracher une
+            // trace de pile par-dessus le message utile.
             EstIllisible = true;
-            logger.LogWarning(erreur, "Registre de certification illisible : {Chemin}.", chemin);
-            return new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase);
+            logger.LogError("Registre de certification illisible : {Chemin} — {Cause}", _chemin, erreur.Message);
+            throw new RegistreIllisibleException(_chemin, erreur);
         }
     }
 }

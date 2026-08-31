@@ -61,6 +61,24 @@ builder.Services.Configure<ServiceProviderOptions>(options =>
 
 using var hote = builder.Build();
 
+// Un registre illisible arrête tout, et le dit une fois pour toutes plutôt que
+// de laisser chaque commande buter dessus. « registre-info » reste accessible :
+// c'est précisément la commande qui sert à instruire ce cas.
+if (ligneDeCommande.Verbe != Verbe.RegistreInfo
+    && hote.Services.GetRequiredService<ICertificationLedger>() is JsonCertificationLedger aVerifier)
+{
+    var sante = await aVerifier.EtatDuFichierAsync();
+    if (sante.Illisible is { } empechement)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(empechement);
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Pour le décrire sans l'utiliser :");
+        Console.Error.WriteLine("  dotnet run --project src\\SageFne.Reader -- registre-info");
+        return 1;
+    }
+}
+
 // Diagnostic : inventaire des types de documents du domaine des ventes. Aucune
 // conversion, aucun registre, rien d'écrit — deux SELECT et un tableau.
 if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
@@ -285,6 +303,138 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
         "La clé n'est jamais affichée en clair, ni ici, ni dans les journaux.");
 
     return reglagesApi.EstConfigure && identifiantsPresents ? 0 : 1;
+}
+
+// Où vit le registre, ce qu'il pèse, ce qu'il contient. Le diagnostic à lancer
+// quand une trace attendue manque. Il ne lit pas la clé d'API.
+if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
+{
+    Titre("Registre des certifications");
+
+    var reglagesRegistre = hote.Services.GetRequiredService<FneApiOptions>();
+    Console.WriteLine($"  Environnement   {(reglagesRegistre.EstTest ? "TEST" : "PRODUCTION")}");
+    Console.WriteLine($"  Base Sage       {(connexionConfiguree ? "connectée" : "jeu d'essai — aucune connexion")}");
+
+    var tenu = hote.Services.GetRequiredService<ICertificationLedger>();
+
+    if (tenu is not JsonCertificationLedger surFichier)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Le registre est EN MÉMOIRE : il disparaît à la fin de la commande.");
+        Console.WriteLine("  C'est le mode du jeu d'essai. Renseignez la connexion Sage, ou");
+        Console.WriteLine("  Fne:CertificationLedgerPath, pour qu'il s'écrive sur le disque.");
+        return 1;
+    }
+
+    var fichier = await surFichier.EtatDuFichierAsync();
+
+    Console.WriteLine($"  Chemin          {fichier.Chemin}");
+    Console.WriteLine($"  Origine         {(ligneDeCommande.Registre is not null ? "--registre" : builder.Configuration["Fne:CertificationLedgerPath"] is { Length: > 0 } ? "Fne:CertificationLedgerPath" : "défaut de l'application")}");
+    Console.WriteLine($"  Fichier         {(fichier.Existe ? "présent" : "ABSENT")}");
+
+    if (fichier.Existe)
+    {
+        Console.WriteLine($"  Taille          {fichier.Octets} octets");
+        Console.WriteLine($"  Modifié le      {fichier.ModifieLe:dd/MM/yyyy à HH:mm:ss}");
+    }
+
+    if (fichier.Illisible is { } pourquoi)
+    {
+        Console.WriteLine("  Entrées         ILLISIBLE");
+        Console.WriteLine();
+        Console.WriteLine($"  {pourquoi}");
+        return 1;
+    }
+
+    var entrees = fichier.Entrees ?? [];
+    Console.WriteLine($"  Entrées         {entrees.Count}");
+
+    if (entrees.Count > 0)
+    {
+        Titre("Ce que le registre contient");
+        Console.WriteLine($"  {"Identité",-16} {"Pièce",-8} {"État",-11} {"Référence FNE",-24} Inscrit le");
+        foreach (var entree in entrees)
+        {
+            Console.WriteLine(
+                $"  {entree.Identite,-16} {entree.Piece,-8} {entree.Etat,-11} " +
+                $"{(entree.ReferenceFne == "" ? "—" : entree.ReferenceFne),-24} " +
+                $"{entree.CertifieeLe.ToLocalTime():dd/MM/yyyy HH:mm}");
+        }
+    }
+
+    // Le registre a d'abord été posé à côté de l'exécutable, dans bin\. Si un
+    // fichier y traîne encore, il porte peut-être des certifications que le
+    // nouvel emplacement ignore. Rien n'est déplacé : c'est montré, et c'est tout.
+    var ancien = ServicesMiddleware.AncienChemin(AppContext.BaseDirectory);
+    if (!string.Equals(Path.GetFullPath(ancien), fichier.Chemin, StringComparison.OrdinalIgnoreCase)
+        && File.Exists(ancien))
+    {
+        var fiche = new FileInfo(ancien);
+        Titre("Un registre subsiste à l'ancien emplacement");
+        Console.WriteLine($"  {Path.GetFullPath(ancien)}");
+        Console.WriteLine($"  {fiche.Length} octets, modifié le {fiche.LastWriteTime:dd/MM/yyyy à HH:mm:ss}");
+        Console.WriteLine();
+        Console.WriteLine("  Ce dossier est une sortie de compilation : son contenu peut disparaître.");
+        Console.WriteLine("  Rien n'a été déplacé. Pour lire ce registre-là :");
+        Console.WriteLine($"    dotnet run --project src\\SageFne.Reader -- registre-info --registre \"{ancien}\"");
+    }
+
+    if (!fichier.Existe)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucun fichier : rien n'a encore été inscrit ici. Si une facture a été");
+        Console.WriteLine("  certifiée sans laisser de trace, « reconcilier » permet de l'inscrire.");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Ce registre est la SEULE mémoire des certifications : Sage n'en porte aucune.");
+    Console.WriteLine("Sauvegardez-le. Le perdre ferait repartir à la DGI des factures déjà certifiées.");
+    Console.WriteLine("Aucune API n'a été contactée, rien n'a été écrit.");
+
+    return fichier.Existe ? 0 : 1;
+}
+
+// Inscrire au registre une certification constatée sur le portail. Aucune API,
+// et rien n'est écrit sans --confirmer.
+if (ligneDeCommande.Verbe == Verbe.Reconcilier)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine(
+            "reconcilier attend un numéro de pièce, par exemple :\n" +
+            "  reconcilier 1052 --reference \"2304903U26000000930\" --confirmer");
+        return 2;
+    }
+
+    var numeroReconcilie = ligneDeCommande.Query.Pieces[0];
+    Titre($"Réconciliation — pièce {numeroReconcilie}");
+    Console.WriteLine("Aucune API n'est appelée. Sage reste en lecture seule.");
+    Console.WriteLine();
+
+    var reconciliation = await hote.Services.GetRequiredService<InvoiceSender>()
+        .ReconcilierAsync(
+            numeroReconcilie,
+            ligneDeCommande.Reference,
+            ligneDeCommande.Jeton,
+            ligneDeCommande.Confirme);
+
+    Console.WriteLine($"  {reconciliation.Message}");
+
+    if (reconciliation.ConfirmationManque)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Vérifiez la référence ci-dessus contre le PDF ou le portail avant de");
+        Console.WriteLine("  l'inscrire : une fois posée, elle ne se réécrit pas.");
+        Console.WriteLine("  Pour inscrire : ajoutez --confirmer.");
+    }
+
+    if (reconciliation.Applique)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Vérifiez : dotnet run --project src\\SageFne.Reader -- statut {numeroReconcilie}");
+    }
+
+    return reconciliation.Applique ? 0 : 1;
 }
 
 // Ce que le registre local sait d'une pièce. Ni appel, ni écriture : deux

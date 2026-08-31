@@ -105,6 +105,38 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void Le_registre_info_se_lit()
+    {
+        var ligne = CommandLine.Parse(["registre-info"]);
+
+        Assert.Equal(Verbe.RegistreInfo, ligne.Verbe);
+        Assert.Empty(ligne.Erreurs);
+    }
+
+    [Theory]
+    [InlineData("reconcilier")]
+    [InlineData("réconcilier")]
+    public void La_reconciliation_se_lit_avec_ou_sans_accent(string verbe)
+    {
+        var ligne = CommandLine.Parse(
+            [verbe, "1052", "--reference", "2304903U26000000930", "--token", "QR", "--confirmer"]);
+
+        Assert.Equal(Verbe.Reconcilier, ligne.Verbe);
+        Assert.Equal(["1052"], ligne.Query.Pieces);
+        Assert.Equal("2304903U26000000930", ligne.Reference);
+        Assert.Equal("QR", ligne.Jeton);
+        Assert.True(ligne.Confirme);
+    }
+
+    [Fact]
+    public void Un_jeton_vide_est_refuse()
+    {
+        var ligne = CommandLine.Parse(["reconcilier", "1052", "--token"]);
+
+        Assert.Contains(ligne.Erreurs, erreur => erreur.Contains("portail"));
+    }
+
+    [Fact]
     public void Sans_verbe_de_deblocage_rien_n_est_demande()
     {
         var ligne = CommandLine.Parse(["1052"]);

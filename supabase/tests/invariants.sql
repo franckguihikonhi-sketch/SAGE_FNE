@@ -132,3 +132,77 @@ select case when count(*) = 1 and max(piece) = '1054'
 select case when depuis is not null then 'OK     la vue dit depuis quand il attend'
             else 'ÉCHEC — depuis est nulle' end
   from certifications_en_suspens limit 1;
+
+\echo '--- Environnement figé sur la certification ---'
+-- Les lignes existantes ont hérité de l'environnement de leur dossier.
+select case when environnement = 'test' then 'OK     l''environnement est repris du dossier'
+            else format('ÉCHEC — environnement %s', environnement) end
+  from certifications where identite = '0/6/1054';
+
+select attendre_echec($$
+  update certifications set environnement = 'production' where identite = '0/6/1054'$$,
+  'le passage d''une certification de test en production');
+
+\echo '--- Unicité par environnement ---'
+-- La même identité dans le même dossier et le même environnement : refusée.
+select attendre_echec($$
+  insert into certifications (dossier_id, identite, piece, etat, environnement)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1054', '1054', 'pending', 'test')$$,
+  'un doublon dans le même environnement');
+
+-- La même identité en production : acceptée, ce sont deux plateformes.
+insert into certifications (dossier_id, identite, piece, etat, environnement, reference_fne)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1054', '1054', 'certified', 'production', 'REF-PROD');
+
+select case when count(*) = 2 then 'OK     test et production coexistent pour une même pièce'
+            else format('ÉCHEC — %s ligne(s) pour 0/6/1054', count(*)) end
+  from certifications where identite = '0/6/1054';
+
+\echo '--- Le compteur de tentatives ---'
+update certifications set tentatives = 2 where identite = '0/6/1054' and environnement = 'test';
+
+select attendre_echec($$
+  update certifications set tentatives = 1
+   where identite = '0/6/1054' and environnement = 'test'$$,
+  'un compteur de tentatives qui recule');
+
+select case when tentatives = 2 then 'OK     le compteur de tentatives se conserve'
+            else format('ÉCHEC — tentatives = %s', tentatives) end
+  from certifications where identite = '0/6/1054' and environnement = 'test';
+
+\echo '--- Réconciliation manuelle ---'
+select attendre_echec($$
+  insert into certifications (dossier_id, identite, piece, etat, environnement,
+                              reference_fne, source)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1055', '1055', 'certified',
+          'test', 'REF-1055', 'reconciliation_manuelle')$$,
+  'une réconciliation sans date');
+
+insert into certifications (dossier_id, identite, piece, etat, environnement,
+                            reference_fne, source, reconciliee_le)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1055', '1055', 'certified',
+        'test', 'REF-1055', 'reconciliation_manuelle', now());
+
+select case when source = 'reconciliation_manuelle' and reconciliee_le is not null
+            then 'OK     une réconciliation datée est acceptée'
+            else 'ÉCHEC — la réconciliation n''a pas été inscrite' end
+  from certifications where identite = '0/6/1055';
+
+-- Une réconciliation ne peut pas conclure autre chose qu'une certification.
+select attendre_echec($$
+  insert into certifications (dossier_id, identite, piece, etat, environnement,
+                              source, reconciliee_le)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1056', '1056', 'error',
+          'test', 'reconciliation_manuelle', now())$$,
+  'une réconciliation qui ne certifie pas');
+
+\echo '--- Le code HTTP retenu ---'
+select attendre_echec($$
+  update certifications set dernier_code_http = 42
+   where identite = '0/6/1055'$$,
+  'un code HTTP hors plage');
+
+update certifications set dernier_code_http = 500 where identite = '0/6/1055';
+select case when dernier_code_http = 500 then 'OK     le dernier code HTTP est conservé'
+            else 'ÉCHEC — code HTTP non retenu' end
+  from certifications where identite = '0/6/1055';
