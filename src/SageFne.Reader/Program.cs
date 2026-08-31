@@ -287,6 +287,98 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
     return reglagesApi.EstConfigure && identifiantsPresents ? 0 : 1;
 }
 
+// Ce que le registre local sait d'une pièce. Ni appel, ni écriture : deux
+// SELECT sur Sage et une lecture du registre. La clé d'API n'est jamais lue,
+// donc jamais affichable.
+if (ligneDeCommande.Verbe == Verbe.Statut)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine("statut attend un numéro de pièce, par exemple : statut 1052");
+        return 2;
+    }
+
+    var numeroStatut = ligneDeCommande.Query.Pieces[0];
+    var lotStatut = await hote.Services.GetRequiredService<InvoiceBatchReader>()
+        .ReadAsync(InvoiceQuery.Piece(numeroStatut));
+    var suivie = lotStatut.Conversions.FirstOrDefault();
+
+    Titre($"Statut — pièce {numeroStatut}");
+    Console.WriteLine("Registre local du middleware. Sage n'est lu qu'en SELECT.");
+
+    if (suivie is null)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Aucune facture au numéro {numeroStatut} dans Sage.");
+        return 1;
+    }
+
+    Titre("Côté Sage");
+    Console.WriteLine($"  Identité      {suivie.Header.Identite}");
+    Console.WriteLine($"  DO_Type       {suivie.Header.Type} — DO_DocType {suivie.Header.DocType}");
+    Console.WriteLine($"  Date          {suivie.Header.Date:dd/MM/yyyy}");
+    Console.WriteLine($"  Client        {suivie.Customer?.Intitule ?? suivie.Header.Tiers}");
+    Console.WriteLine($"  Total TTC     {suivie.TotalTTC:N2}");
+    Console.WriteLine($"  Empreinte     {(suivie.Empreinte == "" ? "— non calculable, la pièce ne se traduit pas —" : suivie.Empreinte)}");
+
+    Titre("Côté registre");
+    var connue = suivie.Certification;
+
+    if (connue is null)
+    {
+        Console.WriteLine("  Aucune trace : cette pièce n'a jamais été envoyée.");
+    }
+    else
+    {
+        Console.WriteLine($"  État          {connue.Etat}");
+        Console.WriteLine($"  Référence FNE {(connue.ReferenceFne == "" ? "— aucune —" : connue.ReferenceFne)}");
+        Console.WriteLine($"  Jeton (QR)    {(connue.Token == "" ? "— aucun —" : connue.Token)}");
+        Console.WriteLine($"  Horodatage    {connue.CertifieeLe.ToLocalTime():dd/MM/yyyy à HH:mm:ss}");
+        Console.WriteLine($"  Identité      {connue.Identite}");
+        Console.WriteLine($"  Empreinte     {(connue.Empreinte == "" ? "— aucune —" : connue.Empreinte)}");
+
+        if (connue.Erreur != "") Console.WriteLine($"  Note          {connue.Erreur}");
+
+        // L'égalité des empreintes est ce qui sépare « certifiée et inchangée »
+        // de « certifiée puis modifiée dans Sage ».
+        if (connue.Empreinte != "" && suivie.Empreinte != "")
+        {
+            Console.WriteLine();
+            Console.WriteLine(connue.Empreinte == suivie.Empreinte
+                ? "  Les empreintes concordent : la pièce n'a pas bougé depuis cet envoi."
+                : "  Les empreintes diffèrent : la pièce a changé dans Sage depuis cet envoi.");
+        }
+    }
+
+    Titre("Ce que cela autorise");
+    Console.WriteLine($"  État retenu   {suivie.LibelleEtat}");
+    Console.WriteLine(suivie.Etat switch
+    {
+        EtatPiece.ACertifier =>
+            $"  La pièce peut partir : dotnet run --project src\\SageFne.Reader -- envoyer {numeroStatut}",
+        EtatPiece.DejaCertifiee =>
+            "  Elle ne repartira pas : elle est certifiée et n'a pas changé.",
+        EtatPiece.ModifieeDepuis =>
+            "  Elle ne repartira pas : certifiée puis modifiée. La correction passe par un avoir.",
+        EtatPiece.EnSuspens =>
+            "  Elle ne repartira pas seule. Cherchez-la sur le portail DGI, puis :\n" +
+            $"    debloquer {numeroStatut} --non-certifiee --confirmer   (le portail ne la connaît pas)\n" +
+            $"    debloquer {numeroStatut} --reference REF --confirmer   (le portail la porte)",
+        _ => "  Elle ne peut pas partir : des contrôles la bloquent.",
+    });
+
+    if (suivie.Report.Constats.Count > 0)
+    {
+        Titre("Contrôles");
+        Constats(suivie.Report.Constats);
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Aucune API n'a été contactée, rien n'a été écrit — ni dans Sage, ni au registre.");
+
+    return suivie.Etat is EtatPiece.Bloquee or EtatPiece.EnSuspens ? 1 : 0;
+}
+
 // Trancher le sort d'une pièce restée « en suspens ». Aucune API n'est
 // appelée : la commande inscrit au registre ce que l'exploitant a lu sur le
 // portail de la DGI, parce que personne d'autre ne peut le savoir.

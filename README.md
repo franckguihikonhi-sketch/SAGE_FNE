@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 307 tests
+dotnet test                                    # 316 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -40,6 +40,7 @@ dotnet run --project src/SageFne.Reader -- candidats-fne         # factures d'es
 dotnet run --project src/SageFne.Reader -- fne-check             # vérifie l'accès FNE, sans rien appeler
 dotnet run --project src/SageFne.Reader -- envoyer 1052          # montre la requête, n'envoie rien
 dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   # envoie pour de vrai
+dotnet run --project src/SageFne.Reader -- statut 1052           # ce que le registre sait d'une pièce
 dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
 ```
 
@@ -345,6 +346,25 @@ la DGI l'a peut-être enregistré, et un doublon ne se rattrape pas.
 Une réponse **5xx** compte comme une issue inconnue, pas comme un refus : la plateforme a
 pu enregistrer la facture avant d'échouer. Un **4xx** est net — la requête a été rejetée,
 rien n'a été créé.
+
+### Savoir où en est une pièce
+
+```powershell
+dotnet run --project src\SageFne.Reader -- statut 1052
+```
+
+Elle ne contacte rien et n'écrit rien : deux `SELECT` sur Sage et une lecture du registre.
+Elle ne lit pas non plus la configuration d'accès, donc **la clé d'API ne peut pas y
+apparaître**.
+
+Elle montre Sage d'un côté — identité, `DO_Type`, date, client, total TTC, empreinte
+courante — et le registre de l'autre : état, référence FNE, jeton du QR code, horodatage,
+identité inscrite, empreinte du corps envoyé. Puis elle compare les deux empreintes, ce qui
+sépare « certifiée et inchangée » de « certifiée puis modifiée dans Sage », et conclut par
+ce que cet état autorise, avec la commande à taper ensuite.
+
+C'est la commande à lancer après un envoi pour vérifier ce qui a été retenu, et avant un
+envoi pour savoir si la pièce peut partir.
 
 ### Sortir une pièce du suspens
 

@@ -156,6 +156,82 @@ public class RegistreEtatTests
         Assert.Contains("portail DGI", resultat.Message);
     }
 
+    /// <summary>
+    /// Ce qu'une certification doit laisser derrière elle. La liste vient du
+    /// besoin réel : retrouver la facture chez la DGI, prouver quand elle est
+    /// partie, et savoir si le document a bougé depuis.
+    /// </summary>
+    [Fact]
+    public async Task Un_succes_inscrit_tout_ce_qui_permet_de_retrouver_la_facture()
+    {
+        var registre = new RegistreSeme();
+        var client = new ClientTemoin(new FneSignResult(
+            true, 200, "2304903U26000000930", "QR-TOKEN", """{"reference":"…"}"""));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+
+        var avant = DateTimeOffset.Now;
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var apres = DateTimeOffset.Now;
+
+        var inscrite = registre.Ecritures[^1];
+
+        Assert.Equal(EtatFne.Certified, inscrite.Etat);
+        Assert.Equal("2304903U26000000930", inscrite.ReferenceFne);
+        Assert.Equal("QR-TOKEN", inscrite.Token);
+        Assert.Equal(Identite, inscrite.Identite);
+        Assert.Equal(Piece, inscrite.Piece);
+        Assert.Equal(await EmpreinteReelle(), inscrite.Empreinte);
+        Assert.InRange(inscrite.CertifieeLe, avant, apres);
+
+        // Et la réponse brute, pour instruire après coup ce que le code n'a pas su lire.
+        Assert.Equal("""{"reference":"…"}""", inscrite.Reponse);
+    }
+
+    /// <summary>
+    /// Le doublon est la faute qu'on ne rattrape pas : une facture certifiée
+    /// deux fois porte deux références chez la DGI.
+    /// </summary>
+    [Fact]
+    public async Task Un_deuxieme_envoi_de_la_meme_facture_est_refuse()
+    {
+        var registre = new RegistreSeme(
+            Trace(EtatFne.Certified, await EmpreinteReelle(), "2304903U26000000930"));
+        var client = new ClientTemoin(new FneSignResult(true, 200, "AUTRE-REF"));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+
+        var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.False(client.Appele, "une facture certifiée ne doit jamais repartir");
+        Assert.Empty(registre.Ecritures);
+        Assert.Equal(EtatFne.Error, resultat.Etat);
+        Assert.Contains("déjà certifiée", resultat.Message);
+    }
+
+    /// <summary>
+    /// Un envoi certifié, puis un second : le premier passe, le second est
+    /// refusé par la trace que le premier a laissée. C'est la chaîne complète,
+    /// et non chaque maillon pris à part.
+    /// </summary>
+    [Fact]
+    public async Task Le_premier_envoi_bloque_le_second()
+    {
+        var registre = new RegistreSeme();
+        var client = new ClientTemoin(new FneSignResult(true, 200, "REF-UNIQUE", "QR"));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+
+        var premier = await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var ecrituresApresLePremier = registre.Ecritures.Count;
+
+        var second = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.True(premier.Reussi);
+        Assert.False(second.Reussi);
+        Assert.Equal(ecrituresApresLePremier, registre.Ecritures.Count);
+    }
+
     [Fact]
     public async Task Apres_un_echec_la_piece_corrigee_peut_repartir()
     {
@@ -430,5 +506,100 @@ public class DeblocageTests
         Assert.False(resultat.Applique);
         Assert.Empty(registre.Ecritures);
         Assert.Contains("rien ne la bloque", resultat.Message);
+    }
+}
+
+/// <summary>
+/// Le registre sur fichier doit rendre exactement ce qu'on lui a confié : il
+/// est la seule mémoire d'une certification, Sage n'en portant aucune trace.
+/// </summary>
+public class RegistreSurFichierTests : IDisposable
+{
+    private readonly string _chemin = Path.Combine(
+        Path.GetTempPath(), $"registre-{Guid.NewGuid():N}.json");
+
+    public void Dispose()
+    {
+        if (File.Exists(_chemin)) File.Delete(_chemin);
+    }
+
+    private JsonCertificationLedger Registre() =>
+        new(_chemin, NullLogger<JsonCertificationLedger>.Instance);
+
+    [Fact]
+    public async Task Une_certification_survit_a_l_ecriture_et_a_la_relecture()
+    {
+        var certifiee = new CertifiedInvoice
+        {
+            Identite = "0/6/1052",
+            Piece = "1052",
+            ReferenceFne = "2304903U26000000930",
+            Token = "QR-TOKEN",
+            CertifieeLe = new DateTimeOffset(2026, 8, 31, 14, 32, 5, TimeSpan.FromHours(0)),
+            Empreinte = "bb4ac4b0c070801f4c1639c16df1040a437ae7d099aed9593bd6d22f80864a50",
+            Etat = EtatFne.Certified,
+            Reponse = """{"reference":"2304903U26000000930"}""",
+        };
+
+        await Registre().RecordAsync(certifiee);
+
+        // Une seconde instance : c'est bien le fichier qui est relu, pas un cache.
+        var relues = await Registre().LookupAsync(["0/6/1052"]);
+        var relue = relues["0/6/1052"];
+
+        Assert.Equal(certifiee.ReferenceFne, relue.ReferenceFne);
+        Assert.Equal(certifiee.Token, relue.Token);
+        Assert.Equal(certifiee.CertifieeLe, relue.CertifieeLe);
+        Assert.Equal(certifiee.Identite, relue.Identite);
+        Assert.Equal(certifiee.Piece, relue.Piece);
+        Assert.Equal(certifiee.Empreinte, relue.Empreinte);
+        Assert.Equal(EtatFne.Certified, relue.Etat);
+        Assert.Equal(certifiee.Reponse, relue.Reponse);
+    }
+
+    [Fact]
+    public async Task L_etat_est_ecrit_en_toutes_lettres()
+    {
+        // Un entier serait illisible à l'œil nu, et changerait de sens si
+        // l'ordre de l'énumération bougeait.
+        await Registre().RecordAsync(new CertifiedInvoice
+        {
+            Identite = "0/6/1052",
+            Piece = "1052",
+            Etat = EtatFne.Certified,
+        });
+
+        Assert.Contains("\"Certified\"", await File.ReadAllTextAsync(_chemin));
+    }
+
+    [Fact]
+    public async Task Une_pièce_absente_du_registre_ne_ressort_pas()
+    {
+        await Registre().RecordAsync(new CertifiedInvoice { Identite = "0/6/1052", Piece = "1052" });
+
+        var relues = await Registre().LookupAsync(["0/6/1053"]);
+
+        Assert.Empty(relues);
+    }
+
+    [Fact]
+    public async Task Une_seconde_inscription_remplace_la_premiere_sans_la_dupliquer()
+    {
+        var registre = Registre();
+        var enCours = new CertifiedInvoice
+        {
+            Identite = "0/6/1052",
+            Piece = "1052",
+            Etat = EtatFne.Sending,
+        };
+
+        await registre.RecordAsync(enCours);
+        await registre.RecordAsync(enCours with { Etat = EtatFne.Certified, ReferenceFne = "REF" });
+
+        var relues = await Registre().LookupAsync(["0/6/1052"]);
+
+        Assert.Single(relues);
+        Assert.Equal(EtatFne.Certified, relues["0/6/1052"].Etat);
+        Assert.Equal("REF", relues["0/6/1052"].ReferenceFne);
     }
 }

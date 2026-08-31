@@ -52,10 +52,12 @@ public static class FinancialChecks
                 rapport.Avertir(
                     "ARRONDI_NON_TRANCHE",
                     $"{ou} : {ligne.Quantite} x {remise.PrixUnitaireNet} = {brut}, " +
-                    $"qui n'est pas un nombre entier de francs. Si la plateforme arrondit le " +
-                    $"prix unitaire à deux décimales, elle calculera {siArrondi} " +
-                    $"(écart de {brut - siArrondi}). La règle d'arrondi de la DGI n'étant pas " +
-                    "connue, comparez son total à celui-ci sur la première facture certifiée.");
+                    $"qui n'est pas un nombre entier de francs. Sur la pièce 1052, la plateforme " +
+                    $"a arrondi le total de ligne au franc le plus proche, et non le prix " +
+                    $"unitaire : elle donnerait ici {Math.Round(brut, MidpointRounding.AwayFromZero)}. " +
+                    $"Si elle arrondissait le prix unitaire à deux décimales, elle calculerait " +
+                    $"{siArrondi} (écart de {brut - siArrondi}). Un seul cas observé ne fait pas " +
+                    "une règle : comparez son total au vôtre.");
             }
 
             // Une remise dont le recalcul concorde avec le net de Sage confirme

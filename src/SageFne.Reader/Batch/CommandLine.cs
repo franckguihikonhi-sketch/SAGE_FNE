@@ -49,6 +49,16 @@ public enum Verbe
     /// inscrit au registre ce que l'exploitant y a lu.
     /// </remarks>
     Debloquer,
+
+    /// <summary>
+    /// Ce que le registre local sait d'une pièce : état, référence, date.
+    /// </summary>
+    /// <remarks>
+    /// Ni appel, ni écriture. C'est la commande à lancer après un envoi pour
+    /// vérifier ce qui a été retenu, et avant un envoi pour savoir si la pièce
+    /// peut partir.
+    /// </remarks>
+    Statut,
 }
 
 /// <summary>
@@ -157,6 +167,10 @@ public sealed record CommandLine
                 case "débloquer":
                     verbe = Verbe.Debloquer;
                     break;
+                case "statut":
+                case "status":
+                    verbe = Verbe.Statut;
+                    break;
                 case "--reference":
                 case "--référence":
                     reference = Valeur() ?? "";
@@ -225,6 +239,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- fne-check           vérifie l'accès FNE, sans rien appeler
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
+          dotnet run --project src/SageFne.Reader -- statut 1052        ce que le registre sait d'une pièce
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --reference REF --confirmer
 

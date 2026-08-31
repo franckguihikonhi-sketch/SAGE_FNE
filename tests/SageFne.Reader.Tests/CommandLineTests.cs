@@ -92,6 +92,18 @@ public class CommandLineTests
         Assert.Contains(ligne.Erreurs, erreur => erreur.Contains("portail"));
     }
 
+    [Theory]
+    [InlineData("statut")]
+    [InlineData("status")]
+    public void Le_statut_se_lit(string verbe)
+    {
+        var ligne = CommandLine.Parse([verbe, "1052"]);
+
+        Assert.Equal(Verbe.Statut, ligne.Verbe);
+        Assert.Equal(["1052"], ligne.Query.Pieces);
+        Assert.False(ligne.Confirme);
+    }
+
     [Fact]
     public void Sans_verbe_de_deblocage_rien_n_est_demande()
     {
