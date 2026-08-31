@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Un push qui suit de près le précédent annule le premier : inutile de payer
+# deux fois la même vérification.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: Middleware — build et tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restaurer
+        run: dotnet restore SageFne.sln
+
+      - name: Compiler
+        run: dotnet build SageFne.sln --no-restore --configuration Release
+
+      - name: Tester
+        run: dotnet test SageFne.sln --no-build --configuration Release --verbosity normal
+
+  supabase:
+    name: Base d'audit — migrations et invariants
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ['5432:5432']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Client psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Migrations et invariants
+        env:
+          PGPASSWORD: postgres
+        run: ./supabase/tests/executer.sh "postgres://postgres@localhost:5432/postgres"
+
+  secrets:
+    name: Aucun secret dans le dépôt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Le mot de passe SQL et la clé FNE n'ont jamais leur place ici. Un
+      # gabarit peut porter « MOT_DE_PASSE » ; une vraie valeur, non.
+      - name: Chercher des valeurs en dur
+        run: |
+          set -euo pipefail
+          motifs='"(ApiKey|Password)"\s*:\s*"(?!(\s*|MOT_DE_PASSE|A_COMPLETER|UTILISATEUR))'
+          if grep -rEn --include='*.json' --include='*.cs' --include='*.yml' \
+               "$motifs" . 2>/dev/null | grep -v '/bin/\|/obj/'; then
+            echo "::error::Une clé ou un mot de passe semble écrit en dur."
+            exit 1
+          fi
+          echo "Rien trouvé."
