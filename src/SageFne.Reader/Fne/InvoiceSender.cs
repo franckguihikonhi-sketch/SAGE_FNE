@@ -291,15 +291,32 @@ public sealed class InvoiceSender(
         string? reference,
         string? jeton,
         bool confirme,
+        bool sansReference = false,
+        string? motif = null,
         CancellationToken cancellation = default)
     {
-        if (string.IsNullOrWhiteSpace(reference))
+        var avecReference = !string.IsNullOrWhiteSpace(reference);
+
+        if (avecReference == sansReference)
         {
             return new DeblocageResultat(
                 false,
-                "Une réconciliation demande la référence FNE relevée sur le portail ou sur le " +
-                "PDF : --reference \"…\". Sans elle, la trace ne permettrait pas de retrouver la " +
-                "facture chez la DGI, et n'aurait pas d'objet.");
+                sansReference
+                    ? "--reference et --sans-reference se contredisent : choisissez ce que le " +
+                      "portail montre réellement."
+                    : "Dites ce que le portail montre : --reference \"…\" s'il publie une " +
+                      "référence, --sans-reference s'il n'en publie aucune. L'absence de " +
+                      "référence doit être constatée, jamais subie : sans ce choix explicite, " +
+                      "une faute de frappe passerait pour un constat.");
+        }
+
+        if (sansReference && string.IsNullOrWhiteSpace(motif))
+        {
+            return new DeblocageResultat(
+                false,
+                "Une réconciliation sans référence demande un motif : --motif \"…\". C'est la " +
+                "seule chose qui restera pour expliquer, dans six mois, pourquoi cette " +
+                "certification ne porte aucun numéro.");
         }
 
         var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
@@ -331,15 +348,19 @@ public sealed class InvoiceSender(
         var quand = DateTimeOffset.Now;
         var attestation =
             $"Réconciliation manuelle du {quand:dd/MM/yyyy à HH:mm}. Certification constatée " +
-            $"sur le portail DGI par l'exploitant, non observée par le middleware. Empreinte " +
-            "inscrite : celle du document au moment de la réconciliation.";
+            "sur le portail DGI par l'exploitant, non observée par le middleware. Empreinte " +
+            "inscrite : celle du document au moment de la réconciliation." +
+            (sansReference
+                ? $" Aucune référence publiée par la plateforme — motif : {motif!.Trim()}"
+                : "");
 
         if (!confirme)
         {
             return new DeblocageResultat(
                 false,
-                $"Rien n'a été inscrit : la confirmation manque. Serait inscrit — référence " +
-                $"{reference}, jeton « {(string.IsNullOrWhiteSpace(jeton) ? "aucun" : jeton)} », " +
+                "Rien n'a été inscrit : la confirmation manque. Serait inscrit — référence " +
+                $"« {(sansReference ? "aucune" : reference)} », " +
+                $"jeton « {(string.IsNullOrWhiteSpace(jeton) ? "aucun" : jeton)} », " +
                 $"identité {conversion.Header.Identite}, empreinte {conversion.Empreinte}, " +
                 "état Certified. " + attestation,
                 ConfirmationManque: true);
@@ -349,12 +370,13 @@ public sealed class InvoiceSender(
         {
             Identite = conversion.Header.Identite,
             Piece = conversion.Header.Piece,
-            ReferenceFne = reference.Trim(),
+            ReferenceFne = sansReference ? "" : reference!.Trim(),
             Token = jeton?.Trim() ?? "",
             CertifieeLe = quand,
             Empreinte = conversion.Empreinte,
             Etat = EtatFne.Certified,
-            Erreur = attestation,
+            Source = SourceCertification.ReconciliationManuelle,
+            Motif = attestation,
         };
 
         await registre.RecordAsync(reconciliee, cancellation);
@@ -363,7 +385,153 @@ public sealed class InvoiceSender(
 
         return new DeblocageResultat(
             true,
-            $"La pièce {piece} est inscrite certifiée sous {reference}. Elle ne repartira plus.",
+            sansReference
+                ? $"La pièce {piece} est inscrite certifiée, sans référence. Elle ne repartira plus."
+                : $"La pièce {piece} est inscrite certifiée sous {reference}. Elle ne repartira plus.",
+            EtatFne.Certified);
+    }
+
+    /// <summary>
+    /// Retire d'une certification une référence qui n'en était pas une.
+    /// </summary>
+    /// <remarks>
+    /// Une réconciliation manuelle repose sur la lecture d'un humain, et un
+    /// humain se trompe : une valeur d'exemple a été inscrite telle quelle à la
+    /// place d'une référence. La laisser serait pire que l'absence — elle
+    /// désignerait chez la DGI une facture qui n'existe pas.
+    ///
+    /// La correction ne touche que la référence. L'état reste
+    /// <see cref="EtatFne.Certified"/>, l'identité, l'empreinte et
+    /// l'horodatage d'origine ne bougent pas : la pièce doit rester bloquée au
+    /// renvoi, c'est tout l'enjeu. Le motif s'ajoute au précédent sans
+    /// l'effacer, et une copie du registre est prise avant écriture.
+    ///
+    /// L'appelant déclare la référence qu'il s'attend à trouver. Si elle diffère,
+    /// rien n'est écrit : le registre a peut-être changé depuis qu'il l'a lu, et
+    /// corriger à l'aveugle une certification est précisément ce qu'il faut
+    /// éviter.
+    /// </remarks>
+    public async Task<DeblocageResultat> CorrigerReferenceAsync(
+        string piece,
+        string? referenceAttendue,
+        string? motif,
+        bool supprimerJeton,
+        bool confirme,
+        CancellationToken cancellation = default)
+    {
+        if (string.IsNullOrWhiteSpace(motif))
+        {
+            return new DeblocageResultat(
+                false,
+                "Une correction demande un motif : --motif \"…\". Corriger une certification " +
+                "sans dire pourquoi laisserait un registre que personne ne saura relire.");
+        }
+
+        if (string.IsNullOrWhiteSpace(referenceAttendue))
+        {
+            return new DeblocageResultat(
+                false,
+                "Déclarez la référence que vous vous attendez à trouver : " +
+                "--reference-actuelle \"…\". La correction refuse d'agir si le registre porte " +
+                "autre chose — il a pu changer depuis que vous l'avez lu.");
+        }
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion?.Certification is not { } trace)
+        {
+            return new DeblocageResultat(
+                false,
+                conversion is null
+                    ? $"Aucune facture au numéro {piece} dans Sage."
+                    : $"La pièce {piece} ne porte aucune trace au registre : il n'y a rien à corriger.");
+        }
+
+        if (trace.Etat != EtatFne.Certified)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est au registre en « {trace.Etat} », pas en « Certified ». " +
+                "Cette correction ne vise que les certifications : rien d'autre n'est touché.");
+        }
+
+        // Une référence lue dans la réponse de la DGI n'est pas une déclaration
+        // humaine : elle ne se corrige pas, elle fait foi. Seule une
+        // réconciliation manuelle repose sur une lecture, donc peut être fautive.
+        if (trace.Source != SourceCertification.ReconciliationManuelle)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La référence de la pièce {piece} vient de la réponse de la DGI, lue par le " +
+                "middleware : elle fait foi et ne se retire pas. Seule une réconciliation " +
+                "manuelle peut être corrigée.");
+        }
+
+        if (!string.Equals(trace.ReferenceFne, referenceAttendue.Trim(), StringComparison.Ordinal))
+        {
+            return new DeblocageResultat(
+                false,
+                $"Le registre porte « {(trace.SansReference ? "aucune référence" : trace.ReferenceFne)} » " +
+                $"pour la pièce {piece}, et non « {referenceAttendue.Trim()} ». Rien n'est écrit : " +
+                "vérifiez avec « statut " + piece + " » ce qu'il contient réellement.");
+        }
+
+        var quand = DateTimeOffset.Now;
+        var trace_ =
+            $"Correction du {quand:dd/MM/yyyy à HH:mm} : référence « {trace.ReferenceFne} » retirée" +
+            (supprimerJeton && trace.Token != "" ? $", jeton « {trace.Token} » retiré" : "") +
+            $". La certification est conservée. Motif : {motif.Trim()}";
+
+        if (!confirme)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Rien n'a été écrit : la confirmation manque.\n" +
+                $"  Serait retiré  référence « {trace.ReferenceFne} »" +
+                (trace.Token == ""
+                    ? ""
+                    : supprimerJeton
+                        ? $", jeton « {trace.Token} »"
+                        : $"\n  Serait gardé   jeton « {trace.Token} » (ajoutez --supprimer-jeton pour l'ôter aussi)") +
+                $"\n  Serait gardé   état Certified, identité {trace.Identite}, " +
+                $"empreinte {trace.Empreinte}, certifiée le {trace.CertifieeLe.ToLocalTime():dd/MM/yyyy à HH:mm}" +
+                $"\n  {trace_}",
+                ConfirmationManque: true);
+        }
+
+        // La copie d'abord : elle ne sert à rien après coup.
+        string? sauvegarde = null;
+        if (registre is JsonCertificationLedger surFichier)
+        {
+            try
+            {
+                sauvegarde = await surFichier.SauvegarderAsync(cancellation);
+            }
+            catch (Exception erreur) when (erreur is IOException or UnauthorizedAccessException)
+            {
+                return new DeblocageResultat(
+                    false,
+                    $"Le registre n'a pas pu être sauvegardé : {erreur.Message} Rien n'a été " +
+                    "corrigé — une correction sans copie préalable ne se défait pas.");
+            }
+        }
+
+        var corrigee = (trace with
+        {
+            ReferenceFne = "",
+            Token = supprimerJeton ? "" : trace.Token,
+        }).AvecMotif(trace_);
+
+        await registre.RecordAsync(corrigee, cancellation);
+        logger.LogInformation(
+            "Pièce {Piece} : référence retirée du registre. Sauvegarde : {Sauvegarde}",
+            piece, sauvegarde ?? "aucune");
+
+        return new DeblocageResultat(
+            true,
+            $"La référence a été retirée. La pièce {piece} reste certifiée et ne repartira pas." +
+            (sauvegarde is null ? "" : $"\n  Sauvegarde : {sauvegarde}"),
             EtatFne.Certified);
     }
 

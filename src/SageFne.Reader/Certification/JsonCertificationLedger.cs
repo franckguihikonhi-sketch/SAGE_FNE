@@ -55,6 +55,41 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
     }
 
     /// <summary>
+    /// Copie le registre à côté de lui-même, horodatée, avant de le modifier.
+    /// </summary>
+    /// <remarks>
+    /// Une correction porte sur la seule mémoire des certifications. Se tromper
+    /// de pièce, ou d'intention, ne doit pas être irréversible : la copie est
+    /// prise avant l'écriture, et jamais écrasée — son nom porte la seconde.
+    ///
+    /// Rend null quand il n'y a rien à sauvegarder.
+    /// </remarks>
+    public async Task<string?> SauvegarderAsync(CancellationToken cancellation = default)
+    {
+        var complet = Path.GetFullPath(_chemin);
+        if (!File.Exists(complet)) return null;
+
+        var copie = $"{complet}.{DateTime.Now:yyyyMMdd-HHmmss}.sauvegarde";
+
+        // Une seconde sauvegarde dans la même seconde ne doit pas manger la
+        // première : c'est justement pendant les tâtonnements qu'elles comptent.
+        var rang = 1;
+        while (File.Exists(copie)) copie = $"{complet}.{DateTime.Now:yyyyMMdd-HHmmss}-{rang++}.sauvegarde";
+
+        await _verrou.WaitAsync(cancellation);
+        try
+        {
+            File.Copy(complet, copie);
+        }
+        finally
+        {
+            _verrou.Release();
+        }
+
+        return copie;
+    }
+
+    /// <summary>
     /// Ce qu'on peut dire du fichier sans exiger qu'il soit lisible.
     /// </summary>
     /// <remarks>

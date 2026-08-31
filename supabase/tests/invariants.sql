@@ -206,3 +206,104 @@ update certifications set dernier_code_http = 500 where identite = '0/6/1055';
 select case when dernier_code_http = 500 then 'OK     le dernier code HTTP est conservé'
             else 'ÉCHEC — code HTTP non retenu' end
   from certifications where identite = '0/6/1055';
+
+\echo '--- Certifiée sans référence ---'
+-- La plateforme d'essai certifie sans toujours publier de référence. L'exiger
+-- poussait à en inventer une, et c'est arrivé.
+insert into certifications (dossier_id, identite, piece, etat, environnement,
+                            source, reconciliee_le, motif)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1057', '1057', 'certified',
+        'test', 'reconciliation_manuelle', now(),
+        'Aucune référence FNE visible sur le portail/PDF TEST');
+
+select case when reference_fne is null and token is null and etat = 'certified'
+            then 'OK     certifiée sans référence ni jeton'
+            else 'ÉCHEC — la certification sans référence a été refusée ou altérée' end
+  from certifications where identite = '0/6/1057';
+
+-- Mais pas sans rien : une certification que rien ne fonde reste refusée.
+select attendre_echec($$
+  insert into certifications (dossier_id, identite, piece, etat, environnement,
+                              source, reconciliee_le)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1058', '1058', 'certified',
+          'test', 'reconciliation_manuelle', now())$$,
+  'une certification manuelle sans référence ni motif');
+
+-- Une certification du middleware sans référence signifierait qu'on a mal lu
+-- la réponse de la DGI : elle reste interdite.
+select attendre_echec($$
+  insert into certifications (dossier_id, identite, piece, etat, environnement,
+                              source, motif)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1059', '1059', 'certified',
+          'test', 'middleware', 'peu importe')$$,
+  'une certification du middleware sans référence');
+
+\echo '--- La chaîne vide ne remplace pas NULL ---'
+select attendre_echec($$
+  update certifications set reference_fne = '   ' where identite = '0/6/1057'$$,
+  'une référence réduite à des espaces');
+
+\echo '--- L''unicité ne dépend pas de la référence ---'
+-- Le point qui protège du doublon : c'est l'identité Sage qui fait foi, jamais
+-- le numéro de la DGI. Une pièce certifiée sans référence bloque autant.
+select attendre_echec($$
+  insert into certifications (dossier_id, identite, piece, etat, environnement,
+                              source, reconciliee_le, motif)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1057', '1057', 'certified',
+          'test', 'reconciliation_manuelle', now(), 'seconde tentative')$$,
+  'un doublon d''une pièce certifiée sans référence');
+
+select case when count(*) = 1 then 'OK     la vue liste les certifications sans référence'
+            else format('ÉCHEC — %s ligne(s) dans la vue', count(*)) end
+  from certifications_sans_reference;
+
+\echo '--- Retirer une fausse référence sans défaire la certification ---'
+insert into certifications (dossier_id, identite, piece, etat, environnement,
+                            source, reconciliee_le, reference_fne)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1060', '1060', 'certified',
+        'test', 'reconciliation_manuelle', now(), 'TA_REFERENCE_FNE');
+
+update certifications
+   set reference_fne = null,
+       motif = 'Correction : référence « TA_REFERENCE_FNE » retirée, aucune référence au portail.'
+ where identite = '0/6/1060';
+
+select case when etat = 'certified' and reference_fne is null
+                 and motif like 'Correction%'
+            then 'OK     la référence part, la certification reste'
+            else 'ÉCHEC — la correction a altéré la certification' end
+  from certifications where identite = '0/6/1060';
+
+\echo '--- Une référence ne se substitue jamais à une autre ---'
+insert into certifications (dossier_id, identite, piece, etat, environnement,
+                            source, reconciliee_le, reference_fne)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1061', '1061', 'certified',
+        'test', 'reconciliation_manuelle', now(), 'REF-A');
+
+select attendre_echec($$
+  update certifications set reference_fne = 'REF-B', motif = 'peu importe'
+   where identite = '0/6/1061'$$,
+  'le remplacement d''une référence par une autre');
+
+select attendre_echec($$
+  update certifications set reference_fne = null where identite = '0/6/1061'$$,
+  'un retrait de référence sans motif');
+
+\echo '--- Une référence venue de la DGI ne se retire pas ---'
+insert into certifications (dossier_id, identite, piece, etat, environnement,
+                            source, reference_fne)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1062', '1062', 'certified',
+        'test', 'middleware', 'REF-DGI');
+
+select attendre_echec($$
+  update certifications set reference_fne = null, motif = 'tentative'
+   where identite = '0/6/1062'$$,
+  'le retrait d''une référence lue dans la réponse de la DGI');
+
+\echo '--- La correction laisse une trace ---'
+select case when message like 'référence TA_REFERENCE_FNE -> aucune%'
+            then 'OK     le retrait de référence est tracé'
+            else format('ÉCHEC — trace inattendue : %s', coalesce(message, 'aucune')) end
+  from certification_evenements
+ where certification_id = (select id from certifications where identite = '0/6/1060')
+ order by id desc limit 1;

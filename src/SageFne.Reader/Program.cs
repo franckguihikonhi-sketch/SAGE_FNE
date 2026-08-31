@@ -394,6 +394,58 @@ if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
     return fichier.Existe ? 0 : 1;
 }
 
+// Corriger une réconciliation fautive. La certification reste acquise : seule
+// la référence s'en va. Aucune API, et une copie du registre avant écriture.
+if (ligneDeCommande.Verbe == Verbe.CorrigerReconciliation)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine(
+            "corriger-reconciliation attend un numéro de pièce, par exemple :\n" +
+            "  corriger-reconciliation 1052 --supprimer-reference \\\n" +
+            "    --reference-actuelle \"TA_REFERENCE_FNE\" --motif \"…\" --confirmer");
+        return 2;
+    }
+
+    if (!ligneDeCommande.SupprimerReference)
+    {
+        Console.Error.WriteLine(
+            "corriger-reconciliation attend --supprimer-reference : c'est la seule correction " +
+            "qu'elle sache faire, et elle ne la devine pas.");
+        return 2;
+    }
+
+    var numeroCorrige = ligneDeCommande.Query.Pieces[0];
+    Titre($"Correction de réconciliation — pièce {numeroCorrige}");
+    Console.WriteLine("Aucune API n'est appelée. Sage reste en lecture seule.");
+    Console.WriteLine("La certification n'est pas défaite : seule la référence est retirée.");
+    Console.WriteLine();
+
+    var correction = await hote.Services.GetRequiredService<InvoiceSender>()
+        .CorrigerReferenceAsync(
+            numeroCorrige,
+            ligneDeCommande.ReferenceActuelle,
+            ligneDeCommande.Motif,
+            ligneDeCommande.SupprimerJeton,
+            ligneDeCommande.Confirme);
+
+    Console.WriteLine($"  {correction.Message}");
+
+    if (correction.ConfirmationManque)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Pour appliquer : ajoutez --confirmer.");
+    }
+
+    if (correction.Applique)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Vérifiez : dotnet run --project src\\SageFne.Reader -- statut {numeroCorrige}");
+    }
+
+    return correction.Applique ? 0 : 1;
+}
+
 // Inscrire au registre une certification constatée sur le portail. Aucune API,
 // et rien n'est écrit sans --confirmer.
 if (ligneDeCommande.Verbe == Verbe.Reconcilier)
@@ -416,7 +468,9 @@ if (ligneDeCommande.Verbe == Verbe.Reconcilier)
             numeroReconcilie,
             ligneDeCommande.Reference,
             ligneDeCommande.Jeton,
-            ligneDeCommande.Confirme);
+            ligneDeCommande.Confirme,
+            ligneDeCommande.SansReference,
+            ligneDeCommande.Motif);
 
     Console.WriteLine($"  {reconciliation.Message}");
 
@@ -480,14 +534,30 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
     }
     else
     {
+        // Une certification sans référence n'est pas une certification douteuse :
+        // la plateforme d'essai n'en publie pas toujours. Le dire « non
+        // disponible » plutôt que « aucune » évite de faire douter de l'état.
+        var manquante = connue.Etat == EtatFne.Certified ? "— non disponible —" : "— aucune —";
+
         Console.WriteLine($"  État          {connue.Etat}");
-        Console.WriteLine($"  Référence FNE {(connue.ReferenceFne == "" ? "— aucune —" : connue.ReferenceFne)}");
-        Console.WriteLine($"  Jeton (QR)    {(connue.Token == "" ? "— aucun —" : connue.Token)}");
+        Console.WriteLine($"  Référence FNE {(connue.SansReference ? manquante : connue.ReferenceFne)}");
+        Console.WriteLine($"  Jeton (QR)    {(connue.Token == "" ? manquante : connue.Token)}");
+        Console.WriteLine($"  Source        {connue.Source switch
+        {
+            SourceCertification.ReconciliationManuelle => "Réconciliation manuelle / portail DGI",
+            SourceCertification.Import => "Import d'un registre antérieur",
+            _ => "Réponse de la plateforme, lue par le middleware",
+        }}");
         Console.WriteLine($"  Horodatage    {connue.CertifieeLe.ToLocalTime():dd/MM/yyyy à HH:mm:ss}");
         Console.WriteLine($"  Identité      {connue.Identite}");
         Console.WriteLine($"  Empreinte     {(connue.Empreinte == "" ? "— aucune —" : connue.Empreinte)}");
 
-        if (connue.Erreur != "") Console.WriteLine($"  Note          {connue.Erreur}");
+        if (connue.Erreur != "") Console.WriteLine($"  Réponse       {connue.Erreur}");
+
+        foreach (var ligne in connue.Motif.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            Console.WriteLine($"  Motif         {ligne}");
+        }
 
         // L'égalité des empreintes est ce qui sépare « certifiée et inchangée »
         // de « certifiée puis modifiée dans Sage ».
@@ -495,8 +565,8 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
         {
             Console.WriteLine();
             Console.WriteLine(connue.Empreinte == suivie.Empreinte
-                ? "  Les empreintes concordent : la pièce n'a pas bougé depuis cet envoi."
-                : "  Les empreintes diffèrent : la pièce a changé dans Sage depuis cet envoi.");
+                ? "  Empreinte     concordante — la pièce n'a pas bougé depuis cet envoi."
+                : "  Empreinte     DIVERGENTE — la pièce a changé dans Sage depuis cet envoi.");
         }
     }
 

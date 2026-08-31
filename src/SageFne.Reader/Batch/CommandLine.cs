@@ -71,6 +71,11 @@ public enum Verbe
     /// perdue. N'appelle aucune API : la référence vient de l'exploitant.
     /// </remarks>
     Reconcilier,
+
+    /// <summary>
+    /// Corriger une réconciliation fautive sans défaire la certification.
+    /// </summary>
+    CorrigerReconciliation,
 }
 
 /// <summary>
@@ -110,6 +115,27 @@ public sealed record CommandLine
 
     /// <summary>Jeton de vérification (QR), pour <c>reconcilier</c>.</summary>
     public string? Jeton { get; init; }
+
+    /// <summary>
+    /// Le portail ne publie aucune référence : constat explicite.
+    /// </summary>
+    /// <remarks>
+    /// Exigé plutôt que déduit de l'absence de <c>--reference</c> : une faute
+    /// de frappe passerait sinon pour un constat.
+    /// </remarks>
+    public bool SansReference { get; init; }
+
+    /// <summary>Retirer la référence d'une certification, pour <c>corriger-reconciliation</c>.</summary>
+    public bool SupprimerReference { get; init; }
+
+    /// <summary>Retirer aussi le jeton.</summary>
+    public bool SupprimerJeton { get; init; }
+
+    /// <summary>Référence que l'appelant s'attend à trouver au registre.</summary>
+    public string? ReferenceActuelle { get; init; }
+
+    /// <summary>Pourquoi cette décision a été prise. Conservé au registre.</summary>
+    public string? Motif { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -128,7 +154,12 @@ public sealed record CommandLine
         var confirme = false;
         string? reference = null;
         string? jeton = null;
+        string? motif = null;
+        string? referenceActuelle = null;
         var nonCertifiee = false;
+        var sansReference = false;
+        var supprimerReference = false;
+        var supprimerJeton = false;
 
         for (var rang = 0; rang < args.Length; rang++)
         {
@@ -194,6 +225,32 @@ public sealed record CommandLine
                 case "réconcilier":
                     verbe = Verbe.Reconcilier;
                     break;
+                case "corriger-reconciliation":
+                case "corriger-réconciliation":
+                    verbe = Verbe.CorrigerReconciliation;
+                    break;
+                case "--sans-reference":
+                case "--sans-référence":
+                    sansReference = true;
+                    break;
+                case "--supprimer-reference":
+                case "--supprimer-référence":
+                    supprimerReference = true;
+                    break;
+                case "--supprimer-jeton":
+                case "--supprimer-token":
+                    supprimerJeton = true;
+                    break;
+                case "--reference-actuelle":
+                case "--référence-actuelle":
+                    referenceActuelle = Valeur() ?? "";
+                    if (referenceActuelle is "")
+                        erreurs.Add("--reference-actuelle attend la référence que porte le registre aujourd'hui.");
+                    break;
+                case "--motif":
+                    motif = Valeur() ?? "";
+                    if (motif is "") erreurs.Add("--motif attend une phrase expliquant la décision.");
+                    break;
                 case "--token":
                 case "--jeton":
                     jeton = Valeur() ?? "";
@@ -239,7 +296,12 @@ public sealed record CommandLine
             Registre = registre,
             Reference = reference,
             Jeton = jeton,
+            Motif = motif,
+            ReferenceActuelle = referenceActuelle,
             NonCertifiee = nonCertifiee,
+            SansReference = sansReference,
+            SupprimerReference = supprimerReference,
+            SupprimerJeton = supprimerJeton,
             AfficherJson = afficherJson,
             Erreurs = erreurs,
         };
@@ -271,6 +333,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- statut 1052        ce que le registre sait d'une pièce
           dotnet run --project src/SageFne.Reader -- registre-info      où vit le registre, ce qu'il contient
           dotnet run --project src/SageFne.Reader -- reconcilier 1052 --reference REF --confirmer
+          dotnet run --project src/SageFne.Reader -- corriger-reconciliation 1052 --supprimer-reference ...
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --reference REF --confirmer
 
@@ -287,7 +350,15 @@ public sealed record CommandLine
           --reference REF   le portail la porte sous cette référence : elle est classée certifiée
 
         Réconcilier une certification dont la trace manque au registre :
-          --reference REF   référence FNE relevée sur le portail ou le PDF (obligatoire)
-          --token JETON     jeton du QR code, s'il figure sur le PDF
+          --reference REF     référence FNE relevée sur le portail ou le PDF
+          --sans-reference    le portail n'en publie aucune — exige --motif
+          --token JETON       jeton du QR code, s'il figure sur le PDF
+          --motif "…"         pourquoi, conservé au registre
+
+        Corriger une réconciliation fautive, sans défaire la certification :
+          --supprimer-reference       retire la référence, garde l'état Certified
+          --supprimer-jeton           retire aussi le jeton
+          --reference-actuelle "…"    ce que le registre doit porter, sinon refus
+          --motif "…"                 obligatoire
         """;
 }

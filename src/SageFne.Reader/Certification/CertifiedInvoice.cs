@@ -72,4 +72,43 @@ public sealed record CertifiedInvoice
     /// <summary>Ce qui a échoué, quand l'état est <c>Error</c> ou <c>Sending</c>.</summary>
     [JsonPropertyName("erreur")]
     public string Erreur { get; init; } = "";
+
+    /// <summary>
+    /// Ce qui fonde cette ligne.
+    /// </summary>
+    /// <remarks>
+    /// Une certification observée par le middleware et une référence relevée à
+    /// la main sur le portail n'ont pas la même valeur probante : la seconde
+    /// repose sur la lecture d'un humain. Les confondre rendrait tout audit
+    /// impossible.
+    /// </remarks>
+    [JsonPropertyName("source")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public SourceCertification Source { get; init; } = SourceCertification.Middleware;
+
+    /// <summary>
+    /// Ce qu'un humain a déclaré, et pourquoi.
+    /// </summary>
+    /// <remarks>
+    /// Distinct d'<see cref="Erreur"/>, qui rapporte ce que la plateforme a
+    /// répondu. Ici, c'est l'exploitant qui parle : constat de portail, motif
+    /// d'une correction. Les corrections s'y ajoutent sans effacer les
+    /// précédentes — le registre ne réécrit pas son passé.
+    /// </remarks>
+    [JsonPropertyName("motif")]
+    public string Motif { get; init; } = "";
+
+    /// <summary>Vrai quand la référence est absente ou vide.</summary>
+    /// <remarks>
+    /// La plateforme d'essai de la DGI certifie sans toujours publier de
+    /// référence exploitable : ni le PDF ni la fiche n'en portent. Une
+    /// certification sans référence reste une certification, et bloque le
+    /// renvoi tout autant.
+    /// </remarks>
+    [JsonIgnore]
+    public bool SansReference => string.IsNullOrWhiteSpace(ReferenceFne);
+
+    /// <summary>Ajoute une ligne au motif, sans effacer ce qui s'y trouve.</summary>
+    public CertifiedInvoice AvecMotif(string ajout) =>
+        this with { Motif = Motif == "" ? ajout : $"{Motif}\n{ajout}" };
 }

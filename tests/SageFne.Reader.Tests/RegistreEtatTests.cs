@@ -865,7 +865,8 @@ public class ReconciliationTests
         Assert.Equal("0/6/1221", inscrite.Identite);
         Assert.Equal(Piece, inscrite.Piece);
         Assert.NotEqual("", inscrite.Empreinte);
-        Assert.Contains("Réconciliation manuelle", inscrite.Erreur);
+        Assert.Equal(SourceCertification.ReconciliationManuelle, inscrite.Source);
+        Assert.Contains("Réconciliation manuelle", inscrite.Motif);
     }
 
     [Fact]
@@ -957,5 +958,486 @@ public class ReconciliationTests
 
         Assert.True(resultat.Applique);
         Assert.Equal(EtatFne.Certified, registre.Ecritures[^1].Etat);
+    }
+}
+
+/// <summary>
+/// Une certification sans référence en est une tout autant.
+/// </summary>
+/// <remarks>
+/// La plateforme d'essai de la DGI certifie des factures sans publier de
+/// référence exploitable. Exiger un numéro poussait à en inventer un — c'est
+/// arrivé, une valeur d'exemple ayant été recopiée telle quelle. Une référence
+/// inventée est pire que pas de référence : elle désigne chez la DGI une
+/// facture qui n'existe pas.
+/// </remarks>
+public class CertificationSansReferenceTests
+{
+    private sealed class Registre(CertifiedInvoice? entree) : ICertificationLedger
+    {
+        private readonly Dictionary<string, CertifiedInvoice> _entrees =
+            entree is null
+                ? new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase)
+                    { [entree.Identite] = entree };
+
+        public List<CertifiedInvoice> Ecritures { get; } = [];
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                identites.Where(_entrees.ContainsKey)
+                    .ToDictionary(identite => identite, identite => _entrees[identite]));
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            Ecritures.Add(certification);
+            _entrees[certification.Identite] = certification;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ClientTemoin : IFneApiClient
+    {
+        public bool Appele { get; private set; }
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default)
+        {
+            Appele = true;
+            return Task.FromResult(new FneSignResult(true, 200, "NOUVELLE-REF"));
+        }
+    }
+
+    private const string Piece = "1221";
+    private const string Identite = "0/6/1221";
+    private const string Placeholder = "TA_REFERENCE_FNE";
+
+    private static IOptions<FneOptions> Reglages() => Options.Create(new FneOptions
+    {
+        PointOfSale = "FISH-AFRIC",
+        Establishment = "FISH-AFRIC",
+        Template = "B2B",
+        PaymentMethod = "deferred",
+    });
+
+    private static (InvoiceSender Expediteur, Registre Registre, ClientTemoin Client, InvoiceBatchReader Lecteur)
+        Monter(CertifiedInvoice? entree = null)
+    {
+        var registre = new Registre(entree);
+        var client = new ClientTemoin();
+        var reglages = Reglages();
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance),
+            registre, client, lecteur);
+    }
+
+    private static CertifiedInvoice Certifiee(
+        string reference = "",
+        string token = "",
+        SourceCertification source = SourceCertification.ReconciliationManuelle,
+        string empreinte = "peu importe") => new()
+    {
+        Identite = Identite,
+        Piece = Piece,
+        ReferenceFne = reference,
+        Token = token,
+        Empreinte = empreinte,
+        Etat = EtatFne.Certified,
+        Source = source,
+        CertifieeLe = new DateTimeOffset(2026, 8, 31, 14, 32, 5, TimeSpan.Zero),
+        Motif = "Constat de portail.",
+    };
+
+    // --- Réconcilier sans référence -----------------------------------------
+
+    [Fact]
+    public async Task Une_reconciliation_sans_reference_exige_qu_on_le_dise()
+    {
+        // Sans le constat explicite, une faute de frappe passerait pour lui.
+        var (expediteur, registre, _, _) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(Piece, null, null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--sans-reference", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Les_deux_constats_a_la_fois_sont_refuses()
+    {
+        var (expediteur, registre, _, _) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(
+            Piece, "REF", null, confirme: true, sansReference: true, motif: "m");
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+    }
+
+    [Fact]
+    public async Task Une_reconciliation_sans_reference_exige_un_motif()
+    {
+        var (expediteur, registre, _, _) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(
+            Piece, null, null, confirme: true, sansReference: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--motif", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_certification_sans_reference_ni_jeton_s_inscrit()
+    {
+        var (expediteur, registre, _, _) = Monter();
+
+        var resultat = await expediteur.ReconcilierAsync(
+            Piece, null, null, confirme: true, sansReference: true,
+            motif: "Aucune référence FNE visible sur le portail/PDF TEST");
+
+        Assert.True(resultat.Applique);
+        var inscrite = Assert.Single(registre.Ecritures);
+        Assert.Equal(EtatFne.Certified, inscrite.Etat);
+        Assert.True(inscrite.SansReference);
+        Assert.Equal("", inscrite.Token);
+        Assert.Equal(SourceCertification.ReconciliationManuelle, inscrite.Source);
+        Assert.Contains("portail/PDF TEST", inscrite.Motif);
+    }
+
+    [Fact]
+    public async Task Une_certification_sans_reference_bloque_le_renvoi()
+    {
+        // Le point qui compte : l'absence de numéro ne rend pas la pièce
+        // envoyable. C'est l'identité Sage qui fait foi, jamais la référence.
+        var (expediteur, registre, client, _) = Monter(Certifiee(empreinte: await EmpreinteReelle()));
+
+        var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.False(client.Appele, "une pièce certifiée ne repart pas, référence ou non");
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("déjà certifiée", resultat.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("empreinte-d-avant")]
+    public async Task Aucun_etat_de_certification_sans_reference_n_est_envoyable(string empreinte)
+    {
+        // Empreinte concordante ou non, la pièce reste bloquée : « déjà
+        // certifiée » d'un côté, « modifiée depuis » de l'autre.
+        var (_, _, _, lecteur) = Monter(Certifiee(empreinte: empreinte));
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(Piece));
+
+        Assert.NotEqual(EtatPiece.ACertifier, lot.Conversions[0].Etat);
+    }
+
+    private static async Task<string> EmpreinteReelle()
+    {
+        var reglages = Reglages();
+        var lot = await new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages),
+            new Registre(null), reglages).ReadAsync(InvoiceQuery.Piece(Piece));
+        return lot.Conversions[0].Empreinte;
+    }
+
+    // --- Corriger une référence fautive -------------------------------------
+
+    [Fact]
+    public async Task La_correction_exige_un_motif()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder));
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, null, supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--motif", resultat.Message);
+    }
+
+    [Fact]
+    public async Task La_correction_exige_la_reference_attendue()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder));
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, null, "motif", supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--reference-actuelle", resultat.Message);
+    }
+
+    [Fact]
+    public async Task La_correction_refuse_si_le_registre_porte_autre_chose()
+    {
+        // Le verrou : le registre a pu changer depuis qu'on l'a lu.
+        var (expediteur, registre, _, _) = Monter(Certifiee("UNE_VRAIE_REFERENCE"));
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "motif", supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("UNE_VRAIE_REFERENCE", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Sans_confirmation_la_correction_montre_et_n_ecrit_rien()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder));
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "Aucune référence au portail", supprimerJeton: false, confirme: false);
+
+        Assert.False(resultat.Applique);
+        Assert.True(resultat.ConfirmationManque);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains(Placeholder, resultat.Message);
+        Assert.Contains("Certified", resultat.Message);
+    }
+
+    [Fact]
+    public async Task La_correction_retire_la_reference_et_conserve_tout_le_reste()
+    {
+        var origine = Certifiee(Placeholder, empreinte: "empreinte-d-origine");
+        var (expediteur, registre, _, _) = Monter(origine);
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "Aucune référence FNE visible sur le portail/PDF TEST",
+            supprimerJeton: false, confirme: true);
+
+        Assert.True(resultat.Applique);
+        var corrigee = Assert.Single(registre.Ecritures);
+
+        Assert.True(corrigee.SansReference);
+        Assert.Equal(EtatFne.Certified, corrigee.Etat);
+        Assert.Equal(Identite, corrigee.Identite);
+        Assert.Equal("empreinte-d-origine", corrigee.Empreinte);
+        Assert.Equal(origine.CertifieeLe, corrigee.CertifieeLe);
+
+        // Le motif d'origine survit à la correction : le registre n'efface pas
+        // son passé.
+        Assert.Contains("Constat de portail.", corrigee.Motif);
+        Assert.Contains("portail/PDF TEST", corrigee.Motif);
+        Assert.Contains(Placeholder, corrigee.Motif);
+    }
+
+    [Fact]
+    public async Task Le_jeton_ne_part_que_si_on_le_demande()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder, token: "FAUX-JETON"));
+
+        await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "motif", supprimerJeton: false, confirme: true);
+
+        Assert.Equal("FAUX-JETON", registre.Ecritures[^1].Token);
+    }
+
+    [Fact]
+    public async Task Le_jeton_part_quand_on_le_demande()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder, token: "FAUX-JETON"));
+
+        await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "motif", supprimerJeton: true, confirme: true);
+
+        Assert.Equal("", registre.Ecritures[^1].Token);
+    }
+
+    [Fact]
+    public async Task Apres_correction_la_piece_reste_bloquee()
+    {
+        // Toute la raison d'être de la commande : corriger sans jamais rendre
+        // la facture renvoyable.
+        var (expediteur, registre, client, lecteur) =
+            Monter(Certifiee(Placeholder, empreinte: await EmpreinteReelle()));
+
+        await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "Aucune référence au portail", supprimerJeton: true, confirme: true);
+        var ecrituresApresCorrection = registre.Ecritures.Count;
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(Piece));
+        var envoi = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.Equal(EtatPiece.DejaCertifiee, lot.Conversions[0].Etat);
+        Assert.False(client.Appele);
+        Assert.False(envoi.Reussi);
+        Assert.Equal(ecrituresApresCorrection, registre.Ecritures.Count);
+    }
+
+    [Fact]
+    public async Task Une_reference_venue_de_la_DGI_ne_se_retire_pas()
+    {
+        // Elle n'est pas une déclaration humaine : elle fait foi.
+        var (expediteur, registre, _, _) = Monter(
+            Certifiee("REF-DGI", source: SourceCertification.Middleware));
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, "REF-DGI", "motif", supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("fait foi", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_piece_non_certifiee_ne_se_corrige_pas()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder) with { Etat = EtatFne.Error });
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "motif", supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+    }
+
+    [Fact]
+    public async Task Une_piece_sans_trace_ne_se_corrige_pas()
+    {
+        var (expediteur, registre, _, _) = Monter();
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            Piece, Placeholder, "motif", supprimerJeton: false, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+    }
+}
+
+/// <summary>
+/// Une correction porte sur la seule mémoire des certifications : elle se
+/// sauvegarde avant de s'appliquer.
+/// </summary>
+public class SauvegardeDuRegistreTests : IDisposable
+{
+    private readonly string _dossier = Path.Combine(
+        Path.GetTempPath(), $"registre-{Guid.NewGuid():N}");
+
+    private string Chemin => Path.Combine(_dossier, "certifications.json");
+
+    public SauvegardeDuRegistreTests() => Directory.CreateDirectory(_dossier);
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dossier)) Directory.Delete(_dossier, recursive: true);
+    }
+
+    private JsonCertificationLedger Registre() =>
+        new(Chemin, NullLogger<JsonCertificationLedger>.Instance);
+
+    private string[] Sauvegardes() => Directory.GetFiles(_dossier, "*.sauvegarde");
+
+    [Fact]
+    public async Task Une_correction_cree_une_sauvegarde()
+    {
+        var registre = Registre();
+        await registre.RecordAsync(new CertifiedInvoice
+        {
+            Identite = "0/6/1221",
+            Piece = "1221",
+            ReferenceFne = "TA_REFERENCE_FNE",
+            Etat = EtatFne.Certified,
+            Source = SourceCertification.ReconciliationManuelle,
+            Empreinte = "e",
+        });
+
+        var reglages = Options.Create(new FneOptions
+        {
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            Template = "B2B",
+            PaymentMethod = "deferred",
+        });
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+        var expediteur = new InvoiceSender(
+            lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance);
+
+        Assert.Empty(Sauvegardes());
+
+        var resultat = await expediteur.CorrigerReferenceAsync(
+            "1221", "TA_REFERENCE_FNE", "Aucune référence au portail",
+            supprimerJeton: true, confirme: true);
+
+        Assert.True(resultat.Applique);
+        var copie = Assert.Single(Sauvegardes());
+
+        // La copie porte l'état d'AVANT : c'est tout son intérêt.
+        Assert.Contains("TA_REFERENCE_FNE", await File.ReadAllTextAsync(copie));
+
+        // Le registre corrigé ne la porte plus comme référence — mais le motif
+        // la nomme encore, et c'est voulu : la trace doit dire ce qui a été
+        // retiré, sans quoi la correction serait indéchiffrable.
+        var apresCorrection = await Registre().LookupAsync(["0/6/1221"]);
+        var ligne = apresCorrection["0/6/1221"];
+        Assert.True(ligne.SansReference);
+        Assert.Equal(EtatFne.Certified, ligne.Etat);
+        Assert.Contains("TA_REFERENCE_FNE", ligne.Motif);
+    }
+
+    [Fact]
+    public async Task Un_apercu_ne_sauvegarde_rien()
+    {
+        var registre = Registre();
+        await registre.RecordAsync(new CertifiedInvoice
+        {
+            Identite = "0/6/1221",
+            Piece = "1221",
+            ReferenceFne = "TA_REFERENCE_FNE",
+            Etat = EtatFne.Certified,
+            Source = SourceCertification.ReconciliationManuelle,
+            Empreinte = "e",
+        });
+
+        var reglages = Options.Create(new FneOptions
+        {
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            Template = "B2B",
+            PaymentMethod = "deferred",
+        });
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        await new InvoiceSender(lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance)
+            .CorrigerReferenceAsync("1221", "TA_REFERENCE_FNE", "motif", false, confirme: false);
+
+        Assert.Empty(Sauvegardes());
+    }
+
+    [Fact]
+    public async Task Deux_sauvegardes_rapprochees_ne_s_ecrasent_pas()
+    {
+        var registre = Registre();
+        await registre.RecordAsync(new CertifiedInvoice { Identite = "0/6/1", Piece = "1" });
+
+        await registre.SauvegarderAsync();
+        await registre.SauvegarderAsync();
+
+        Assert.Equal(2, Sauvegardes().Length);
+    }
+
+    [Fact]
+    public async Task Un_registre_absent_n_a_rien_a_sauvegarder()
+    {
+        Assert.Null(await Registre().SauvegarderAsync());
+    }
+
+    private sealed class ClientMuet : IFneApiClient
+    {
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default) =>
+            throw new InvalidOperationException("aucune API ne doit être appelée");
     }
 }

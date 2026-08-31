@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 342 tests
+dotnet test                                    # 364 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -401,6 +401,52 @@ L'empreinte inscrite est celle du document **tel qu'il est aujourd'hui**, et non
 corps réellement envoyé, qui est perdu avec la trace. Si la pièce a changé dans Sage depuis
 sa certification, la réconciliation grave cette version-là. C'est le prix du rattrapage, et
 la commande le dit.
+
+### Une certification peut ne porter aucune référence
+
+La plateforme d'essai de la DGI certifie des factures **sans publier de référence
+exploitable** : ni le PDF ni la fiche du portail n'en montrent. Exiger un numéro poussait
+donc à en inventer un, et c'est arrivé — une valeur d'exemple a été inscrite telle quelle.
+Une référence inventée est pire que pas de référence : elle désigne chez la DGI une facture
+qui n'existe pas.
+
+```powershell
+dotnet run --project src\SageFne.Reader -- reconcilier 1052 `
+  --sans-reference --motif "Aucune référence visible sur le portail/PDF TEST" --confirmer
+```
+
+`--sans-reference` est exigé plutôt que déduit de l'absence de `--reference` : sans ce
+constat explicite, une faute de frappe passerait pour lui. Le motif est obligatoire — c'est
+la seule chose qui restera, dans six mois, pour expliquer l'absence de numéro.
+
+**L'absence de référence ne rend jamais une pièce envoyable.** C'est l'identité Sage
+`domaine/DO_DocType/DO_Piece` qui bloque le renvoi, jamais le numéro de la DGI. Une pièce
+`Certified` sans référence est aussi bloquée qu'une autre, et des tests le verrouillent.
+
+### Corriger une réconciliation fautive
+
+```powershell
+dotnet run --project src\SageFne.Reader -- corriger-reconciliation 1052 `
+  --supprimer-reference --reference-actuelle "TA_REFERENCE_FNE" `
+  --motif "Aucune référence FNE visible sur le portail/PDF TEST" --confirmer
+```
+
+La certification **n'est pas défaite** : seule la référence s'en va. L'état reste
+`Certified`, l'identité, l'empreinte et l'horodatage d'origine ne bougent pas, et la pièce
+demeure bloquée au renvoi — c'est tout l'enjeu.
+
+`--reference-actuelle` est un verrou : vous déclarez ce que vous vous attendez à trouver, et
+la commande refuse si le registre porte autre chose. Il a pu changer depuis que vous l'avez
+lu. **Une copie horodatée du registre est prise avant écriture**, et jamais écrasée.
+
+Le motif s'ajoute au précédent sans l'effacer : le registre ne réécrit pas son passé. La
+trace nomme la référence retirée — sans quoi la correction serait indéchiffrable.
+
+Deux refus tiennent à ce qui fonde la ligne. Une référence **venue de la réponse de la
+DGI** ne se retire pas : elle fait foi, et seule une réconciliation manuelle, qui repose sur
+la lecture d'un humain, peut être fautive. Et une référence ne se **remplace** jamais par
+une autre — la ligne désignerait alors une autre facture chez la DGI. Une référence erronée
+se retire ; elle ne se substitue pas.
 
 ### Savoir où en est une pièce
 
