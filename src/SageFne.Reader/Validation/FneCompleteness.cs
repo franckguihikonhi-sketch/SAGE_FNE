@@ -74,6 +74,9 @@ public static class FneCompleteness
             "toutes les pièces partent comme des ventes. Les avoirs (DO_Type 4) ne sont pas traités."),
         new("clientSellerName", "non renseigné",
             "nom du vendeur : Sage ne le porte pas sur le document."),
+        new("isRne", $"déclaré à « {(facture.IsRne ? "true" : "false")} » dans appsettings.json",
+            "régime de l'entreprise émettrice — le vôtre, pas celui du client. " +
+            "Sage ne le porte pas : vérifiez qu'il correspond à votre situation."),
     ];
 
     private static bool Absent(string valeur) =>

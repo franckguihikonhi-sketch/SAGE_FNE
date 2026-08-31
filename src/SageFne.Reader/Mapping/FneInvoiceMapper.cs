@@ -124,7 +124,7 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
             InvoiceType = "sale",
             PaymentMethod = _options.PaymentMethod,
             Template = _options.Template,
-            IsRne = false,
+            IsRne = _options.IsRne,
             ClientNcc = customer.Identifiant,
             ClientCompanyName = customer.Intitule,
             ClientPhone = customer.Telephone,

@@ -12,6 +12,19 @@ public sealed class FneOptions
     public string Template { get; set; } = "B2B";
 
     /// <summary>
+    /// L'entreprise émettrice relève-t-elle du Régime National de l'Entreprenant ?
+    /// </summary>
+    /// <remarks>
+    /// Ce champ décrit <b>votre</b> régime fiscal, pas celui du client, et il
+    /// part sur chaque facture certifiée. Il était figé à <c>false</c> : une
+    /// valeur par défaut raisonnable, mais une déclaration fiscale ne se devine
+    /// pas plus que le régime d'une exonération. Il se déclare donc, comme le
+    /// reste — et <c>fne-check</c> le montre pour qu'il soit relu avant le
+    /// premier envoi.
+    /// </remarks>
+    public bool IsRne { get; set; }
+
+    /// <summary>
     /// Classification des lignes à 0 % de TVA. Voir <see cref="ZeroVatOptions"/>.
     /// </summary>
     public ZeroVatOptions ZeroVat { get; set; } = new();

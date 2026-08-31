@@ -193,6 +193,8 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
     Point(!EstGabarit(etablissement), "Fne:Establishment",
         EstGabarit(etablissement) ? "non renseigné" : etablissement);
     Point(true, "Fne:Template", reglagesFne.Template);
+    Point(true, "Fne:IsRne",
+        $"{(reglagesFne.IsRne ? "true" : "false")} — régime de VOTRE entreprise, à relire");
     Point(true, "Fne:PaymentMethod", $"{reglagesFne.PaymentMethod} (figé, Sage ne le porte pas)");
 
     if (reglagesApi.UrlRenseignee && reglagesApi.EnClair)
@@ -1037,7 +1039,8 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
         Champ("invoiceType", facture.InvoiceType, "figé : toutes les pièces partent en vente");
         Champ("paymentMethod", facture.PaymentMethod, "paramétrage — Sage ne le porte pas");
         Champ("template", facture.Template, "paramétrage Fne:Template");
-        Champ("isRne", facture.IsRne ? "true" : "false", "figé à false");
+        Champ("isRne", facture.IsRne ? "true" : "false",
+            "paramétrage Fne:IsRne — votre régime, pas celui du client");
         Champ("clientNcc", facture.ClientNcc, "F_COMPTET.CT_Identifiant");
         Champ("clientCompanyName", facture.ClientCompanyName, "F_COMPTET.CT_Intitule");
         Champ("clientPhone", facture.ClientPhone, "F_COMPTET.CT_Telephone");

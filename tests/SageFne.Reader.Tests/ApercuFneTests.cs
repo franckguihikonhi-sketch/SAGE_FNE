@@ -199,3 +199,68 @@ public class ApercuFneTests
         Assert.Equal("sale", facture.InvoiceType);
     }
 }
+
+/// <summary>
+/// « isRne » décrit le régime fiscal de l'entreprise émettrice — le vôtre, pas
+/// celui du client. Il part sur chaque facture certifiée.
+/// </summary>
+public class RegimeEmetteurTests
+{
+    private static FneOptions Reglages(bool rne) => new()
+    {
+        PointOfSale = "FISH-AFRIC",
+        Establishment = "FISH-AFRIC",
+        Template = "B2B",
+        PaymentMethod = "deferred",
+        IsRne = rne,
+        ZeroVat = new() { Default = "LegalExemptionTEE_RME" },
+    };
+
+    private static readonly SageDocumentHeader Entete = new()
+    {
+        Domaine = 0, Type = 7, DocType = 6, Piece = "1052",
+        Date = new DateTime(2025, 10, 22), Tiers = "4111GEMSCI", TotalTTC = 120000m,
+    };
+
+    private static readonly SageCustomer Client = new()
+    {
+        CtNum = "4111GEMSCI", Intitule = "GEMS-CI", Identifiant = "1010983N",
+    };
+
+    private static SageDocumentLine Ligne() => new()
+    {
+        Domaine = 0, Type = 7, Piece = "1052", Ligne = 1000,
+        ArticleReference = "P007", Designation = "POITRINE DE POULET",
+        Quantite = 40m, PrixUnitaire = 2752.2936m,
+        MontantHT = 110091.744m, MontantTTC = 120000m,
+        Unite = "PKT", Taxe1 = 9m, CodeTaxe1 = "TVA",
+    };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Le_regime_declare_est_celui_qui_part(bool rne)
+    {
+        var facture = new FneInvoiceMapper(Options.Create(Reglages(rne)))
+            .Map(Entete, [Ligne()], Client);
+
+        Assert.Equal(rne, facture.IsRne);
+    }
+
+    [Fact]
+    public void Le_defaut_reste_false()
+    {
+        Assert.False(new FneOptions().IsRne);
+    }
+
+    [Fact]
+    public void Le_regime_est_annonce_comme_une_declaration_a_relire()
+    {
+        // Ce n'est pas une valeur devinée depuis Sage : elle doit se voir.
+        var facture = new FneInvoiceMapper(Options.Create(Reglages(false)))
+            .Map(Entete, [Ligne()], Client);
+
+        var hypothese = Assert.Single(FneCompleteness.Hypotheses(facture), h => h.Champ == "isRne");
+        Assert.Contains("le vôtre, pas celui du client", hypothese.Consequence);
+    }
+}
