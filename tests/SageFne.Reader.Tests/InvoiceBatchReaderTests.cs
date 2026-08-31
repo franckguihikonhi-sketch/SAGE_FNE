@@ -111,7 +111,7 @@ public class InvoiceBatchReaderTests
         CodeTaxe1 = "TVA",
     };
 
-    private static SageCustomer Client(string ctNum, string ncc = "14322625") => new()
+    private static SageCustomer Client(string ctNum, string ncc = "1432262S") => new()
     {
         CtNum = ctNum,
         Intitule = $"Client {ctNum}",

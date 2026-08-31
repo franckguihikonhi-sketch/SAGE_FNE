@@ -607,7 +607,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
         await using var connexion = await OuvrirAsync(cancellation);
         var colonnes = await ColonnesAsync(connexion, nom, cancellation);
-        var retenues = colonnes.Presentes.Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var retenues = Ordonner(colonnes.Presentes);
 
         var sql = $"""
             select top (@limite)
@@ -618,7 +618,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         await using var commande = Commande(connexion, sql);
         Ajouter(commande, "@limite", limite);
 
-        return await LireEnregistrementsAsync(commande, nom, retenues, retenues[0], cancellation);
+        return await LireEnregistrementsAsync(commande, nom, retenues, CleNaturelle(retenues), cancellation);
     }
 
     public async Task<SageEnregistrement?> LireLigneAsync(
@@ -638,7 +638,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             throw new InvalidOperationException($"La table {nom} ne porte pas de colonne {cle}.");
         }
 
-        var retenues = colonnes.Presentes.Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var retenues = Ordonner(colonnes.Presentes);
         var sql = $"""
             select top (1)
             {string.Join(", ", retenues.Select(colonne => $"t.{colonne}"))}
@@ -691,6 +691,38 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
         return await LireEnregistrementsAsync(
             commande, TableLignes, retenues, colonnes.A("DL_Ligne") ? "DL_Ligne" : retenues[0], cancellation);
+    }
+
+    /// <summary>
+    /// Les colonnes fonctionnelles d'abord, les « cb… » de réplication ensuite.
+    /// </summary>
+    private static List<string> Ordonner(IEnumerable<string> colonnes) => colonnes
+        .OrderBy(colonne => colonne.StartsWith("cb", StringComparison.Ordinal))
+        .ThenBy(colonne => colonne, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    /// <summary>
+    /// De quoi nommer une fiche à l'affichage.
+    /// </summary>
+    /// <remarks>
+    /// Prendre la première colonne venue donnait « System.Byte[] » comme titre,
+    /// l'ordre alphabétique plaçant cbCG_Num en tête. Un code, une référence ou
+    /// un numéro nomme bien mieux une fiche.
+    /// </remarks>
+    private static string CleNaturelle(IReadOnlyList<string> colonnes)
+    {
+        var fonctionnelles = colonnes
+            .Where(colonne => !colonne.StartsWith("cb", StringComparison.Ordinal))
+            .ToList();
+
+        foreach (var suffixe in new[] { "_Code", "_Ref", "_Num", "_No" })
+        {
+            var trouvee = fonctionnelles.FirstOrDefault(colonne =>
+                colonne.EndsWith(suffixe, StringComparison.OrdinalIgnoreCase));
+            if (trouvee is not null) return trouvee;
+        }
+
+        return fonctionnelles.FirstOrDefault() ?? colonnes[0];
     }
 
     private static async Task<List<SageEnregistrement>> LireEnregistrementsAsync(

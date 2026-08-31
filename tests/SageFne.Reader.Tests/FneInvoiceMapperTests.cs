@@ -28,7 +28,7 @@ public class FneInvoiceMapperTests
     {
         CtNum = "4111SITASARL",
         Intitule = "SITA SARL",
-        Identifiant = "14322625",
+        Identifiant = "1432262S",
         Pays = "COTE D'IVOIRE",
     };
 
@@ -214,7 +214,7 @@ public class FneInvoiceMapperTests
         Assert.Equal("deferred", facture.PaymentMethod);
         Assert.Equal("B2B", facture.Template);
         Assert.False(facture.IsRne);
-        Assert.Equal("14322625", facture.ClientNcc);
+        Assert.Equal("1432262S", facture.ClientNcc);
         Assert.Equal("SITA SARL", facture.ClientCompanyName);
         Assert.Equal("SIEGE", facture.PointOfSale);
         Assert.Equal("PRINCIPAL", facture.Establishment);

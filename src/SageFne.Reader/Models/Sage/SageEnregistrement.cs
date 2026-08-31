@@ -6,11 +6,35 @@ namespace SageFne.Reader.Models.Sage;
 public readonly record struct SageChamp(string Colonne, string Valeur)
 {
     /// <summary>
-    /// Une colonne à vide ou à zéro ne porte aucune information : le diagnostic
-    /// la met de côté pour laisser voir celles qui parlent.
+    /// Une colonne vide, à zéro, ou portant la date nulle de Sage ne dit rien :
+    /// le diagnostic les met de côté pour laisser voir celles qui parlent.
     /// </summary>
-    public bool Renseigne =>
-        !string.IsNullOrWhiteSpace(Valeur) && Valeur != "0" && Valeur != "0,00";
+    /// <remarks>
+    /// Sage écrit 01/01/1753 — la borne basse de son type date — plutôt que
+    /// NULL. Une soixantaine de colonnes d'une fiche client la portent.
+    /// </remarks>
+    public bool Renseigne
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Valeur)) return false;
+            if (Valeur.StartsWith("01/01/1753", StringComparison.Ordinal)) return false;
+
+            var nombre = Valeur.Replace(',', '.');
+            return !decimal.TryParse(
+                       nombre,
+                       System.Globalization.NumberStyles.Any,
+                       System.Globalization.CultureInfo.InvariantCulture,
+                       out var valeur)
+                   || valeur != 0m;
+        }
+    }
+
+    /// <summary>
+    /// Les colonnes « cb… » sont les champs binaires de réplication de Sage :
+    /// jamais fonctionnelles, et elles noient le reste.
+    /// </summary>
+    public bool Interne => Colonne.StartsWith("cb", StringComparison.Ordinal);
 }
 
 /// <summary>
@@ -31,7 +55,11 @@ public sealed class SageEnregistrement
 
     public required IReadOnlyList<SageChamp> Champs { get; init; }
 
-    public IEnumerable<SageChamp> Renseignes => Champs.Where(champ => champ.Renseigne);
+    /// <summary>Ce qui porte une information, les champs internes en dernier.</summary>
+    public IEnumerable<SageChamp> Renseignes => Champs
+        .Where(champ => champ.Renseigne)
+        .OrderBy(champ => champ.Interne)
+        .ThenBy(champ => champ.Colonne, StringComparer.OrdinalIgnoreCase);
 
     public string? Valeur(string colonne) => Champs
         .Where(champ => string.Equals(champ.Colonne, colonne, StringComparison.OrdinalIgnoreCase))
@@ -46,8 +74,11 @@ public sealed class SageEnregistrement
     /// à conclure. C'est au lecteur de dire si « CT_Classement » désigne un
     /// régime d'exonération dans ce dossier.
     /// </remarks>
-    public IEnumerable<SageChamp> Fiscaux => Champs.Where(champ =>
-        Indices.Any(indice => champ.Colonne.Contains(indice, StringComparison.OrdinalIgnoreCase)));
+    public IEnumerable<SageChamp> Fiscaux => Champs
+        .Where(champ => !champ.Interne)
+        .Where(champ => Indices.Any(indice =>
+            champ.Colonne.Contains(indice, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(champ => champ.Colonne, StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] Indices =
     [

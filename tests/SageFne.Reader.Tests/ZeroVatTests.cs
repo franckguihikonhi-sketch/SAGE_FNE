@@ -38,7 +38,7 @@ public class ZeroVatTests
     {
         CtNum = ctNum,
         Intitule = "SITA SARL",
-        Identifiant = "14322625",
+        Identifiant = "1432262S",
     };
 
     // --- Les mappings confirmés, qui ne bougent pas ------------------------

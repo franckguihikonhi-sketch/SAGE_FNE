@@ -16,7 +16,25 @@ internal static class SqlReaderExtensions
     public static string Text(this DbDataReader reader, string colonne)
     {
         var valeur = reader[colonne];
-        return valeur is DBNull or null ? "" : Convert.ToString(valeur)?.Trim() ?? "";
+        return valeur switch
+        {
+            DBNull or null => "",
+            // Les colonnes « cb… » de Sage sont des varbinary de réplication.
+            // Convert.ToString en tire « System.Byte[] », qui n'apprend rien :
+            // l'hexadécimal, lui, se lit.
+            byte[] octets => Hexadecimal(octets),
+            _ => Convert.ToString(valeur)?.Trim() ?? "",
+        };
+    }
+
+    private static string Hexadecimal(byte[] octets)
+    {
+        if (octets.Length == 0) return "";
+        const int apercu = 12;
+        var tete = Convert.ToHexString(octets.AsSpan(0, Math.Min(apercu, octets.Length)));
+        return octets.Length <= apercu
+            ? $"0x{tete}"
+            : $"0x{tete}… ({octets.Length} octets)";
     }
 
     public static decimal Amount(this DbDataReader reader, string colonne)
