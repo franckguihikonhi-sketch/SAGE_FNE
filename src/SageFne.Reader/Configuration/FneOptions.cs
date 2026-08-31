@@ -12,10 +12,28 @@ public sealed class FneOptions
     public string Template { get; set; } = "B2B";
 
     /// <summary>
-    /// Code appliqué aux lignes sans TVA : TVAD pour l'exonération légale,
-    /// TVAC pour l'exonération conventionnelle.
+    /// Régime appliqué aux lignes à 0 % de TVA, faute de règle plus précise.
     /// </summary>
-    public string ExemptionCode { get; set; } = "TVAD";
+    /// <remarks>
+    /// Valeurs acceptées : <c>Unknown</c>, <c>ConventionalExemption</c>,
+    /// <c>LegalExemptionTeeRme</c>. <b>Unknown par défaut, et c'est voulu</b> :
+    /// TVAC et TVAD valent tous deux 0 % et Sage ne les distingue pas. Une
+    /// facture dont le régime reste inconnu est bloquée plutôt que d'annoncer à
+    /// la DGI une exonération qu'on aurait devinée.
+    /// </remarks>
+    public string ZeroVatCategory { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Régime par référence d'article (AR_Ref), quand l'exonération tient au
+    /// produit — un bien légalement exonéré.
+    /// </summary>
+    public Dictionary<string, string> ZeroVatCategoryByArticle { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Régime par compte client (CT_Num), quand l'exonération tient au client —
+    /// une entreprise titulaire d'un régime d'exonération.
+    /// </summary>
+    public Dictionary<string, string> ZeroVatCategoryByCustomer { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Fichier du registre des certifications. Vide : « certifications.json »

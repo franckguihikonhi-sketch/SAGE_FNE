@@ -16,9 +16,11 @@ namespace SageFne.Reader.Mapping;
 /// la TVA soit toujours en position 1 et l'AIRSI en position 2.
 ///
 /// Une ligne sans TVA n'est pas une ligne sans code : FNE attend un code
-/// d'exonération, <c>TVAD</c> pour l'exonération légale — celui que portent les
-/// factures certifiées du dossier — ou <c>TVAC</c> pour l'exonération
-/// conventionnelle. Le code appliqué est paramétrable pour cette raison.
+/// d'exonération. Mais <b>lequel ne se déduit pas du taux</b> — <c>TVAC</c>
+/// pour l'exonération conventionnelle et <c>TVAD</c> pour l'exonération légale
+/// TEE/RME valent tous deux 0 %, et Sage ne porte pas la différence. Le régime
+/// doit donc être fourni de l'extérieur ; à défaut, la ligne reste sans code et
+/// la pièce est bloquée.
 /// </remarks>
 public static class TaxMapping
 {
@@ -31,24 +33,29 @@ public static class TaxMapping
     /// <summary>Écart admis entre le taux lu et un taux de la nomenclature.</summary>
     private const decimal Tolerance = 0.001m;
 
-    /// <summary>Code d'exonération légale, celui des factures du dossier.</summary>
-    public const string ExonerationLegale = "TVAD";
-
-    /// <summary>Code d'exonération conventionnelle.</summary>
-    public const string ExonerationConventionnelle = "TVAC";
+    /// <summary>Le constat qui empêche une pièce de partir.</summary>
+    public const string CodeRegimeInconnu = "ZERO_VAT_CATEGORY_UNKNOWN";
 
     /// <summary>Prélèvements qui ne sont pas une TVA et passent en customTaxes.</summary>
     private static readonly string[] Prelevements = ["AIRSI"];
 
+    /// <param name="RegimeZeroRequis">
+    /// La ligne est à 0 % de TVA et aucun régime ne lui est attribué : elle ne
+    /// porte donc aucun code, et la pièce ne peut pas être certifiée.
+    /// </param>
     public sealed record Resultat(
         IReadOnlyList<string> Taxes,
         IReadOnlyList<FneCustomTax> CustomTaxes,
-        IReadOnlyList<string> Avertissements);
+        IReadOnlyList<string> Avertissements,
+        bool RegimeZeroRequis = false);
 
-    /// <param name="codeExoneration">
-    /// Code appliqué quand la ligne ne porte aucune TVA. <c>TVAD</c> par défaut.
+    /// <param name="regimeZero">
+    /// Régime qui justifie une TVA à 0 % sur cette ligne. <see
+    /// cref="RegimeTvaZero.Inconnu"/> par défaut : le taux seul ne permet pas de
+    /// choisir entre TVAC et TVAD, et deviner reviendrait à déclarer à la DGI un
+    /// régime fiscal qu'on ignore.
     /// </param>
-    public static Resultat Read(SageDocumentLine ligne, string codeExoneration = ExonerationLegale)
+    public static Resultat Read(SageDocumentLine ligne, RegimeTvaZero regimeZero = RegimeTvaZero.Inconnu)
     {
         var taxes = new List<string>();
         var custom = new List<FneCustomTax>();
@@ -84,12 +91,26 @@ public static class TaxMapping
             }
         }
 
+        // Aucun taux reconnu et aucun taux aberrant : la ligne est à 0 %. C'est
+        // ici, et seulement ici, que le régime d'exonération entre en jeu.
+        var regimeZeroRequis = false;
         if (taxes.Count == 0 && !tauxInconnu)
         {
-            taxes.Add(codeExoneration);
+            var code = regimeZero.Code();
+            if (code is not null)
+            {
+                taxes.Add(code);
+            }
+            else
+            {
+                regimeZeroRequis = true;
+                avertissements.Add(
+                    $"ligne {ligne.Ligne} : TVA 0 % détectée mais impossible de déterminer " +
+                    "TVAC (exonération conventionnelle) ou TVAD (exonération légale TEE/RME).");
+            }
         }
 
-        return new Resultat(taxes, custom, avertissements);
+        return new Resultat(taxes, custom, avertissements, regimeZeroRequis);
     }
 
     /// <summary>« TVA » à 18 %, « TVAB » à 9 %, rien du tout à 0 %.</summary>

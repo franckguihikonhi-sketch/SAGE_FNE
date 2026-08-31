@@ -105,6 +105,10 @@ public class InvoiceBatchReaderTests
         MontantHT = ht,
         MontantTTC = ht,
         Unite = "KG",
+        // Ces tests portent sur le lot, pas sur la fiscalité : une TVA au taux
+        // normal évite d'y mêler la question du régime d'exonération.
+        Taxe1 = 18m,
+        CodeTaxe1 = "TVA",
     };
 
     private static SageCustomer Client(string ctNum, string ncc = "14322625") => new()

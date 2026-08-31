@@ -16,6 +16,7 @@ namespace SageFne.Reader.Mapping;
 public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoiceMapper
 {
     private readonly FneOptions _options = options.Value;
+    private readonly ZeroVatClassifier _regimes = new(options.Value);
 
     public FneInvoice Map(
         SageDocumentHeader header,
@@ -27,16 +28,30 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
 
         foreach (var ligne in lines.OrderBy(ligne => ligne.Ligne))
         {
-            var taxes = TaxMapping.Read(ligne, _options.ExemptionCode);
-            foreach (var avertissement in taxes.Avertissements)
+            var taxes = TaxMapping.Read(ligne, _regimes.Classer(ligne, customer));
+
+            // Une TVA à 0 % dont le régime n'est pas classé bloque la pièce :
+            // TVAC et TVAD valent tous deux 0 %, et annoncer à la DGI une
+            // exonération devinée ne se corrige plus qu'avec un avoir.
+            if (taxes.RegimeZeroRequis)
             {
-                report?.Avertir("TAUX_HORS_NOMENCLATURE", avertissement);
+                foreach (var avertissement in taxes.Avertissements)
+                {
+                    report?.Erreur(TaxMapping.CodeRegimeInconnu, avertissement);
+                }
+            }
+            else
+            {
+                foreach (var avertissement in taxes.Avertissements)
+                {
+                    report?.Avertir("TAUX_HORS_NOMENCLATURE", avertissement);
+                }
             }
 
-            if (taxes.Taxes.Count == 0)
+            if (taxes.Taxes.Count == 0 && !taxes.RegimeZeroRequis)
             {
-                // Sans TVA reconnue et sans exonération applicable : la ligne
-                // porte un taux que la nomenclature ne connaît pas.
+                // Ni TVA reconnue, ni exonération : la ligne porte un taux que
+                // la nomenclature ne connaît pas.
                 report?.Avertir(
                     "LIGNE_SANS_CODE_TAXE",
                     $"ligne {ligne.Ligne} : aucun code de taxe FNE n'a pu être établi.");

@@ -333,22 +333,22 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
 
     Titre($"Lignes — {Pluriel(piece.Lines.Count, "ligne")}");
     Console.WriteLine(
-        $"  {"N°",3} {"AR_Ref",-14} {"Désignation",-28} {"Qté",10} {"PU HT",13} " +
-        $"{"Remise",10} {"PU net",13} {"TVA",8} {"Code",6} {"AIRSI",7} {"HT",14} {"TTC",14}");
+        $"  {"N°",3} {"AR_Ref",-14} {"Désignation",-24} {"Qté",10} {"PU HT",13} " +
+        $"{"Remise",10} {"PU net",13} {"TVA",8} {"Code FNE",14} {"AIRSI",7} {"HT",14} {"TTC",14}");
 
     foreach (var ligne in piece.Lines)
     {
         var remise = RemiseMapping.Read(ligne);
-        var taxes = TaxMapping.Read(ligne, reglages.ExemptionCode);
+        var taxes = TaxMapping.Read(ligne, new ZeroVatClassifier(reglages).Classer(ligne, piece.Customer));
         var tva = TaxMapping.TauxTva(ligne);
         var airsi = TaxMapping.TauxPrelevements(ligne);
 
         Console.WriteLine(
             $"  {ligne.Ligne,3} {Tronquer(ligne.ArticleReference, 14),-14} " +
-            $"{Tronquer(ligne.Designation, 28),-28} {Nombre(ligne.Quantite),10} " +
+            $"{Tronquer(ligne.Designation, 24),-24} {Nombre(ligne.Quantite),10} " +
             $"{Nombre(ligne.PrixUnitaire),13} {Nombre(remise.RemiseUnitaire),10} " +
             $"{Nombre(remise.PrixUnitaireNet),13} {Pourcent(tva),8} " +
-            $"{(taxes.Taxes.Count > 0 ? taxes.Taxes[0] : "—"),6} {Pourcent(airsi),7} " +
+            $"{CodeTaxe(taxes),14} {Pourcent(airsi),7} " +
             $"{Somme(ligne.MontantHT),14} {Somme(ligne.MontantTTC),14}");
     }
 
@@ -554,6 +554,13 @@ static string Renseigne(string? valeur) =>
     string.IsNullOrWhiteSpace(valeur) ? "— vide —" : valeur;
 
 static string Nombre(decimal valeur) => valeur.ToString("N2", CultureInfo.GetCultureInfo("fr-FR"));
+
+/// <summary>
+/// Le code FNE de la ligne. « NON DETERMINE » quand la TVA est à 0 % sans que
+/// le régime d'exonération soit classé : c'est ce qui bloque la pièce.
+/// </summary>
+static string CodeTaxe(TaxMapping.Resultat taxes) =>
+    taxes.RegimeZeroRequis ? "NON DETERMINE" : taxes.Taxes.Count > 0 ? taxes.Taxes[0] : "—";
 
 static string Pourcent(decimal taux) =>
     taux == 0m ? "—" : $"{taux.ToString("0.##", CultureInfo.GetCultureInfo("fr-FR"))} %";

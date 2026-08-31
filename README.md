@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 91 tests
+dotnet test                                    # 116 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -100,31 +100,59 @@ ALTER ROLE db_datareader ADD MEMBER lecteur_fne;
 
 ## Le mapping des taxes
 
-C'est le point le plus délicat du dossier.
-
-`DL_CodeTaxe1` vaut « TVA » **aussi bien pour 9 % que pour 18 %**, et la fiche `F_TAXE`
-qui porte ce code s'intitule « TVA/VENTE » à 9 % tandis que « TVA/ACHAT » porte 18 %.
-L'intitulé et le code ne permettent donc pas de trancher : **c'est le taux porté par la
-ligne qui décide.**
+`DL_CodeTaxe1` vaut « TVA » aussi bien à 9 % qu'à 18 % dans ce dossier, et la fiche
+`F_TAXE` qui porte ce code est intitulée « TVA/VENTE » à 9 %. **C'est donc le taux porté
+par la ligne qui tranche, jamais l'intitulé.** Les trois emplacements de taxe sont
+examinés : rien ne garantit que la TVA soit en position 1 et l'AIRSI en position 2.
 
 | Taux de la ligne | Code FNE | Où |
 | --- | --- | --- |
 | 18 % | `TVA` | `taxes` |
 | 9 % | `TVAB` | `taxes` |
-| Aucune TVA | `TVAD` | `taxes` |
-| AIRSI 1,5 % | `AIRSI` | `customTaxes` |
+| 0 % | `TVAC` **ou** `TVAD` — voir plus bas | `taxes` |
+| AIRSI 1,5 % | — | `customTaxes` |
 
-Une ligne sans TVA n'est pas une ligne sans code : FNE attend un code
-d'exonération. `TVAD` (exonération légale) est appliqué par défaut — c'est celui que
-portent les factures certifiées du dossier. Un dossier exonéré par convention change
-`Fne:ExemptionCode` en `TVAC` dans `appsettings.json`, sans toucher au code.
+Un taux positif hors nomenclature — 12 %, par exemple — n'est **pas** une exonération : il
+est signalé et la ligne ne porte aucun code, plutôt que d'être certifiée à tort.
 
-Les **trois** emplacements de taxe de Sage sont examinés (`DL_Taxe1/2/3`) : rien ne
-garantit que la TVA restera en position 1 et l'AIRSI en position 2.
+### La TVA à 0 % ne se devine pas
 
-Une TVA n'est jamais inventée. Un taux positif que la nomenclature ne connaît pas — 12 %,
-par exemple — n'est pas une exonération : la ligne ne part **ni** avec ce taux, **ni** en
-`TVAD`, et le contrôle le signale.
+La nomenclature FNE distingue deux exonérations qui valent **toutes deux 0 %** :
+
+- `TVAC` — exonération **conventionnelle**
+- `TVAD` — exonération **légale**, TEE/RME
+
+**Sage ne porte pas la différence.** Mapper automatiquement `DL_Taxe1 = 0` vers `TVAD`
+reviendrait à déclarer à la DGI un régime fiscal qu'on ignore, sur une facture certifiée
+qui ne se corrige plus que par un avoir. C'est interdit.
+
+Le régime vient donc du paramétrage, de la règle la plus précise à la plus générale :
+
+```jsonc
+"Fne": {
+  "ZeroVatCategoryByArticle":  { "13415001": "LegalExemptionTEE_RME" },  // 1. le produit
+  "ZeroVatCategoryByCustomer": { "4111SITASARL": "ConventionalExemption" }, // 2. le client
+  "ZeroVatCategory": "Unknown"                                           // 3. le dossier
+}
+```
+
+Valeurs acceptées : `Unknown`, `ConventionalExemption`, `LegalExemptionTEE_RME` — ou
+directement `TVAC` / `TVAD`. Une valeur mal orthographiée ne vaut pas classification : elle
+bloque, plutôt que d'appliquer un régime approximatif.
+
+**Rien ne correspond → la pièce est bloquée**, avec une erreur explicite :
+
+```
+1219  [ERREUR ] ZERO_VAT_CATEGORY_UNKNOWN — ligne 1 : TVA 0 % détectée mais
+      impossible de déterminer TVAC (exonération conventionnelle) ou
+      TVAD (exonération légale TEE/RME).
+```
+
+Le relevé affiche alors `NON DETERMINE` en code FNE. **L'AIRSI part quand même** en
+`customTaxes` : le prélèvement ne dépend pas du régime de TVA.
+
+Une facture portant cette erreur ne peut pas être envoyée : elle n'entre ni dans `--json`,
+ni dans `--sortie`, et le code de sortie vaut 1.
 
 ## Les remises
 
@@ -394,7 +422,8 @@ SageFne.sln
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
 │   │                                    CritereSql, ReadOnlyGuard, ColonnesTable
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,
-│   │                                    TaxMapping, RemiseMapping
+│   │                                    TaxMapping, RemiseMapping,
+│   │                                    RegimeTvaZero, ZeroVatClassifier
 │   └── Validation/                      InvoiceValidator, FinancialChecks,
 │                                        FneCompleteness, CheckReport
 └── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,

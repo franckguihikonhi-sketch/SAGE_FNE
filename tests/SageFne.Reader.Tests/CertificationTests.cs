@@ -16,7 +16,15 @@ namespace SageFne.Reader.Tests;
 /// </summary>
 public class CertificationTests
 {
-    private static readonly FneOptions Reglages = new() { Template = "B2B", PaymentMethod = "deferred" };
+    // La 1219 est à 0 % de TVA : sans régime déclaré elle serait bloquée, et
+    // ces tests-ci portent sur le registre des certifications, pas sur la
+    // fiscalité.
+    private static readonly FneOptions Reglages = new()
+    {
+        Template = "B2B",
+        PaymentMethod = "deferred",
+        ZeroVatCategory = "LegalExemptionTEE_RME",
+    };
 
     private sealed class Depot : ISageInvoiceRepository
     {

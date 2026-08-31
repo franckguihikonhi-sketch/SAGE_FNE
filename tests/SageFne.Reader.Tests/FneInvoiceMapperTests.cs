@@ -32,13 +32,14 @@ public class FneInvoiceMapperTests
         Pays = "COTE D'IVOIRE",
     };
 
-    private static FneInvoiceMapper Mappeur() =>
+    private static FneInvoiceMapper Mappeur(string regime = "Unknown") =>
         new(Options.Create(new FneOptions
         {
             PointOfSale = "SIEGE",
             Establishment = "PRINCIPAL",
             PaymentMethod = "deferred",
             Template = "B2B",
+            ZeroVatCategory = regime,
         }));
 
     private static SageDocumentLine Ligne(
@@ -94,39 +95,61 @@ public class FneInvoiceMapperTests
     {
         var article = Premier(Ligne(taxe2: 1.5m, code2: "AIRSI"));
 
-        // La ligne n'a pas de TVA : elle est exonérée, et porte TVAD.
-        Assert.Equal(["TVAD"], article.Taxes);
+        // La TVA est à 0 % et son régime n'est pas classé : aucun code fiscal.
+        // L'AIRSI, lui, est un prélèvement et part quand même en customTaxes.
+        Assert.Empty(article.Taxes);
         var prelevement = Assert.Single(article.CustomTaxes);
         Assert.Equal("AIRSI", prelevement.Name);
         Assert.Equal(1.5m, prelevement.Amount);
     }
 
     [Fact]
-    public void Une_ligne_sans_tva_est_exoneree_et_porte_TVAD()
+    public void Une_tva_a_zero_sans_regime_ne_porte_aucun_code()
     {
+        // TVAC et TVAD valent tous deux 0 % : le taux ne permet pas de choisir.
+        // Deviner reviendrait à déclarer à la DGI un régime fiscal qu'on ignore.
         var article = Premier(Ligne());
 
-        // Exonération légale : le code que portent les factures certifiées du
-        // dossier. Ce n'est pas une TVA inventée, c'est l'absence de TVA dite
-        // dans la nomenclature de la DGI.
-        Assert.Equal(["TVAD"], article.Taxes);
+        Assert.Empty(article.Taxes);
         Assert.Empty(article.CustomTaxes);
     }
 
     [Fact]
-    public void Le_code_d_exoneration_est_parametrable()
+    public void Une_tva_a_zero_sans_regime_bloque_la_piece()
     {
-        // Un dossier exonéré par convention plutôt que par la loi.
-        var mappeur = new FneInvoiceMapper(Options.Create(new FneOptions
-        {
-            Template = "B2B",
-            PaymentMethod = "deferred",
-            ExemptionCode = "TVAC",
-        }));
+        var rapport = new CheckReport();
+        Mappeur().Map(Entete, [Ligne()], Client, rapport);
 
-        var facture = mappeur.Map(Entete, [Ligne()], Client);
+        var constat = Assert.Single(rapport.Constats, c => c.Code == "ZERO_VAT_CATEGORY_UNKNOWN");
+        Assert.Equal(Severite.Erreur, constat.Severite);
+        Assert.True(rapport.ContientDesErreurs);
+        Assert.Contains("TVAC", constat.Message);
+        Assert.Contains("TVAD", constat.Message);
+    }
+
+    [Fact]
+    public void Le_regime_conventionnel_donne_TVAC()
+    {
+        var facture = Mappeur(regime: "ConventionalExemption").Map(Entete, [Ligne()], Client);
 
         Assert.Equal(["TVAC"], facture.Items.Single().Taxes);
+    }
+
+    [Fact]
+    public void Le_regime_legal_donne_TVAD()
+    {
+        var facture = Mappeur(regime: "LegalExemptionTEE_RME").Map(Entete, [Ligne()], Client);
+
+        Assert.Equal(["TVAD"], facture.Items.Single().Taxes);
+    }
+
+    [Fact]
+    public void Un_regime_classe_ne_bloque_plus_la_piece()
+    {
+        var rapport = new CheckReport();
+        Mappeur(regime: "LegalExemptionTEE_RME").Map(Entete, [Ligne()], Client, rapport);
+
+        Assert.DoesNotContain(rapport.Constats, c => c.Code == "ZERO_VAT_CATEGORY_UNKNOWN");
     }
 
     [Fact]
