@@ -23,7 +23,7 @@ public sealed record FneSignResult(
     string? Erreur = null);
 
 /// <summary>Envoi d'une facture à la certification.</summary>
-public interface IFneClient
+public interface IFneApiClient
 {
     /// <summary>Vrai quand l'implémentation part réellement sur le réseau.</summary>
     bool Reel { get; }

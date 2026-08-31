@@ -18,10 +18,10 @@ namespace SageFne.Reader.Fne;
 /// enregistrée, et nous l'ignorerions. Le corps brut est donc toujours
 /// conservé, et la référence cherchée sous plusieurs noms plausibles.
 /// </remarks>
-public sealed class HttpFneClient(
+public sealed class FneApiClient(
     HttpClient http,
     FneApiOptions options,
-    ILogger<HttpFneClient> logger) : IFneClient
+    ILogger<FneApiClient> logger) : IFneApiClient
 {
     private static readonly JsonSerializerOptions Corps = new()
     {

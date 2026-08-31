@@ -34,6 +34,11 @@ public enum Verbe
     /// <c>--confirmer</c> déclenche l'appel réel.
     /// </summary>
     Envoyer,
+
+    /// <summary>
+    /// Vérifier la configuration d'accès à la plateforme. N'appelle aucune API.
+    /// </summary>
+    Verification,
 }
 
 /// <summary>
@@ -122,6 +127,9 @@ public sealed record CommandLine
                 case "taxes":
                     verbe = Verbe.Taxes;
                     break;
+                case "fne-check":
+                    verbe = Verbe.Verification;
+                    break;
                 case "envoyer":
                     verbe = Verbe.Envoyer;
                     break;
@@ -178,6 +186,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
           dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
           dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes
+          dotnet run --project src/SageFne.Reader -- fne-check           vérifie l'accès FNE, sans rien appeler
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
 

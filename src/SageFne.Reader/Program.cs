@@ -39,11 +39,12 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 builder.Configuration.AddUserSecrets<Program>(optional: true);
 builder.Services.Configure<FneOptions>(builder.Configuration.GetSection(FneOptions.Section));
 
-// L'API de la DGI. La clé vient des secrets utilisateur, jamais d'appsettings.
+// L'API de la DGI, liée sur la même section que le reste : la clé se pose donc
+// en « Fne:ApiKey », dans les secrets utilisateur et nulle part ailleurs.
 var api = new FneApiOptions();
-builder.Configuration.GetSection($"{FneOptions.Section}:Api").Bind(api);
+builder.Configuration.GetSection(FneOptions.Section).Bind(api);
 builder.Services.AddSingleton(api);
-builder.Services.AddHttpClient<HttpFneClient>(client =>
+builder.Services.AddHttpClient<FneApiClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(Math.Clamp(api.TimeoutSeconds, 5, 300));
 });
@@ -181,6 +182,84 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
     return 0;
 }
 
+// Vérification de l'accès à la plateforme. Elle regarde la configuration et
+// s'arrête : aucune API n'est appelée, aucune facture n'est touchée.
+if (ligneDeCommande.Verbe == Verbe.Verification)
+{
+    var reglagesApi = hote.Services.GetRequiredService<FneApiOptions>();
+
+    Titre("Vérification de l'accès FNE");
+
+    void Point(bool bon, string libelle, string detail)
+    {
+        Console.WriteLine($"  {(bon ? "OK    " : "MANQUE")}  {libelle,-24} {detail}");
+    }
+
+    Point(true, "Environnement", reglagesApi.Environment.ToString().ToUpperInvariant());
+    Point(reglagesApi.UrlRenseignee, "Fne:BaseUrl",
+        reglagesApi.UrlRenseignee ? reglagesApi.BaseUrl : "non renseignée");
+    Point(reglagesApi.CleRenseignee, "Fne:ApiKey",
+        reglagesApi.CleRenseignee
+            ? $"présente ({reglagesApi.ApiKey.Length} caractères) — {reglagesApi.CleMasquee()}"
+            : "absente des secrets utilisateur");
+    Point(true, "Chemin", reglagesApi.SignPath);
+    Point(true, "Authentification",
+        $"{reglagesApi.AuthenticationHeader}: {reglagesApi.AuthenticationScheme} <clé>".Trim());
+    Point(true, "Délai", $"{reglagesApi.TimeoutSeconds} s");
+
+    if (reglagesApi.UrlRenseignee && reglagesApi.CleRenseignee)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Adresse de certification : {reglagesApi.AdresseSignature()}");
+    }
+
+    var refus = reglagesApi.Verifier();
+    Titre("Garde-fou environnement");
+    if (refus is null && reglagesApi.EstTest)
+    {
+        Console.WriteLine("  L'adresse se reconnaît comme une plateforme d'essai.");
+        Console.WriteLine($"  Marqueurs admis : {string.Join(", ", reglagesApi.Marqueurs)}");
+    }
+    else if (refus is null)
+    {
+        Console.WriteLine(
+            "  ATTENTION : Fne:Environment vaut PRODUCTION. Ce qui sera certifié\n" +
+            "  engagera l'entreprise et ne pourra être corrigé que par un avoir.");
+    }
+    else
+    {
+        Console.WriteLine($"  REFUS — {refus}");
+    }
+
+    Titre("Conclusion");
+    if (!reglagesApi.CleRenseignee || !reglagesApi.UrlRenseignee)
+    {
+        Console.WriteLine("""
+              Configuration incomplète. Dans les secrets utilisateur — jamais dans
+              appsettings.json, qui est suivi par Git :
+
+                cd src\SageFne.Reader
+                dotnet user-secrets set "Fne:BaseUrl" "https://…test…/"
+                dotnet user-secrets set "Fne:ApiKey"  "…"
+              """);
+    }
+    else if (refus is not null)
+    {
+        Console.WriteLine("  L'accès est renseigné mais refusé par le garde-fou ci-dessus.");
+    }
+    else
+    {
+        Console.WriteLine("  L'accès est configuré. Aucune facture n'a été envoyée, aucune API appelée.");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        "Cette commande ne contacte aucun service : elle ne fait que lire la configuration.\n" +
+        "La clé n'est jamais affichée en clair, ni ici, ni dans les journaux.");
+
+    return reglagesApi.EstConfigure ? 0 : 1;
+}
+
 // Envoi à la certification. Par défaut la commande montre la requête et
 // s'arrête : une facture certifiée ne s'annule pas, elle se corrige par un
 // avoir. Seul --confirmer déclenche l'appel.
@@ -225,7 +304,7 @@ if (ligneDeCommande.Verbe == Verbe.Envoyer)
     }
 
     var expediteur = hote.Services.GetRequiredService<InvoiceSender>();
-    var clientFne = hote.Services.GetRequiredService<HttpFneClient>();
+    var clientFne = hote.Services.GetRequiredService<FneApiClient>();
 
     // La requête exacte, avant tout appel. La clé n'est jamais affichée en clair.
     var apercuLot = await hote.Services.GetRequiredService<InvoiceBatchReader>()

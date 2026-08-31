@@ -24,7 +24,7 @@ public class FneReponseTests
     [InlineData("""{"data":{"reference":"2304903U26000000930"}}""")]
     public void La_reference_se_lit_sous_plusieurs_noms(string corps)
     {
-        var (reference, _) = HttpFneClient.LireReponse(corps);
+        var (reference, _) = FneApiClient.LireReponse(corps);
 
         Assert.Equal("2304903U26000000930", reference);
     }
@@ -32,7 +32,7 @@ public class FneReponseTests
     [Fact]
     public void Le_jeton_de_verification_se_lit_aussi()
     {
-        var (_, jeton) = HttpFneClient.LireReponse("""{"reference":"REF","token":"QR-123"}""");
+        var (_, jeton) = FneApiClient.LireReponse("""{"reference":"REF","token":"QR-123"}""");
 
         Assert.Equal("QR-123", jeton);
     }
@@ -40,7 +40,7 @@ public class FneReponseTests
     [Fact]
     public void Une_reference_numerique_est_acceptee()
     {
-        var (reference, _) = HttpFneClient.LireReponse("""{"reference":123456}""");
+        var (reference, _) = FneApiClient.LireReponse("""{"reference":123456}""");
 
         Assert.Equal("123456", reference);
     }
@@ -52,7 +52,7 @@ public class FneReponseTests
     [InlineData("[1, 2, 3]")]
     public void Une_reponse_illisible_ne_leve_pas(string corps)
     {
-        var (reference, jeton) = HttpFneClient.LireReponse(corps);
+        var (reference, jeton) = FneApiClient.LireReponse(corps);
 
         Assert.Null(reference);
         Assert.Null(jeton);
@@ -84,9 +84,17 @@ public class FneApiOptionsTests
     public void Sans_url_ni_cle_rien_ne_peut_partir()
     {
         Assert.False(new FneApiOptions().EstConfigure);
-        Assert.False(new FneApiOptions { BaseUrl = "https://x" }.EstConfigure);
+        Assert.False(new FneApiOptions { BaseUrl = "https://api-test.dgi.gouv.ci" }.EstConfigure);
         Assert.False(new FneApiOptions { BaseUrl = "A_COMPLETER", ApiKey = "k" }.EstConfigure);
-        Assert.True(new FneApiOptions { BaseUrl = "https://x", ApiKey = "k" }.EstConfigure);
+        Assert.True(new FneApiOptions { BaseUrl = "https://api-test.dgi.gouv.ci", ApiKey = "k" }.EstConfigure);
+    }
+
+    [Fact]
+    public void Une_adresse_quelconque_ne_suffit_plus_en_TEST()
+    {
+        // « https://x » passait avant le garde-fou d'environnement. Ce n'est
+        // plus le cas, et c'est le comportement voulu.
+        Assert.False(new FneApiOptions { BaseUrl = "https://x", ApiKey = "k" }.EstConfigure);
     }
 
     [Fact]
@@ -120,7 +128,7 @@ public class InvoiceSenderTests
         }
     }
 
-    private sealed class ClientFactice(FneSignResult reponse) : IFneClient
+    private sealed class ClientFactice(FneSignResult reponse) : IFneApiClient
     {
         public bool Appele { get; private set; }
 

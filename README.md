@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 195 tests
+dotnet test                                    # 218 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -37,6 +37,7 @@ dotnet run --project src/SageFne.Reader -- detail 1219           # relevé compl
 dotnet run --project src/SageFne.Reader -- colonnes              # colonnes réelles des tables Sage
 dotnet run --project src/SageFne.Reader -- taxes 1219            # paramétrage fiscal autour d'une pièce
 dotnet run --project src/SageFne.Reader -- candidats-fne         # factures d'essai fiscalement nettes
+dotnet run --project src/SageFne.Reader -- fne-check             # vérifie l'accès FNE, sans rien appeler
 dotnet run --project src/SageFne.Reader -- envoyer 1052          # montre la requête, n'envoie rien
 dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   # envoie pour de vrai
 ```
@@ -328,14 +329,36 @@ la DGI), un accès non configuré, une pièce qui n'est pas « à certifier ».
 
 ```powershell
 cd src\SageFne.Reader
-dotnet user-secrets set "Fne:Api:BaseUrl" "https://…"
-dotnet user-secrets set "Fne:Api:ApiKey"  "…"
+dotnet user-secrets set "Fne:BaseUrl" "https://…test…/"
+dotnet user-secrets set "Fne:ApiKey"  "…"
 ```
 
 `SignPath`, `AuthenticationHeader` et `AuthenticationScheme` sont paramétrables dans
 `appsettings.json` : la documentation de la DGI fait foi, pas ce que le code suppose. La
-clé n'apparaît jamais en clair — la simulation l'affiche réduite à ses quatre premiers et
-quatre derniers caractères.
+clé n'apparaît jamais en clair — elle est réduite à ses quatre premiers et quatre derniers
+caractères partout où elle s'affiche.
+
+```bash
+dotnet run --project src/SageFne.Reader -- fne-check
+```
+
+vérifie que tout est en place — environnement, adresse, présence de la clé, en-tête
+d'authentification — **sans appeler quoi que ce soit**. Elle ne contacte aucun service.
+
+### Le garde-fou d'environnement
+
+`Fne:Environment` vaut **`Test` par défaut**, et c'est voulu : un défaut de production
+ferait certifier pour de vrai une configuration oubliée.
+
+En `Test`, l'hôte doit se reconnaître comme une plateforme d'essai — `test`, `sandbox`,
+`preprod`, `recette`, `uat`, `demo`, `localhost` — sinon l'envoi est refusé. C'est une
+**liste d'autorisation, pas une liste d'interdiction** : interdire « prod » laisserait
+passer n'importe quel hôte inconnu, et c'est exactement ainsi qu'une adresse de production
+finit appelée depuis une configuration de test. Complétez `Fne:TestHostMarkers` si la DGI
+nomme autrement sa plateforme d'essai.
+
+L'adresse doit par ailleurs être en HTTPS — la clé ne voyage pas en clair — sauf sur
+`localhost`, où un bouchon local ne présente aucun risque de fuite.
 
 ### Ce qui protège du doublon
 

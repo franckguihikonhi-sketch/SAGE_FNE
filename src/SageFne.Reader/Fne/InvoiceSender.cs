@@ -32,7 +32,7 @@ public sealed record EnvoiResultat(
 public sealed class InvoiceSender(
     InvoiceBatchReader lecteur,
     ICertificationLedger registre,
-    IFneClient client,
+    IFneApiClient client,
     ILogger<InvoiceSender> logger)
 {
     public async Task<EnvoiResultat> EnvoyerAsync(
