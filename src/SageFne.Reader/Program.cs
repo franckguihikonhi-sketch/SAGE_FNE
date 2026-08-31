@@ -293,8 +293,10 @@ if (ligneDeCommande.Verbe == Verbe.Candidats)
         var pieces = sansNcc.Sum(groupe => groupe.Count());
         Titre("Clients sans NCC");
         Console.WriteLine(
-            $"  {Pluriel(pieces, "facture")} sur {examen.Total} portent un client sans CT_Identifiant.\n" +
-            $"  {Pluriel(sansNcc.Count, "compte")} concerné(s). Le NCC est obligatoire en B2B :\n" +
+            $"  {Pluriel(pieces, "facture")} sur {examen.Total} {(pieces > 1 ? "portent" : "porte")} " +
+            "un client sans CT_Identifiant.\n" +
+            $"  {Pluriel(sansNcc.Count, "compte")} {Pluriel(sansNcc.Count, "concerné").Split(' ')[1]}. " +
+            "Le NCC est obligatoire en B2B :\n" +
             "  ces factures ne pourront pas être certifiées tant qu'il manque.");
         Console.WriteLine();
         Console.WriteLine($"  {"CT_Num",-20} {"Intitulé",-32} {"Factures",9}");
