@@ -289,10 +289,25 @@ seule), aucun prélèvement (+15). Chaque point gagné ou perdu est écrit en cl
 candidat — un candidat qu'on ne comprend pas n'en est pas un.
 
 Quand **aucune** facture ne passe pour un taux, la commande recense les motifs plutôt que
-d'en montrer cinq au hasard — combien de pièces butent sur le NCC, combien sur une ligne à
-0 %, combien sur une erreur de contrôle. Elle liste ensuite les comptes clients dépourvus
-de `CT_Identifiant`, avec le nombre de factures concernées : c'est dans Sage que cela se
-corrige, pas ici.
+d'en montrer cinq au hasard, et détaille `ERREURS_CONTROLE` par constat — sans quoi on ne
+sait pas s'il faut corriger une fiche client ou une quantité :
+
+```
+  Sur 151 pièces portant du 18 %, voici ce qui les écarte :
+
+    ERREURS_CONTROLE              151 pièces
+      dont NCC_MANQUANT           145 pièces
+      dont QUANTITE_INVALIDE        4 pièces
+    NCC_ABSENT                    145 pièces
+    LIGNE_TVA_ZERO                 28 pièces
+```
+
+Elle montre ensuite les pièces **dont le NCC est renseigné** — les plus proches du but,
+puisqu'il ne leur reste qu'un défaut qui n'est pas dans la fiche client.
+
+Enfin, elle liste les comptes dépourvus de `CT_Identifiant` avec un **cumul** : quelques
+comptes portent souvent l'essentiel du volume, et c'est par eux qu'il faut commencer.
+C'est dans Sage que cela se corrige, pas ici.
 
 Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocType`,
 `DO_Date`, `DO_Tiers`, `CT_Intitule`, le NCC, le nombre de lignes, les taux rencontrés, les

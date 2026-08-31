@@ -234,21 +234,55 @@ if (ligneDeCommande.Verbe == Verbe.Candidats)
                          .GroupBy(motif => motif.Code)
                          .OrderByDescending(groupe => groupe.Count()))
             {
-                Console.WriteLine($"    {motif.Key,-24} {Pluriel(motif.Count(), "pièce"),12}");
+                Console.WriteLine($"    {motif.Key,-26} {Pluriel(motif.Count(), "pièce"),12}");
+
+                // ERREURS_CONTROLE est un fourre-tout : sans le détail, on ne
+                // sait pas s'il faut corriger une fiche client ou une quantité.
+                if (motif.Key != Disqualification.ErreursControle) continue;
+
+                var parCode = portantLeTaux
+                    .Where(candidat => candidat.Ecarte(Disqualification.ErreursControle))
+                    .SelectMany(candidat => candidat.Conversion.Report.Constats
+                        .Where(constat => constat.Severite == Severite.Erreur)
+                        .Select(constat => constat.Code)
+                        .Distinct())
+                    .GroupBy(code => code)
+                    .OrderByDescending(groupe => groupe.Count());
+
+                foreach (var code in parCode)
+                {
+                    Console.WriteLine($"      dont {code.Key,-19} {Pluriel(code.Count(), "pièce"),12}");
+                }
             }
 
-            Console.WriteLine();
-            Console.WriteLine("    Exemples :");
-            foreach (var exemple in portantLeTaux
-                         .OrderBy(candidat => candidat.Disqualifications.Count)
-                         .ThenBy(candidat => candidat.Conversion.Lines.Count)
-                         .Take(5))
+            // Les pièces dont le NCC est renseigné sont les plus proches du but :
+            // il ne leur reste qu'un défaut, et il n'est pas dans la fiche client.
+            var proches = portantLeTaux
+                .Where(candidat => !candidat.Ecarte(Disqualification.NccAbsent))
+                .OrderBy(candidat => candidat.Disqualifications.Count)
+                .ThenBy(candidat => candidat.Conversion.Lines.Count)
+                .Take(8)
+                .ToList();
+
+            if (proches.Count > 0)
             {
-                Console.WriteLine(
-                    $"      {exemple.Conversion.Header.Piece,-10} " +
-                    $"{exemple.Conversion.Header.Date,-11:dd/MM/yyyy} " +
-                    $"{Tronquer(exemple.Conversion.Customer?.Intitule ?? exemple.Conversion.Header.Tiers, 24),-24} " +
-                    $"{string.Join(", ", exemple.Disqualifications.Select(motif => motif.Code))}");
+                Console.WriteLine();
+                Console.WriteLine($"    {Pluriel(proches.Count, "pièce")} avec NCC — les plus proches du but :");
+                foreach (var proche in proches)
+                {
+                    Console.WriteLine(
+                        $"      {proche.Conversion.Header.Piece,-10} " +
+                        $"{proche.Conversion.Header.Date,-11:dd/MM/yyyy} " +
+                        $"{Tronquer(proche.Conversion.Customer?.Intitule ?? proche.Conversion.Header.Tiers, 24),-24} " +
+                        $"{string.Join(", ", proche.Conversion.Report.Constats
+                            .Where(constat => constat.Severite == Severite.Erreur)
+                            .Select(constat => constat.Code).Distinct())}");
+                }
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine("    Aucune de ces pièces n'a de NCC : c'est le seul mur à franchir d'abord.");
             }
 
             continue;
@@ -299,16 +333,37 @@ if (ligneDeCommande.Verbe == Verbe.Candidats)
             "Le NCC est obligatoire en B2B :\n" +
             "  ces factures ne pourront pas être certifiées tant qu'il manque.");
         Console.WriteLine();
-        Console.WriteLine($"  {"CT_Num",-20} {"Intitulé",-32} {"Factures",9}");
+        // Le cumul dit combien de fiches suffisent : quelques comptes portent
+        // souvent l'essentiel du volume, et c'est par eux qu'il faut commencer.
+        Console.WriteLine($"  {"CT_Num",-20} {"Intitulé",-32} {"Factures",9} {"Cumul",8} {"%",7}");
+        var cumul = 0;
+        var rang = 0;
         foreach (var compte in sansNcc.Take(15))
         {
+            cumul += compte.Count();
+            rang++;
             Console.WriteLine(
                 $"  {Tronquer(compte.Key, 20),-20} " +
                 $"{Tronquer(compte.First().Customer?.Intitule ?? "— client introuvable —", 32),-32} " +
-                $"{compte.Count(),9}");
+                $"{compte.Count(),9} {cumul,8} {Part(cumul, pieces),7}");
         }
 
         if (sansNcc.Count > 15) Console.WriteLine($"  … et {sansNcc.Count - 15} autres comptes.");
+
+        // Combien de fiches pour franchir la moitié du volume ?
+        var moitie = 0;
+        var comptesPourMoitie = 0;
+        foreach (var compte in sansNcc)
+        {
+            moitie += compte.Count();
+            comptesPourMoitie++;
+            if (moitie * 2 >= pieces) break;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  Renseigner le NCC de {Pluriel(comptesPourMoitie, "compte")} suffirait à débloquer\n" +
+            $"  {moitie} des {pieces} factures concernées. C'est dans Sage que cela se corrige.");
     }
 
     Console.WriteLine();
@@ -963,6 +1018,10 @@ static decimal Taux(SageEnregistrement taxe)
         ? taux
         : 0m;
 }
+
+/// <summary>Une part du total, arrondie à l'entier.</summary>
+static string Part(int nombre, int total) =>
+    total == 0 ? "—" : $"{(decimal)nombre * 100m / total:0} %";
 
 static string Pourcent(decimal taux) =>
     taux == 0m ? "—" : $"{taux.ToString("0.##", CultureInfo.GetCultureInfo("fr-FR"))} %";
