@@ -83,4 +83,16 @@ public interface ISageInvoiceRepository
     /// </remarks>
     Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(
         CancellationToken cancellation = default);
+
+    /// <summary>
+    /// FA_CodeFamille par référence d'article, en une lecture.
+    /// </summary>
+    /// <remarks>
+    /// F_DOCLIGNE ne porte pas la famille : classer une exonération au niveau
+    /// de la famille suppose donc d'aller la chercher dans F_ARTICLE. Une seule
+    /// lecture pour tout le lot, et seulement quand une ligne est à 0 %.
+    /// </remarks>
+    Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+        IReadOnlyCollection<string> arRefs,
+        CancellationToken cancellation = default);
 }

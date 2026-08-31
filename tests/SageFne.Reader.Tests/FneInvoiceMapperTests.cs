@@ -39,7 +39,7 @@ public class FneInvoiceMapperTests
             Establishment = "PRINCIPAL",
             PaymentMethod = "deferred",
             Template = "B2B",
-            ZeroVatCategory = regime,
+            ZeroVat = new() { Default = regime },
         }));
 
     private static SageDocumentLine Ligne(

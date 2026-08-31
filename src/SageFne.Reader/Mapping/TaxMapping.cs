@@ -36,18 +36,26 @@ public static class TaxMapping
     /// <summary>Le constat qui empêche une pièce de partir.</summary>
     public const string CodeRegimeInconnu = "ZERO_VAT_CATEGORY_UNKNOWN";
 
-    /// <summary>Prélèvements qui ne sont pas une TVA et passent en customTaxes.</summary>
-    private static readonly string[] Prelevements = ["AIRSI"];
+    /// <summary>Le constat d'un prélèvement que rien ne dit comment nommer.</summary>
+    public const string CodePrelevementSansMapping = "PRELEVEMENT_SANS_MAPPING_FNE";
 
     /// <param name="RegimeZeroRequis">
     /// La ligne est à 0 % de TVA et aucun régime ne lui est attribué : elle ne
     /// porte donc aucun code, et la pièce ne peut pas être certifiée.
     /// </param>
+    /// <param name="PrelevementsSansMapping">
+    /// Des codes que le dossier range avec un prélèvement repris, mais qu'aucun
+    /// mapping FNE ne nomme. Ils ne partent pas, et bloquent la pièce.
+    /// </param>
     public sealed record Resultat(
         IReadOnlyList<string> Taxes,
         IReadOnlyList<FneCustomTax> CustomTaxes,
         IReadOnlyList<string> Avertissements,
-        bool RegimeZeroRequis = false);
+        bool RegimeZeroRequis = false,
+        IReadOnlyList<string>? PrelevementsSansMapping = null)
+    {
+        public IReadOnlyList<string> PrelevementsSansMapping { get; init; } = PrelevementsSansMapping ?? [];
+    }
 
     /// <param name="regimeZero">
     /// Régime qui justifie une TVA à 0 % sur cette ligne. <see
@@ -55,11 +63,20 @@ public static class TaxMapping
     /// choisir entre TVAC et TVAD, et deviner reviendrait à déclarer à la DGI un
     /// régime fiscal qu'on ignore.
     /// </param>
-    public static Resultat Read(SageDocumentLine ligne, RegimeTvaZero regimeZero = RegimeTvaZero.Inconnu)
+    /// <param name="catalogue">
+    /// Ce que le dossier dit de ses taxes, et le mapping FNE des prélèvements.
+    /// Par défaut, l'AIRSI seul.
+    /// </param>
+    public static Resultat Read(
+        SageDocumentLine ligne,
+        RegimeTvaZero regimeZero = RegimeTvaZero.Inconnu,
+        TaxCatalogue? catalogue = null)
     {
+        var taxons = catalogue ?? TaxCatalogue.Defaut;
         var taxes = new List<string>();
         var custom = new List<FneCustomTax>();
         var avertissements = new List<string>();
+        var prelevementsSansMapping = new List<string>();
         // Un taux positif que la nomenclature ne connaît pas n'est pas une
         // exonération : la ligne ne doit surtout pas partir en TVAD.
         var tauxInconnu = false;
@@ -68,9 +85,10 @@ public static class TaxMapping
         {
             if (!taxe.EstRenseignee) continue;
 
-            if (EstPrelevement(taxe.Code))
+            // Un prélèvement explicitement mappé part sous le nom convenu.
+            if (taxons.NomFne(taxe.Code) is { } nomFne)
             {
-                if (taxe.Taux > 0m) custom.Add(new FneCustomTax(taxe.Code.Trim().ToUpperInvariant(), taxe.Taux));
+                if (taxe.Taux > 0m) custom.Add(new FneCustomTax(nomFne, taxe.Taux));
                 continue;
             }
 
@@ -81,13 +99,31 @@ public static class TaxMapping
                 continue;
             }
 
-            // Un taux qui n'est ni 18, ni 9, ni 0 : on ne l'invente pas.
+            // Un taux qui n'est ni 18, ni 9, ni 0 : on ne l'invente pas. Reste
+            // à dire de quoi il s'agit — et c'est TA_Regroup qui le sait.
             if (taxe.Taux != 0m)
             {
                 tauxInconnu = true;
-                avertissements.Add(
-                    $"ligne {ligne.Ligne} : taux de {taxe.Taux} % à l'emplacement {taxe.Emplacement} " +
-                    $"(code « {taxe.Code} ») hors nomenclature FNE, il n'est pas repris.");
+                var groupe = taxons.Groupe(taxe.Code);
+                var voisins = taxons.MappesDuMemeGroupe(taxe.Code);
+
+                if (voisins.Count > 0)
+                {
+                    // Même groupe qu'un prélèvement repris : c'en est un, mais
+                    // sous quel nom l'envoyer ? Personne ne l'a dit.
+                    prelevementsSansMapping.Add(
+                        $"ligne {ligne.Ligne} : le code « {taxe.Code} » ({taxe.Taux} %) appartient au " +
+                        $"regroupement « {groupe} », comme {string.Join(", ", voisins)} qui est repris en " +
+                        "customTaxes. Aucun nom FNE ne lui est associé : ajoutez-le à Fne:CustomTaxes " +
+                        "plutôt que de le laisser deviner.");
+                }
+                else
+                {
+                    avertissements.Add(
+                        $"ligne {ligne.Ligne} : taux de {taxe.Taux} % à l'emplacement {taxe.Emplacement} " +
+                        $"(code « {taxe.Code} »{(groupe == "" ? "" : $", regroupement « {groupe} »")}) " +
+                        "hors nomenclature FNE, il n'est pas repris.");
+                }
             }
         }
 
@@ -110,7 +146,8 @@ public static class TaxMapping
             }
         }
 
-        return new Resultat(taxes, custom, avertissements, regimeZeroRequis);
+        return new Resultat(
+            taxes, custom, avertissements, regimeZeroRequis, prelevementsSansMapping);
     }
 
     /// <summary>« TVA » à 18 %, « TVAB » à 9 %, rien du tout à 0 %.</summary>
@@ -121,8 +158,8 @@ public static class TaxMapping
         return null;
     }
 
-    public static bool EstPrelevement(string code) =>
-        Prelevements.Any(nom => string.Equals(nom, code.Trim(), StringComparison.OrdinalIgnoreCase));
+    public static bool EstPrelevement(string code, TaxCatalogue? catalogue = null) =>
+        (catalogue ?? TaxCatalogue.Defaut).NomFne(code) is not null;
 
     /// <summary>Somme des taux appliqués à la ligne, TVA et prélèvements confondus.</summary>
     public static decimal TauxCumule(SageDocumentLine ligne) =>

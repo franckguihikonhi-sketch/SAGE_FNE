@@ -59,6 +59,20 @@ public sealed class InvoiceBatchReader(
         var clients = (await repository.GetCustomersAsync(comptes, cancellation))
             .ToDictionary(client => client.CtNum, StringComparer.OrdinalIgnoreCase);
 
+        // Le paramétrage des taxes du dossier : trois lignes, mais c'est lui
+        // qui dit qu'AIRSI n'est pas une TVA malgré son TA_EdiCode « VAT ».
+        var catalogue = new TaxCatalogue(
+            await repository.GetTaxesAsync(cancellation),
+            _options.CustomTaxes);
+
+        // La famille d'un article ne se lit que dans F_ARTICLE, et seulement si
+        // une ligne est à 0 % : sans exonération, elle ne servirait à rien.
+        var familles = lignes.Any(ligne => TaxMapping.TauxTva(ligne) == 0m)
+            ? await repository.GetArticleFamiliesAsync(
+                lignes.Select(ligne => ligne.ArticleReference).Distinct().ToList(),
+                cancellation)
+            : [];
+
         // Le registre des certifications en une lecture lui aussi.
         // Le registre est interrogé sur l'identité stable, pas sur le numéro :
         // une facture certifiée en type 6 doit rester reconnue une fois passée
@@ -81,7 +95,7 @@ public sealed class InvoiceBatchReader(
         var conversions = new List<InvoiceConversion>(entetes.Count);
         foreach (var entete in entetes)
         {
-            conversions.Add(Convertir(entete, parPiece, clients, deja));
+            conversions.Add(Convertir(entete, parPiece, clients, deja, familles, catalogue));
         }
 
         return new InvoiceBatch { Conversions = conversions, Constats = constats.Constats };
@@ -91,7 +105,9 @@ public sealed class InvoiceBatchReader(
         SageDocumentHeader entete,
         IReadOnlyDictionary<string, List<SageDocumentLine>> parPiece,
         IReadOnlyDictionary<string, SageCustomer> clients,
-        IReadOnlyDictionary<string, CertifiedInvoice> deja)
+        IReadOnlyDictionary<string, CertifiedInvoice> deja,
+        IReadOnlyDictionary<string, string> familles,
+        TaxCatalogue catalogue)
     {
         var rapport = new CheckReport();
         var lignes = parPiece.TryGetValue(entete.Piece, out var trouvees) ? trouvees : [];
@@ -104,7 +120,7 @@ public sealed class InvoiceBatchReader(
         // La facture n'est construite que si elle a de quoi l'être ; les
         // contrôles restent produits dans tous les cas.
         var facture = client is not null && lignes.Count > 0
-            ? mapper.Map(entete, lignes, client, rapport)
+            ? mapper.Map(entete, lignes, client, rapport, familles, catalogue)
             : null;
 
         var empreinte = facture is null ? "" : InvoiceFingerprint.Compute(facture);

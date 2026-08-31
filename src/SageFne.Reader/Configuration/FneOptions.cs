@@ -12,28 +12,21 @@ public sealed class FneOptions
     public string Template { get; set; } = "B2B";
 
     /// <summary>
-    /// Régime appliqué aux lignes à 0 % de TVA, faute de règle plus précise.
+    /// Classification des lignes à 0 % de TVA. Voir <see cref="ZeroVatOptions"/>.
+    /// </summary>
+    public ZeroVatOptions ZeroVat { get; set; } = new();
+
+    /// <summary>
+    /// Prélèvements Sage repris en <c>customTaxes</c>, par leur code.
     /// </summary>
     /// <remarks>
-    /// Valeurs acceptées : <c>Unknown</c>, <c>ConventionalExemption</c>,
-    /// <c>LegalExemptionTeeRme</c>. <b>Unknown par défaut, et c'est voulu</b> :
-    /// TVAC et TVAD valent tous deux 0 % et Sage ne les distingue pas. Une
-    /// facture dont le régime reste inconnu est bloquée plutôt que d'annoncer à
-    /// la DGI une exonération qu'on aurait devinée.
+    /// Un mapping <b>explicite</b>, code Sage vers nom FNE. Reprendre
+    /// automatiquement tout ce qui n'est pas une TVA ferait partir à la DGI des
+    /// prélèvements sous un nom que personne n'a validé. Un code absent d'ici
+    /// est signalé, jamais deviné.
     /// </remarks>
-    public string ZeroVatCategory { get; set; } = "Unknown";
-
-    /// <summary>
-    /// Régime par référence d'article (AR_Ref), quand l'exonération tient au
-    /// produit — un bien légalement exonéré.
-    /// </summary>
-    public Dictionary<string, string> ZeroVatCategoryByArticle { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Régime par compte client (CT_Num), quand l'exonération tient au client —
-    /// une entreprise titulaire d'un régime d'exonération.
-    /// </summary>
-    public Dictionary<string, string> ZeroVatCategoryByCustomer { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> CustomTaxes { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase) { ["AIRSI"] = "AIRSI" };
 
     /// <summary>
     /// Fichier du registre des certifications. Vide : « certifications.json »

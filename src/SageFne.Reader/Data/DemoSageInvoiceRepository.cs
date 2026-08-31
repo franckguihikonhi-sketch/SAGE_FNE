@@ -229,6 +229,18 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository, ISageTax
         CancellationToken cancellation = default) =>
         Task.FromResult(new List<SageColonnesManquantes>());
 
+    /// <remarks>Famille « 02 » pour la 13415001, relevée sur le dossier réel.</remarks>
+    public Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+        IReadOnlyCollection<string> arRefs,
+        CancellationToken cancellation = default) =>
+        Task.FromResult(Lignes
+            .Where(ligne => arRefs.Contains(ligne.ArticleReference))
+            .GroupBy(ligne => ligne.ArticleReference, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                groupe => groupe.Key,
+                groupe => groupe.Key == "13415001" ? "02" : "01",
+                StringComparer.OrdinalIgnoreCase));
+
     // --- Exploration (jeu d'essai) -----------------------------------------
 
     /// <remarks>

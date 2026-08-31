@@ -463,6 +463,12 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
     Console.WriteLine($"  CT_Telephone    {Renseigne(piece.Customer?.Telephone)}");
     Console.WriteLine($"  CT_EMail        {Renseigne(piece.Customer?.Email)}");
 
+    // Mêmes règles que le lot, pour que le relevé montre ce qui partirait.
+    var politique = new ConfiguredZeroVatPolicy(reglages.ZeroVat);
+    var catalogueDuReleve = new TaxCatalogue(await depot.GetTaxesAsync(), reglages.CustomTaxes);
+    var famillesDuReleve = await depot.GetArticleFamiliesAsync(
+        piece.Lines.Select(ligne => ligne.ArticleReference).Distinct().ToList());
+
     Titre($"Lignes — {Pluriel(piece.Lines.Count, "ligne")}");
     Console.WriteLine(
         $"  {"N°",3} {"AR_Ref",-14} {"Désignation",-24} {"Qté",10} {"PU HT",13} " +
@@ -471,7 +477,11 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
     foreach (var ligne in piece.Lines)
     {
         var remise = RemiseMapping.Read(ligne);
-        var taxes = TaxMapping.Read(ligne, new ZeroVatClassifier(reglages).Classer(ligne, piece.Customer));
+        var decision = politique.Decider(new ZeroVatContexte(
+            ligne.ArticleReference,
+            famillesDuReleve.GetValueOrDefault(ligne.ArticleReference, ""),
+            piece.Customer?.CtNum ?? piece.Header.Tiers));
+        var taxes = TaxMapping.Read(ligne, decision.Regime, catalogueDuReleve);
         var tva = TaxMapping.TauxTva(ligne);
         var airsi = TaxMapping.TauxPrelevements(ligne);
 
@@ -482,6 +492,37 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
             $"{Nombre(remise.PrixUnitaireNet),13} {Pourcent(tva),8} " +
             $"{CodeTaxe(taxes),14} {Pourcent(airsi),7} " +
             $"{Somme(ligne.MontantHT),14} {Somme(ligne.MontantTTC),14}");
+    }
+
+    // D'où vient — ou ne vient pas — la classification des lignes à 0 %.
+    var zero = piece.Lines
+        .Where(ligne => TaxMapping.TauxTva(ligne) == 0m)
+        .Select(ligne => (
+            Ligne: ligne,
+            Decision: politique.Decider(new ZeroVatContexte(
+                ligne.ArticleReference,
+                famillesDuReleve.GetValueOrDefault(ligne.ArticleReference, ""),
+                piece.Customer?.CtNum ?? piece.Header.Tiers))))
+        .ToList();
+
+    if (zero.Count > 0)
+    {
+        Titre("Classification des lignes à 0 % de TVA");
+        Console.WriteLine($"  {"Ligne",5} {"Article",-14} {"Famille",-10} {"Règle appliquée",-28} Régime");
+        foreach (var (ligne, decision) in zero)
+        {
+            Console.WriteLine(
+                $"  {ligne.Ligne,5} {Tronquer(ligne.ArticleReference, 14),-14} " +
+                $"{Tronquer(famillesDuReleve.GetValueOrDefault(ligne.ArticleReference, "—"), 10),-10} " +
+                $"{Tronquer(decision.Origine, 28),-28} {decision.Regime.Libelle()}");
+            if (decision.Erreur is not null) Console.WriteLine($"        ERREUR : {decision.Erreur}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("""
+              Ordre consulté : article, puis famille, puis client, puis dossier.
+              Se déclare dans appsettings.json, section Fne:ZeroVat.
+              """);
     }
 
     Titre("Totaux");

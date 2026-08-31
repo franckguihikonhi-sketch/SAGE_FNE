@@ -80,6 +80,10 @@ public class InvoiceBatchReaderTests
 
         public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<SageColonnesManquantes>());
+
+        public Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+            IReadOnlyCollection<string> r, CancellationToken ct = default) =>
+            Task.FromResult(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
     }
 
     private static SageDocumentHeader Entete(string piece, string tiers, int jour) => new()

@@ -23,7 +23,7 @@ public class CertificationTests
     {
         Template = "B2B",
         PaymentMethod = "deferred",
-        ZeroVatCategory = "LegalExemptionTEE_RME",
+        ZeroVat = new() { Default = "LegalExemptionTEE_RME" },
     };
 
     private sealed class Depot : ISageInvoiceRepository
@@ -64,6 +64,10 @@ public class CertificationTests
 
         public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<SageColonnesManquantes>());
+
+        public Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+            IReadOnlyCollection<string> r, CancellationToken ct = default) =>
+            Task.FromResult(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
     }
 
     private static Depot DepotDUnePiece(decimal prixUnitaire = 2500m) => new()

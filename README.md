@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 136 tests
+dotnet test                                    # 152 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -123,23 +123,78 @@ La nomenclature FNE distingue deux exonérations qui valent **toutes deux 0 %** 
 - `TVAC` — exonération **conventionnelle**
 - `TVAD` — exonération **légale**, TEE/RME
 
-**Sage ne porte pas la différence.** Mapper automatiquement `DL_Taxe1 = 0` vers `TVAD`
-reviendrait à déclarer à la DGI un régime fiscal qu'on ignore, sur une facture certifiée
-qui ne se corrige plus que par un avoir. C'est interdit.
+**Sage ne porte pas la différence**, et la vérification faite sur le dossier HT l'a
+confirmé : `F_TAXE` n'a aucune fiche à taux 0, et une ligne exonérée ne porte aucun code
+de taxe — `DL_CodeTaxe1` vide, `DL_Taxe1 = 0`. La distinction est un fait juridique que
+Sage n'a jamais eu de raison d'enregistrer.
 
-Le régime vient donc du paramétrage, de la règle la plus précise à la plus générale :
+Elle se déclare donc, du plus précis au plus général :
 
 ```jsonc
 "Fne": {
-  "ZeroVatCategoryByArticle":  { "13415001": "LegalExemptionTEE_RME" },  // 1. le produit
-  "ZeroVatCategoryByCustomer": { "4111SITASARL": "ConventionalExemption" }, // 2. le client
-  "ZeroVatCategory": "Unknown"                                           // 3. le dossier
+  "ZeroVat": {
+    "ByArticle":  { "13415001": "LegalExemptionTEE_RME" },   // 1. le produit
+    "ByFamily":   { "02": "LegalExemptionTEE_RME" },         // 2. sa famille
+    "ByCustomer": { "4111SITASARL": "ConventionalExemption" },// 3. le client
+    "Default": "Unknown"                                     // 4. le dossier
+  }
 }
 ```
 
-Valeurs acceptées : `Unknown`, `ConventionalExemption`, `LegalExemptionTEE_RME` — ou
-directement `TVAC` / `TVAD`. Une valeur mal orthographiée ne vaut pas classification : elle
-bloque, plutôt que d'appliquer un régime approximatif.
+| Priorité | Clé | D'où elle vient |
+| --- | --- | --- |
+| 1 | `ByArticle` | `AR_Ref` de la ligne |
+| 2 | `ByFamily` | `FA_CodeFamille` de l'article, lu dans `F_ARTICLE` |
+| 3 | `ByCustomer` | `CT_Num` du client de la pièce |
+| 4 | `Default` | le dossier entier |
+| 5 | — | **`ZERO_VAT_CATEGORY_UNKNOWN`**, pièce bloquée |
+
+**Deux valeurs, et deux seulement** : `ConventionalExemption` et `LegalExemptionTEE_RME`
+(plus `Unknown`, qui bloque volontairement). Écrire `TVAD` ou `legale` n'est pas accepté —
+et surtout **pas ignoré en silence** : la règle est refusée par `ZERO_VAT_CATEGORY_INVALID`,
+sans passer au niveau suivant. Traiter une faute de frappe comme une absence de règle ferait
+partir la facture sous un régime que personne n'a voulu.
+
+Le relevé montre quelle règle a décidé :
+
+```
+Classification des lignes à 0 % de TVA
+  Ligne Article        Famille    Règle appliquée              Régime
+      1 13415001       02         aucune règle applicable      non déterminé
+```
+
+L'**AIRSI part quand même** en `customTaxes` : un prélèvement ne dépend pas du régime de TVA.
+
+### Où viennent les règles, plus tard
+
+`IZeroVatPolicy` est une interface, et `ConfiguredZeroVatPolicy` n'en est qu'une
+implémentation — celle qui lit `appsettings.json`. Un écran de paramétrage SaaS
+alimentera le même contrat sans que le mapping change. `ZeroVatOptions` est plat à
+dessein : quatre dictionnaires de chaînes, qui se sérialisent tels quels.
+
+### Les prélèvements ne se devinent pas non plus
+
+Les trois fiches de `F_TAXE` du dossier portent **toutes** `TA_EdiCode = "VAT"`, AIRSI
+compris. Se fier à ce champ ferait certifier l'AIRSI comme de la TVA. `TA_Regroup`, lui,
+sépare correctement — « TVA » pour les deux taux, « AIRSI » pour le prélèvement — et sert
+à nommer le groupe d'un code.
+
+Mais il ne décide pas seul. Un code n'entre en `customTaxes` que s'il est **explicitement
+mappé** :
+
+```jsonc
+"Fne": { "CustomTaxes": { "AIRSI": "AIRSI" } }
+```
+
+Un code non mappé rangé dans le même groupe qu'un prélèvement repris est signalé par
+`PRELEVEMENT_SANS_MAPPING_FNE` et bloque la pièce, plutôt que de partir sous un nom que
+personne n'a validé :
+
+```
+ligne 1 : le code « AIB » (2 %) appartient au regroupement « AIRSI », comme AIRSI
+qui est repris en customTaxes. Aucun nom FNE ne lui est associé : ajoutez-le à
+Fne:CustomTaxes plutôt que de le laisser deviner.
+```
 
 ### Chercher le discriminant dans le dossier
 
@@ -432,7 +487,7 @@ SageFne.sln
 │   │                                    InvoiceBatch, CommandLine
 │   ├── Certification/                   ICertificationLedger, JsonCertificationLedger,
 │   │                                    CertifiedInvoice, InvoiceFingerprint
-│   ├── Configuration/FneOptions.cs
+│   ├── Configuration/                   FneOptions, ZeroVatOptions
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
 │   │                                    SageCustomer, SageTax, SageRemise,
 │   │                                    SageDocumentTypes, SageDocumentTypeSummary,
@@ -444,7 +499,8 @@ SageFne.sln
 │   │                                    CritereSql, ReadOnlyGuard, ColonnesTable
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,
 │   │                                    TaxMapping, RemiseMapping,
-│   │                                    RegimeTvaZero, ZeroVatClassifier
+│   │                                    RegimeTvaZero, IZeroVatPolicy,
+│   │                                    ConfiguredZeroVatPolicy, TaxCatalogue
 │   └── Validation/                      InvoiceValidator, FinancialChecks,
 │                                        FneCompleteness, CheckReport
 └── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,

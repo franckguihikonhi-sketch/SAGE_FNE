@@ -16,19 +16,47 @@ namespace SageFne.Reader.Mapping;
 public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoiceMapper
 {
     private readonly FneOptions _options = options.Value;
-    private readonly ZeroVatClassifier _regimes = new(options.Value);
+    private readonly IZeroVatPolicy _regimes = new ConfiguredZeroVatPolicy(options.Value.ZeroVat);
 
+    /// <param name="famillesParArticle">
+    /// FA_CodeFamille par AR_Ref, quand la classification par famille doit
+    /// pouvoir jouer. F_DOCLIGNE ne porte pas la famille : elle vient d'une
+    /// lecture de F_ARTICLE faite par le lot.
+    /// </param>
+    /// <param name="catalogue">Ce que le dossier dit de ses taxes.</param>
     public FneInvoice Map(
         SageDocumentHeader header,
         IReadOnlyCollection<SageDocumentLine> lines,
         SageCustomer customer,
-        CheckReport? report = null)
+        CheckReport? report = null,
+        IReadOnlyDictionary<string, string>? famillesParArticle = null,
+        TaxCatalogue? catalogue = null)
     {
         var items = new List<FneInvoiceItem>(lines.Count);
 
         foreach (var ligne in lines.OrderBy(ligne => ligne.Ligne))
         {
-            var taxes = TaxMapping.Read(ligne, _regimes.Classer(ligne, customer));
+            var famille = famillesParArticle is not null
+                && famillesParArticle.TryGetValue(ligne.ArticleReference, out var trouvee)
+                ? trouvee
+                : "";
+
+            var decision = _regimes.Decider(
+                new ZeroVatContexte(ligne.ArticleReference, famille, customer.CtNum));
+
+            var taxes = TaxMapping.Read(ligne, decision.Regime, catalogue);
+
+            // Une règle mal écrite ne se contourne pas en passant au niveau
+            // suivant : elle se signale.
+            if (decision.Erreur is not null)
+            {
+                report?.Erreur("ZERO_VAT_CATEGORY_INVALID", $"ligne {ligne.Ligne} : {decision.Erreur}");
+            }
+
+            foreach (var prelevement in taxes.PrelevementsSansMapping)
+            {
+                report?.Erreur(TaxMapping.CodePrelevementSansMapping, prelevement);
+            }
 
             // Une TVA à 0 % dont le régime n'est pas classé bloque la pièce :
             // TVAC et TVAD valent tous deux 0 %, et annoncer à la DGI une
@@ -37,7 +65,9 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
             {
                 foreach (var avertissement in taxes.Avertissements)
                 {
-                    report?.Erreur(TaxMapping.CodeRegimeInconnu, avertissement);
+                    report?.Erreur(
+                        TaxMapping.CodeRegimeInconnu,
+                        $"{avertissement} Règle consultée : {decision.Origine}.");
                 }
             }
             else

@@ -11,5 +11,7 @@ public interface IFneInvoiceMapper
         SageDocumentHeader header,
         IReadOnlyCollection<SageDocumentLine> lines,
         SageCustomer customer,
-        CheckReport? report = null);
+        CheckReport? report = null,
+        IReadOnlyDictionary<string, string>? famillesParArticle = null,
+        TaxCatalogue? catalogue = null);
 }

@@ -117,83 +117,174 @@ public class ZeroVatTests
         Assert.False(resultat.RegimeZeroRequis);
     }
 
-    // --- La classification, de la plus précise à la plus générale ----------
+    // --- La hiérarchie, du plus précis au plus général ---------------------
 
-    private static ZeroVatClassifier Classeur(
-        string global = "Unknown",
+    private static ConfiguredZeroVatPolicy Politique(
+        string dossier = "Unknown",
         Dictionary<string, string>? parArticle = null,
+        Dictionary<string, string>? parFamille = null,
         Dictionary<string, string>? parClient = null) =>
-        new(new FneOptions
+        new(new ZeroVatOptions
         {
-            ZeroVatCategory = global,
-            ZeroVatCategoryByArticle = parArticle ?? new(StringComparer.OrdinalIgnoreCase),
-            ZeroVatCategoryByCustomer = parClient ?? new(StringComparer.OrdinalIgnoreCase),
+            Default = dossier,
+            ByArticle = parArticle ?? new(StringComparer.OrdinalIgnoreCase),
+            ByFamily = parFamille ?? new(StringComparer.OrdinalIgnoreCase),
+            ByCustomer = parClient ?? new(StringComparer.OrdinalIgnoreCase),
         });
 
+    private static Dictionary<string, string> Regle(string cle, string valeur) =>
+        new(StringComparer.OrdinalIgnoreCase) { [cle] = valeur };
+
+    private static readonly ZeroVatContexte Contexte =
+        new("13415001", "02", "4111SITASARL");
+
     [Fact]
-    public void Sans_rien_de_configure_le_regime_est_inconnu()
+    public void Sans_aucune_regle_le_regime_est_inconnu()
     {
-        Assert.Equal(RegimeTvaZero.Inconnu, Classeur().Classer(Ligne(), Client()));
+        var decision = Politique().Decider(Contexte);
+
+        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal("aucune règle applicable", decision.Origine);
+        Assert.Null(decision.Erreur);
     }
 
     [Fact]
-    public void Le_reglage_global_s_applique_a_defaut()
+    public void Priorite_4_le_dossier_s_applique_a_defaut()
     {
-        Assert.Equal(
-            RegimeTvaZero.ExonerationLegaleTeeRme,
-            Classeur(global: "LegalExemptionTEE_RME").Classer(Ligne(), Client()));
+        var decision = Politique(dossier: "LegalExemptionTEE_RME").Decider(Contexte);
+
+        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal("dossier", decision.Origine);
     }
 
     [Fact]
-    public void Le_client_l_emporte_sur_le_reglage_global()
+    public void Priorite_3_le_client_l_emporte_sur_le_dossier()
     {
-        var classeur = Classeur(
-            global: "LegalExemptionTEE_RME",
-            parClient: new(StringComparer.OrdinalIgnoreCase) { ["4111SITASARL"] = "ConventionalExemption" });
+        var decision = Politique(
+            dossier: "LegalExemptionTEE_RME",
+            parClient: Regle("4111SITASARL", "ConventionalExemption")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.ExonerationConventionnelle, classeur.Classer(Ligne(), Client()));
+        Assert.Equal(RegimeTvaZero.ExonerationConventionnelle, decision.Regime);
+        Assert.Equal("client 4111SITASARL", decision.Origine);
     }
 
     [Fact]
-    public void L_article_l_emporte_sur_le_client()
+    public void Priorite_2_la_famille_l_emporte_sur_le_client()
     {
-        // L'exonération d'un produit prime celle du titulaire : c'est la règle
-        // la plus précise qui gagne.
-        var classeur = Classeur(
-            parArticle: new(StringComparer.OrdinalIgnoreCase) { ["13415001"] = "LegalExemptionTEE_RME" },
-            parClient: new(StringComparer.OrdinalIgnoreCase) { ["4111SITASARL"] = "ConventionalExemption" });
+        var decision = Politique(
+            dossier: "ConventionalExemption",
+            parFamille: Regle("02", "LegalExemptionTEE_RME"),
+            parClient: Regle("4111SITASARL", "ConventionalExemption")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, classeur.Classer(Ligne(), Client()));
+        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal("famille 02", decision.Origine);
     }
 
     [Fact]
-    public void Une_valeur_illisible_ne_vaut_pas_classification()
+    public void Priorite_1_l_article_l_emporte_sur_tout()
     {
-        // « TVAX » n'existe pas : mieux vaut bloquer qu'appliquer un régime
-        // mal orthographié.
-        var classeur = Classeur(
-            parClient: new(StringComparer.OrdinalIgnoreCase) { ["4111SITASARL"] = "TVAX" });
+        var decision = Politique(
+            dossier: "ConventionalExemption",
+            parArticle: Regle("13415001", "LegalExemptionTEE_RME"),
+            parFamille: Regle("02", "ConventionalExemption"),
+            parClient: Regle("4111SITASARL", "ConventionalExemption")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.Inconnu, classeur.Classer(Ligne(), Client()));
+        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal("article 13415001", decision.Origine);
+    }
+
+    [Fact]
+    public void Les_quatre_niveaux_s_enchainent_dans_l_ordre()
+    {
+        var toutes = Politique(
+            dossier: "ConventionalExemption",
+            parArticle: Regle("13415001", "LegalExemptionTEE_RME"),
+            parFamille: Regle("02", "ConventionalExemption"),
+            parClient: Regle("4111SITASARL", "ConventionalExemption"));
+
+        Assert.Equal("article 13415001", toutes.Decider(Contexte).Origine);
+        // Un autre article : la famille prend le relais.
+        Assert.Equal("famille 02", toutes.Decider(Contexte with { ArticleReference = "AUTRE" }).Origine);
+        // Ni article ni famille connus : le client.
+        Assert.Equal("client 4111SITASARL",
+            toutes.Decider(new ZeroVatContexte("AUTRE", "99", "4111SITASARL")).Origine);
+        // Rien de connu : le dossier.
+        Assert.Equal("dossier", toutes.Decider(new ZeroVatContexte("AUTRE", "99", "AUTRE")).Origine);
+    }
+
+    [Fact]
+    public void Une_famille_absente_ne_fait_pas_echouer_la_cascade()
+    {
+        // F_ARTICLE peut ne pas porter FA_CodeFamille : la famille est alors
+        // vide, et le niveau est simplement sauté.
+        var decision = Politique(
+            parFamille: Regle("02", "ConventionalExemption"),
+            parClient: Regle("4111SITASARL", "LegalExemptionTEE_RME"))
+            .Decider(Contexte with { Famille = "" });
+
+        Assert.Equal("client 4111SITASARL", decision.Origine);
+    }
+
+    // --- Aucune valeur n'est acceptée en silence ---------------------------
+
+    [Theory]
+    [InlineData("TVAC")]
+    [InlineData("TVAD")]
+    [InlineData("conventionnelle")]
+    [InlineData("legale")]
+    [InlineData("n'importe quoi")]
+    public void Une_valeur_hors_nomenclature_est_refusee_et_non_ignoree(string valeur)
+    {
+        // Passer au niveau suivant traiterait une faute de frappe comme une
+        // absence de règle : la facture partirait sous un régime non voulu.
+        var decision = Politique(
+            dossier: "LegalExemptionTEE_RME",
+            parArticle: Regle("13415001", valeur)).Decider(Contexte);
+
+        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.NotNull(decision.Erreur);
+        Assert.Contains(valeur, decision.Erreur);
+        Assert.Contains("ConventionalExemption", decision.Erreur);
+        Assert.Contains("LegalExemptionTEE_RME", decision.Erreur);
+    }
+
+    [Fact]
+    public void Un_reglage_de_dossier_illisible_est_refuse_aussi()
+    {
+        var decision = Politique(dossier: "TVAD").Decider(Contexte);
+
+        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.NotNull(decision.Erreur);
     }
 
     [Theory]
-    [InlineData("TVAC", RegimeTvaZero.ExonerationConventionnelle)]
     [InlineData("ConventionalExemption", RegimeTvaZero.ExonerationConventionnelle)]
-    [InlineData("TVAD", RegimeTvaZero.ExonerationLegaleTeeRme)]
     [InlineData("LegalExemptionTEE_RME", RegimeTvaZero.ExonerationLegaleTeeRme)]
     [InlineData("Unknown", RegimeTvaZero.Inconnu)]
     [InlineData("", RegimeTvaZero.Inconnu)]
-    public void Le_parametrage_se_lit_sous_ses_deux_ecritures(string valeur, RegimeTvaZero attendu)
+    public void Seules_les_valeurs_de_la_nomenclature_sont_lues(string valeur, RegimeTvaZero attendu)
     {
-        Assert.Equal(attendu, ZeroVatClassifier.Analyser(valeur));
+        Assert.Equal(attendu, ConfiguredZeroVatPolicy.Analyser(valeur));
     }
 
     [Fact]
-    public void Une_valeur_inconnue_du_parametrage_se_distingue_d_Unknown()
+    public void Une_valeur_inconnue_se_distingue_d_Unknown()
     {
         // null, et non Inconnu : la valeur est fautive, pas absente.
-        Assert.Null(ZeroVatClassifier.Analyser("n'importe quoi"));
+        Assert.Null(ConfiguredZeroVatPolicy.Analyser("TVAD"));
+        Assert.Equal(RegimeTvaZero.Inconnu, ConfiguredZeroVatPolicy.Analyser("Unknown"));
+    }
+
+    [Fact]
+    public void Un_Unknown_declare_bloque_comme_une_absence_de_regle()
+    {
+        var decision = Politique(
+            dossier: "LegalExemptionTEE_RME",
+            parArticle: Regle("13415001", "Unknown")).Decider(Contexte);
+
+        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal("article 13415001", decision.Origine);
+        Assert.Null(decision.Erreur);
     }
 
     [Fact]

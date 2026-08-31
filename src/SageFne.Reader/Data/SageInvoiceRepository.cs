@@ -591,6 +591,49 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         return releve;
     }
 
+    /// <remarks>
+    /// Les deux colonnes sont vérifiées au catalogue : un dossier sans
+    /// FA_CodeFamille rend simplement une table vide, et la classification par
+    /// famille ne joue pas.
+    /// </remarks>
+    public async Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+        IReadOnlyCollection<string> arRefs,
+        CancellationToken cancellation = default)
+    {
+        var familles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var distincts = arRefs.Where(reference => !string.IsNullOrWhiteSpace(reference)).Distinct().ToList();
+        if (distincts.Count == 0) return familles;
+
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesAsync(connexion, "F_ARTICLE", cancellation);
+        if (!colonnes.A("AR_Ref") || !colonnes.A("FA_CodeFamille"))
+        {
+            logger.LogDebug("F_ARTICLE sans AR_Ref ou FA_CodeFamille : classification par famille inactive.");
+            return familles;
+        }
+
+        foreach (var tranche in distincts.Chunk(TailleTranche))
+        {
+            var noms = tranche.Select((_, rang) => $"@ar{rang}").ToArray();
+            var sql = $"""
+                select a.AR_Ref, a.FA_CodeFamille
+                from F_ARTICLE a
+                where a.AR_Ref in ({string.Join(", ", noms)})
+                """;
+
+            await using var commande = Commande(connexion, sql);
+            for (var rang = 0; rang < tranche.Length; rang++) Ajouter(commande, noms[rang], tranche[rang]);
+
+            await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+            while (await lecteur.ReadAsync(cancellation))
+            {
+                familles[lecteur.Text("AR_Ref")] = lecteur.Text("FA_CodeFamille");
+            }
+        }
+
+        return familles;
+    }
+
     // --- Exploration -------------------------------------------------------
 
     /// <remarks>
