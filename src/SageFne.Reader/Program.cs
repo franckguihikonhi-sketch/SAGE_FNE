@@ -53,6 +53,10 @@ else
     builder.Services.AddSingleton<ISageInvoiceRepository, DemoSageInvoiceRepository>();
 }
 
+// Les deux dépôts savent aussi explorer : même instance, deux rôles.
+builder.Services.AddSingleton<ISageTaxInspector>(fournisseur =>
+    (ISageTaxInspector)fournisseur.GetRequiredService<ISageInvoiceRepository>());
+
 // Le registre des certifications vit hors de Sage : la base y est en lecture
 // seule, et rien n'y prévoit de zone pour la référence FNE.
 var registre = ligneDeCommande.Registre
@@ -163,6 +167,134 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
     Console.WriteLine(
         "Lecture seule : trois SELECT sur F_DOCENTETE, plus une consultation du " +
         "catalogue pour savoir si la colonne DO_DocType existe. Rien n'a été écrit.");
+    return 0;
+}
+
+// Le paramétrage fiscal du dossier, pour chercher ce qui distinguerait une
+// exonération conventionnelle d'une exonération légale. Rien n'est déduit ici :
+// la commande montre, elle ne conclut pas.
+if (ligneDeCommande.Verbe == Verbe.Taxes)
+{
+    if (hote.Services.GetService<ISageTaxInspector>() is not { } inspecteur)
+    {
+        Console.Error.WriteLine("Cette source ne permet pas l'exploration des tables.");
+        return 2;
+    }
+
+    var piece = ligneDeCommande.Query.Pieces.FirstOrDefault() ?? "1219";
+    var depotTaxes = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+
+    Titre($"Paramétrage fiscal — autour de la pièce {piece}");
+    Console.WriteLine(Source(connexionConfiguree));
+
+    // 1. F_TAXE, toutes colonnes : c'est là que se trouverait un code
+    //    d'exonération déjà paramétré par le dossier.
+    var taxes = await inspecteur.LireTableAsync("F_TAXE");
+    Titre($"F_TAXE — {Pluriel(taxes.Count, "taxe")}");
+    if (taxes.Count == 0)
+    {
+        Console.WriteLine("  Table vide ou introuvable.");
+    }
+    else
+    {
+        foreach (var taxe in taxes)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  ── {taxe.Cle}");
+            foreach (var champ in taxe.Renseignes)
+            {
+                Console.WriteLine($"     {champ.Colonne,-28} {champ.Valeur}");
+            }
+        }
+
+        var aZero = taxes
+            .Where(taxe => Taux(taxe) == 0m && !string.IsNullOrWhiteSpace(taxe.Cle))
+            .ToList();
+
+        Console.WriteLine();
+        Console.WriteLine(aZero.Count > 0
+            ? $"  {Pluriel(aZero.Count, "fiche")} à taux 0 : {string.Join(", ", aZero.Select(taxe => taxe.Cle))}.\n" +
+              "  Si les lignes exonérées portent ce code dans DL_CodeTaxeN, il distingue les régimes."
+            : "  Aucune fiche à taux 0 dans F_TAXE : une ligne exonérée ne porte donc\n" +
+              "  aucun code de taxe qui dirait de quelle exonération il s'agit.");
+    }
+
+    // 2. La pièce, ses lignes, son client, ses articles.
+    var fiscalite = await inspecteur.LireFiscaliteLignesAsync(piece);
+    Titre($"F_DOCLIGNE — colonnes de taxe brutes de la pièce {piece}");
+    if (fiscalite.Count == 0)
+    {
+        Console.WriteLine($"  Aucune ligne pour la pièce {piece}.");
+    }
+
+    foreach (var ligne in fiscalite)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  ── ligne {ligne.Cle}");
+        foreach (var champ in ligne.Champs)
+        {
+            var valeur = string.IsNullOrWhiteSpace(champ.Valeur) ? "— vide —" : champ.Valeur;
+            Console.WriteLine($"     {champ.Colonne,-28} {valeur}");
+        }
+    }
+
+    var entetePiece = await depotTaxes.GetInvoiceAsync(piece);
+    if (entetePiece is not null)
+    {
+        var fiche = await inspecteur.LireLigneAsync("F_COMPTET", "CT_Num", entetePiece.Tiers);
+        Titre($"F_COMPTET — client {entetePiece.Tiers}");
+        Montrer(fiche, "Client introuvable dans F_COMPTET.");
+    }
+
+    var articles = fiscalite
+        .Select(ligne => ligne.Valeur("AR_Ref") ?? "")
+        .Where(reference => !string.IsNullOrWhiteSpace(reference))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    foreach (var reference in articles)
+    {
+        var fiche = await inspecteur.LireLigneAsync("F_ARTICLE", "AR_Ref", reference);
+        Titre($"F_ARTICLE — article {reference}");
+        Montrer(fiche, $"Article {reference} introuvable dans F_ARTICLE.");
+    }
+
+    // 3. Le verdict, qui ne tranche que ce qui est tranchable.
+    Titre("Peut-on décider automatiquement entre TVAC et TVAD ?");
+    var codesExoneration = fiscalite
+        .SelectMany(ligne => new[] { "DL_CodeTaxe1", "DL_CodeTaxe2", "DL_CodeTaxe3" }
+            .Select(colonne => (Colonne: colonne, Code: ligne.Valeur(colonne) ?? "")))
+        .Where(entree => !string.IsNullOrWhiteSpace(entree.Code))
+        .Select(entree => entree.Code)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    Console.WriteLine($"  Codes de taxe portés par les lignes : " +
+        (codesExoneration.Count > 0 ? string.Join(", ", codesExoneration) : "aucun"));
+    Console.WriteLine();
+    Console.WriteLine("""
+          18 % → TVA et 9 % → TVAB se décident sur le taux seul : c'est acquis.
+
+          0 % ne se décide pas sur le taux. Il faudrait, dans ce qui précède, une
+          donnée qui sépare les deux régimes — une fiche F_TAXE à 0 % portant un
+          code distinct, un champ de F_COMPTET marquant le client comme titulaire
+          d'un régime, ou un champ de F_ARTICLE marquant le produit comme
+          légalement exonéré.
+
+          Cette lecture ne peut pas dire lequel de ces champs porte le sens dans
+          ce dossier : c'est une question fiscale, pas technique. Regardez les
+          valeurs ci-dessus avec votre comptable, puis déclarez le régime dans
+          appsettings.json — ZeroVatCategoryByArticle, ZeroVatCategoryByCustomer
+          ou ZeroVatCategory.
+          """);
+
+    Console.WriteLine();
+    Console.WriteLine(
+        $"  Tant que rien n'est déclaré : {TaxMapping.CodeRegimeInconnu}, et la facture\n" +
+        "  reste bloquée. C'est le comportement voulu.");
+
+    Console.WriteLine();
+    Console.WriteLine("Lecture seule : uniquement des SELECT. Rien n'a été écrit, rien n'a été envoyé.");
     return 0;
 }
 
@@ -561,6 +693,43 @@ static string Nombre(decimal valeur) => valeur.ToString("N2", CultureInfo.GetCul
 /// </summary>
 static string CodeTaxe(TaxMapping.Resultat taxes) =>
     taxes.RegimeZeroRequis ? "NON DETERMINE" : taxes.Taxes.Count > 0 ? taxes.Taxes[0] : "—";
+
+/// <summary>Affiche une fiche, ou dit pourquoi il n'y en a pas.</summary>
+static void Montrer(SageEnregistrement? fiche, string absence)
+{
+    if (fiche is null)
+    {
+        Console.WriteLine($"  {absence}");
+        return;
+    }
+
+    // Les colonnes dont le nom évoque la fiscalité d'abord : ce sont celles
+    // qu'on cherche. Le reste suit, pour ne rien masquer.
+    var fiscaux = fiche.Fiscaux.Where(champ => champ.Renseigne).ToList();
+    if (fiscaux.Count > 0)
+    {
+        Console.WriteLine("  Colonnes dont le nom évoque la fiscalité :");
+        foreach (var champ in fiscaux) Console.WriteLine($"     {champ.Colonne,-28} {champ.Valeur}");
+        Console.WriteLine();
+    }
+
+    var autres = fiche.Renseignes.Except(fiscaux).ToList();
+    Console.WriteLine($"  Autres colonnes renseignées ({autres.Count}) :");
+    foreach (var champ in autres) Console.WriteLine($"     {champ.Colonne,-28} {champ.Valeur}");
+}
+
+/// <summary>Le taux d'une fiche F_TAXE, quel que soit le nom de sa colonne.</summary>
+static decimal Taux(SageEnregistrement taxe)
+{
+    var brut = taxe.Champs
+        .FirstOrDefault(champ => champ.Colonne.Contains("Taux", StringComparison.OrdinalIgnoreCase))
+        .Valeur;
+
+    return decimal.TryParse(brut, NumberStyles.Any, CultureInfo.InvariantCulture, out var taux)
+        || decimal.TryParse(brut, NumberStyles.Any, CultureInfo.GetCultureInfo("fr-FR"), out taux)
+        ? taux
+        : 0m;
+}
 
 static string Pourcent(decimal taux) =>
     taux == 0m ? "—" : $"{taux.ToString("0.##", CultureInfo.GetCultureInfo("fr-FR"))} %";

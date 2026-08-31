@@ -15,7 +15,7 @@ namespace SageFne.Reader.Data;
 /// paramètres sont engendrés, jamais des valeurs.
 /// </remarks>
 public sealed class SageInvoiceRepository(string connectionString, ILogger<SageInvoiceRepository> logger)
-    : ISageInvoiceRepository
+    : ISageInvoiceRepository, ISageTaxInspector
 {
     /// <summary>Domaine 0 = ventes.</summary>
     private const short DomaineVente = 0;
@@ -589,6 +589,138 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         }
 
         return releve;
+    }
+
+    // --- Exploration -------------------------------------------------------
+
+    /// <remarks>
+    /// Toutes les colonnes, parce qu'on cherche justement celle dont on ignore
+    /// le nom. Le nom de la table est contrôlé deux fois : sa forme, puis son
+    /// existence au catalogue.
+    /// </remarks>
+    public async Task<List<SageEnregistrement>> LireTableAsync(
+        string table,
+        int limite = 200,
+        CancellationToken cancellation = default)
+    {
+        var nom = IdentifiantSql.Verifier(table);
+
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesAsync(connexion, nom, cancellation);
+        var retenues = colonnes.Presentes.Order(StringComparer.OrdinalIgnoreCase).ToList();
+
+        var sql = $"""
+            select top (@limite)
+            {string.Join(", ", retenues.Select(colonne => $"t.{colonne}"))}
+            from {nom} t
+            """;
+
+        await using var commande = Commande(connexion, sql);
+        Ajouter(commande, "@limite", limite);
+
+        return await LireEnregistrementsAsync(commande, nom, retenues, retenues[0], cancellation);
+    }
+
+    public async Task<SageEnregistrement?> LireLigneAsync(
+        string table,
+        string colonneCle,
+        string valeur,
+        CancellationToken cancellation = default)
+    {
+        var nom = IdentifiantSql.Verifier(table);
+        var cle = IdentifiantSql.Verifier(colonneCle);
+
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesAsync(connexion, nom, cancellation);
+
+        if (!colonnes.A(cle))
+        {
+            throw new InvalidOperationException($"La table {nom} ne porte pas de colonne {cle}.");
+        }
+
+        var retenues = colonnes.Presentes.Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var sql = $"""
+            select top (1)
+            {string.Join(", ", retenues.Select(colonne => $"t.{colonne}"))}
+            from {nom} t
+            where t.{cle} = @valeur
+            """;
+
+        await using var commande = Commande(connexion, sql);
+        Ajouter(commande, "@valeur", valeur);
+
+        var trouves = await LireEnregistrementsAsync(commande, nom, retenues, cle, cancellation);
+        return trouves.FirstOrDefault();
+    }
+
+    /// <remarks>
+    /// Les colonnes dont le nom évoque une taxe, plus de quoi reconnaître la
+    /// ligne. Rien n'est interprété : c'est le brut de F_DOCLIGNE.
+    /// </remarks>
+    public async Task<List<SageEnregistrement>> LireFiscaliteLignesAsync(
+        string piece,
+        CancellationToken cancellation = default)
+    {
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesAsync(connexion, TableLignes, cancellation);
+
+        var reperes = new[] { "DL_Ligne", "AR_Ref", "DL_Design", "DL_Qte", "DL_PrixUnitaire" };
+        var fiscales = colonnes.Presentes
+            .Where(colonne =>
+                colonne.Contains("Taxe", StringComparison.OrdinalIgnoreCase)
+                || colonne.Contains("TVA", StringComparison.OrdinalIgnoreCase)
+                || colonne.Contains("TypeTaux", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.OrdinalIgnoreCase);
+
+        var retenues = reperes.Where(colonnes.A).Concat(fiscales).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        var sql = $"""
+            select
+            {string.Join(", ", retenues.Select(colonne => $"l.{colonne}"))}
+            from F_DOCLIGNE l
+            where l.DO_Domaine = @domaine
+              and l.{FiltreTypesFacture}
+              and l.DO_Piece = @piece
+            order by l.DL_Ligne
+            """;
+
+        await using var commande = Commande(connexion, sql);
+        Ajouter(commande, "@domaine", DomaineVente);
+        AjouterTypes(commande);
+        Ajouter(commande, "@piece", piece);
+
+        return await LireEnregistrementsAsync(
+            commande, TableLignes, retenues, colonnes.A("DL_Ligne") ? "DL_Ligne" : retenues[0], cancellation);
+    }
+
+    private static async Task<List<SageEnregistrement>> LireEnregistrementsAsync(
+        SqlCommand commande,
+        string table,
+        IReadOnlyList<string> colonnes,
+        string colonneCle,
+        CancellationToken cancellation)
+    {
+        var enregistrements = new List<SageEnregistrement>();
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+
+        while (await lecteur.ReadAsync(cancellation))
+        {
+            var champs = colonnes
+                .Select(colonne => new SageChamp(colonne, lecteur.Text(colonne)))
+                .ToList();
+
+            enregistrements.Add(new SageEnregistrement
+            {
+                Table = table,
+                Cle = champs.FirstOrDefault(champ =>
+                    string.Equals(champ.Colonne, colonneCle, StringComparison.OrdinalIgnoreCase)).Valeur ?? "",
+                Champs = champs,
+            });
+        }
+
+        return enregistrements
+            .OrderBy(enregistrement => enregistrement.Cle, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     // --- Plomberie ---------------------------------------------------------

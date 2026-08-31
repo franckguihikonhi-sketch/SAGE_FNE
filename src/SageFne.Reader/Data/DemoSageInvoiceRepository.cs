@@ -16,7 +16,7 @@ namespace SageFne.Reader.Data;
 /// existent pour montrer une TVA à 18 %, une TVA à 9 % avec prélèvement, et un
 /// client sans NCC — le cas qui doit bloquer sans arrêter le lot.
 /// </remarks>
-public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
+public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository, ISageTaxInspector
 {
     public const string PieceDemonstration = "1219";
 
@@ -228,6 +228,107 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
     public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(
         CancellationToken cancellation = default) =>
         Task.FromResult(new List<SageColonnesManquantes>());
+
+    // --- Exploration (jeu d'essai) -----------------------------------------
+
+    /// <remarks>
+    /// Hors base, ces lectures ne montrent que la <b>forme</b> de la sortie.
+    /// Les colonnes d'un vrai dossier Sage sont bien plus nombreuses, et ce
+    /// sont précisément celles-là qu'il faut regarder.
+    /// </remarks>
+    public Task<List<SageEnregistrement>> LireTableAsync(
+        string table,
+        int limite = 200,
+        CancellationToken cancellation = default) =>
+        Task.FromResult(table.Equals("F_TAXE", StringComparison.OrdinalIgnoreCase)
+            ? Taxes.Select(taxe => new SageEnregistrement
+            {
+                Table = "F_TAXE",
+                Cle = taxe.Code,
+                Champs =
+                [
+                    new("TA_Code", taxe.Code),
+                    new("TA_Intitule", taxe.Intitule),
+                    new("TA_Taux", taxe.Taux.ToString("0.##")),
+                    new("TA_Type", taxe.Type.ToString()),
+                    new("CG_Num", taxe.CompteGeneral),
+                    new("TA_Regroup", taxe.Regroupement),
+                    new("TA_EdiCode", taxe.EdiCode),
+                ],
+            }).Take(limite).ToList()
+            : []);
+
+    public Task<SageEnregistrement?> LireLigneAsync(
+        string table,
+        string colonneCle,
+        string valeur,
+        CancellationToken cancellation = default)
+    {
+        if (table.Equals("F_COMPTET", StringComparison.OrdinalIgnoreCase))
+        {
+            var client = Clients.FirstOrDefault(fiche => fiche.CtNum == valeur);
+            return Task.FromResult(client is null ? null : new SageEnregistrement
+            {
+                Table = "F_COMPTET",
+                Cle = client.CtNum,
+                Champs =
+                [
+                    new("CT_Num", client.CtNum),
+                    new("CT_Intitule", client.Intitule),
+                    new("CT_Identifiant", client.Identifiant),
+                    new("CT_Pays", client.Pays),
+                    new("CT_TypeNIF", client.TypeNif.ToString()),
+                ],
+            });
+        }
+
+        if (table.Equals("F_ARTICLE", StringComparison.OrdinalIgnoreCase))
+        {
+            var ligne = Lignes.FirstOrDefault(article => article.ArticleReference == valeur);
+            return Task.FromResult(ligne is null ? null : new SageEnregistrement
+            {
+                Table = "F_ARTICLE",
+                Cle = ligne.ArticleReference,
+                Champs =
+                [
+                    new("AR_Ref", ligne.ArticleReference),
+                    new("AR_Design", ligne.Designation),
+                    new("FA_CodeFamille", "(jeu d'essai)"),
+                ],
+            });
+        }
+
+        return Task.FromResult<SageEnregistrement?>(null);
+    }
+
+    public Task<List<SageEnregistrement>> LireFiscaliteLignesAsync(
+        string piece,
+        CancellationToken cancellation = default) =>
+        Task.FromResult(Lignes
+            .Where(ligne => ligne.Piece == piece)
+            .OrderBy(ligne => ligne.Ligne)
+            .Select(ligne => new SageEnregistrement
+            {
+                Table = "F_DOCLIGNE",
+                Cle = ligne.Ligne.ToString(),
+                Champs =
+                [
+                    new("DL_Ligne", ligne.Ligne.ToString()),
+                    new("AR_Ref", ligne.ArticleReference),
+                    new("DL_Design", ligne.Designation),
+                    new("DL_Taxe1", ligne.Taxe1.ToString("0.##")),
+                    new("DL_CodeTaxe1", ligne.CodeTaxe1),
+                    new("DL_TypeTaux1", ligne.TypeTaux1.ToString()),
+                    new("DL_TypeTaxe1", ligne.TypeTaxe1.ToString()),
+                    new("DL_Taxe2", ligne.Taxe2.ToString("0.##")),
+                    new("DL_CodeTaxe2", ligne.CodeTaxe2),
+                    new("DL_TypeTaux2", ligne.TypeTaux2.ToString()),
+                    new("DL_TypeTaxe2", ligne.TypeTaxe2.ToString()),
+                    new("DL_Taxe3", ligne.Taxe3.ToString("0.##")),
+                    new("DL_CodeTaxe3", ligne.CodeTaxe3),
+                ],
+            })
+            .ToList());
 
     private static bool Retenue(InvoiceQuery query, SageDocumentHeader entete) =>
         (query.Pieces.Count == 0 || query.Pieces.Contains(entete.Piece))

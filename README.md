@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 116 tests
+dotnet test                                    # 136 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -35,6 +35,7 @@ Et un diagnostic, en lecture seule lui aussi :
 dotnet run --project src/SageFne.Reader -- doctypes              # inventaire des types de documents
 dotnet run --project src/SageFne.Reader -- detail 1219           # relevé complet d'une pièce
 dotnet run --project src/SageFne.Reader -- colonnes              # colonnes réelles des tables Sage
+dotnet run --project src/SageFne.Reader -- taxes 1219            # paramétrage fiscal autour d'une pièce
 ```
 
 | Option | Effet |
@@ -139,6 +140,25 @@ Le régime vient donc du paramétrage, de la règle la plus précise à la plus 
 Valeurs acceptées : `Unknown`, `ConventionalExemption`, `LegalExemptionTEE_RME` — ou
 directement `TVAC` / `TVAD`. Une valeur mal orthographiée ne vaut pas classification : elle
 bloque, plutôt que d'appliquer un régime approximatif.
+
+### Chercher le discriminant dans le dossier
+
+```bash
+dotnet run --project src/SageFne.Reader -- taxes 1219
+```
+
+Montre, autour d'une pièce : **F_TAXE** en entier (toutes colonnes — un code EDI ou un
+regroupement peut déjà porter le régime), les **colonnes de taxe brutes** de ses lignes,
+la fiche **F_COMPTET** du client et les fiches **F_ARTICLE** de ses articles, colonnes
+fiscales mises en avant.
+
+Aucun nom de colonne n'est supposé : ils viennent de `sys.columns`. Les tables et colonnes
+désignées passent par `IdentifiantSql`, qui n'accepte qu'une forme d'identifiant et refuse
+tout le reste — c'est le seul endroit du projet où du texte entre dans une requête, les
+valeurs restant toujours des paramètres.
+
+La commande **montre, elle ne conclut pas**. Savoir si `CT_Classement` ou `FA_CodeFamille`
+désigne un régime d'exonération dans ce dossier est une question fiscale, pas technique.
 
 **Rien ne correspond → la pièce est bloquée**, avec une erreur explicite :
 
@@ -418,7 +438,8 @@ SageFne.sln
 │   │                                    SageDocumentTypes, SageDocumentTypeSummary,
 │   │                                    SageDocumentDuplicate
 │   ├── Models/Fne/                      FneInvoice, FneInvoiceItem, FneCustomTax
-│   ├── Data/                            ISageInvoiceRepository, SageInvoiceRepository,
+│   ├── Data/                            ISageInvoiceRepository, ISageTaxInspector,
+│   │                                    SageInvoiceRepository, IdentifiantSql,
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
 │   │                                    CritereSql, ReadOnlyGuard, ColonnesTable
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,

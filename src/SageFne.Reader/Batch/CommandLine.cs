@@ -16,6 +16,12 @@ public enum Verbe
 
     /// <summary>Ce que les tables du dossier portent, d'après le catalogue SQL.</summary>
     Colonnes,
+
+    /// <summary>
+    /// Le paramétrage fiscal du dossier : F_TAXE, la fiche du client, celle de
+    /// l'article, et les colonnes de taxe brutes d'une pièce.
+    /// </summary>
+    Taxes,
 }
 
 /// <summary>
@@ -88,6 +94,9 @@ public sealed record CommandLine
                 case "colonnes":
                     verbe = Verbe.Colonnes;
                     break;
+                case "taxes":
+                    verbe = Verbe.Taxes;
+                    break;
                 default:
                     if (argument.StartsWith('-')) erreurs.Add($"Option inconnue : {argument}");
                     else pieces.Add(argument);
@@ -129,6 +138,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- doctypes            inventaire des types de documents
           dotnet run --project src/SageFne.Reader -- detail 1219         relevé complet d'une pièce
           dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
+          dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
 
         Options :
           --du, --au     période, bornes comprises
