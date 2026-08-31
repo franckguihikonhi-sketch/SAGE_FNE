@@ -160,6 +160,36 @@ public sealed class InvoiceBatchReader(
 
         var certifieeLe = certification.CertifieeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm");
 
+        // Un envoi dont l'issue est inconnue interdit tout renvoi automatique :
+        // la DGI l'a peut-être enregistré, et le doublon ne se rattrape pas.
+        if (certification.Etat == Fne.EtatFne.Sending)
+        {
+            rapport.Erreur(
+                "ENVOI_EN_SUSPENS",
+                $"Pièce {entete.Piece} : un envoi est parti le {certifieeLe} et son issue est " +
+                "inconnue. Vérifiez sur le portail DGI si elle a été certifiée. Si elle ne l'est " +
+                "pas, débloquez-la explicitement ; si elle l'est, inscrivez sa référence. " +
+                "Rien ne repart tant que ce n'est pas tranché.");
+            return EtatPiece.EnSuspens;
+        }
+
+        // Une tentative qui a échoué n'a rien certifié : la pièce redevient
+        // candidate. Sans cela, un refus de la plateforme bloquerait à jamais
+        // le renvoi de la facture corrigée.
+        if (certification.Etat != Fne.EtatFne.Certified)
+        {
+            rapport.Avertir(
+                "TENTATIVE_PRECEDENTE",
+                $"Pièce {entete.Piece} : une tentative du {certifieeLe} s'est soldée par " +
+                $"« {certification.Etat} »" +
+                $"{(certification.Erreur == "" ? "" : $" — {certification.Erreur}")}. " +
+                "Rien n'a été certifié : la pièce peut repartir.");
+
+            return facture is not null && !rapport.ContientDesErreurs
+                ? EtatPiece.ACertifier
+                : EtatPiece.Bloquee;
+        }
+
         if (certification.Empreinte == empreinte && empreinte != "")
         {
             rapport.Avertir(

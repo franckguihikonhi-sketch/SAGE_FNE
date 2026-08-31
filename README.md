@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 282 tests
+dotnet test                                    # 307 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -40,6 +40,7 @@ dotnet run --project src/SageFne.Reader -- candidats-fne         # factures d'es
 dotnet run --project src/SageFne.Reader -- fne-check             # vérifie l'accès FNE, sans rien appeler
 dotnet run --project src/SageFne.Reader -- envoyer 1052          # montre la requête, n'envoie rien
 dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   # envoie pour de vrai
+dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
 ```
 
 | Option | Effet |
@@ -324,6 +325,44 @@ Seul `--confirmer` déclenche l'appel.
 
 Trois refus avant même la requête : le jeu d'essai (une facture inventée ne s'envoie pas à
 la DGI), un accès non configuré, une pièce qui n'est pas « à certifier ».
+
+### Ce que le registre autorise à repartir
+
+L'état inscrit au registre décide, autant que l'empreinte :
+
+| État au registre | La pièce | Pourquoi |
+|---|---|---|
+| *aucune trace* | part | jamais envoyée |
+| `Error` | repart | la plateforme a refusé : rien n'a été certifié |
+| `Sending` | **bloquée** | l'envoi est parti, son issue est inconnue |
+| `Certified`, empreinte identique | bloquée | déjà certifiée, inchangée |
+| `Certified`, empreinte différente | bloquée | certifiée puis modifiée dans Sage : un avoir s'impose |
+
+Un refus de la DGI ne condamne donc pas la facture — elle repart une fois la cause
+corrigée. Un envoi dont la réponse s'est perdue, en revanche, ne repart jamais tout seul :
+la DGI l'a peut-être enregistré, et un doublon ne se rattrape pas.
+
+Une réponse **5xx** compte comme une issue inconnue, pas comme un refus : la plateforme a
+pu enregistrer la facture avant d'échouer. Un **4xx** est net — la requête a été rejetée,
+rien n'a été créé.
+
+### Sortir une pièce du suspens
+
+Seul le portail de la DGI dit si la facture y est arrivée. `debloquer` n'appelle aucune
+API : elle inscrit au registre ce que l'exploitant y a lu, et exige qu'il le dise.
+
+```powershell
+# le portail ne connaît pas la pièce : elle redevient à certifier
+dotnet run --project src\SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
+
+# le portail la porte sous cette référence : elle est classée certifiée
+dotnet run --project src\SageFne.Reader -- debloquer 1052 --reference 2304903U26000000930 --confirmer
+```
+
+Sans `--non-certifiee` ni `--reference`, la commande refuse : ce choix ne se devine pas.
+Avec les deux, elle refuse aussi. Une pièce déjà `Certified` n'est jamais réécrite — la
+correction d'une certification erronée passe par un avoir. La décision et sa date restent
+au registre à côté de la réponse d'origine : rien n'est effacé.
 
 ### La configuration, hors du dépôt
 

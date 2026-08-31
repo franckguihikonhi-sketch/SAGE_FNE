@@ -287,6 +287,41 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
     return reglagesApi.EstConfigure && identifiantsPresents ? 0 : 1;
 }
 
+// Trancher le sort d'une pièce restée « en suspens ». Aucune API n'est
+// appelée : la commande inscrit au registre ce que l'exploitant a lu sur le
+// portail de la DGI, parce que personne d'autre ne peut le savoir.
+if (ligneDeCommande.Verbe == Verbe.Debloquer)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine(
+            "debloquer attend un numéro de pièce, par exemple : debloquer 1052 --non-certifiee --confirmer");
+        return 2;
+    }
+
+    var numeroDeblocage = ligneDeCommande.Query.Pieces[0];
+    Titre($"Déblocage — pièce {numeroDeblocage}");
+    Console.WriteLine("Aucune API n'est appelée. Sage reste en lecture seule.");
+    Console.WriteLine();
+
+    var resolveur = hote.Services.GetRequiredService<InvoiceSender>();
+    var deblocage = await resolveur.DebloquerAsync(
+        numeroDeblocage,
+        ligneDeCommande.Reference,
+        ligneDeCommande.NonCertifiee,
+        ligneDeCommande.Confirme);
+
+    Console.WriteLine($"  {deblocage.Message}");
+
+    if (deblocage.ConfirmationManque)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Pour inscrire cette décision au registre, ajoutez --confirmer.");
+    }
+
+    return deblocage.Applique ? 0 : 1;
+}
+
 // Envoi à la certification. Par défaut la commande montre la requête et
 // s'arrête : une facture certifiée ne s'annule pas, elle se corrige par un
 // avoir. Seul --confirmer déclenche l'appel.

@@ -17,6 +17,21 @@ public sealed record EnvoiResultat(
 }
 
 /// <summary>
+/// Issue d'un déblocage manuel.
+/// </summary>
+/// <param name="Applique">L'inscription a bien eu lieu.</param>
+/// <param name="Message">Ce qu'il faut dire à l'exploitant.</param>
+/// <param name="ConfirmationManque">
+/// Tout était en règle : seul <c>--confirmer</c> manquait. Distinguer ce cas
+/// d'un refus évite de conseiller <c>--confirmer</c> là où il ne changerait rien.
+/// </param>
+public sealed record DeblocageResultat(
+    bool Applique,
+    string Message,
+    EtatFne? Etat = null,
+    bool ConfirmationManque = false);
+
+/// <summary>
 /// Envoie une facture à la certification, et n'oublie jamais qu'elle est partie.
 /// </summary>
 /// <remarks>
@@ -46,6 +61,16 @@ public sealed class InvoiceSender(
         if (conversion is null)
         {
             return new EnvoiResultat(EtatFne.Error, $"Aucune facture au numéro {piece}.");
+        }
+
+        if (conversion.Etat == EtatPiece.EnSuspens)
+        {
+            return new EnvoiResultat(
+                EtatFne.Sending,
+                $"La pièce {piece} porte un envoi dont l'issue est inconnue. Vérifiez sur le " +
+                "portail DGI avant tout renvoi : si elle y figure, elle est déjà certifiée et " +
+                "un second envoi créerait un doublon.",
+                conversion);
         }
 
         if (conversion.Etat != EtatPiece.ACertifier)
@@ -97,7 +122,12 @@ public sealed class InvoiceSender(
             // Un délai dépassé ou une réponse illisible laisse un doute sur ce
             // que la DGI a enregistré : l'état reste Sending, qui interdit le
             // renvoi automatique. Un refus franc, lui, redevient une erreur.
-            var douteux = reponse.CodeHttp is null || reponse.ReferenceFne is null && reponse.CodeHttp < 400;
+            // Sans réponse, ou avec une réponse serveur (5xx), on ignore ce que
+            // la plateforme a enregistré : elle a pu persister la facture avant
+            // d'échouer. Un refus client (4xx) est net — la requête a été
+            // rejetée, rien n'a été créé.
+            var douteux = reponse.CodeHttp is null or >= 500
+                          || (reponse.ReferenceFne is null && reponse.CodeHttp < 400);
             var etat = douteux ? EtatFne.Sending : EtatFne.Error;
 
             await registre.RecordAsync(
@@ -129,6 +159,110 @@ public sealed class InvoiceSender(
             $"Certifiée sous {reponse.ReferenceFne}.",
             conversion,
             reponse);
+    }
+
+    /// <summary>
+    /// Tranche le sort d'une pièce restée « en suspens », d'après ce que
+    /// l'exploitant a lu sur le portail de la DGI.
+    /// </summary>
+    /// <remarks>
+    /// Aucun appel n'est fait : nous n'avons pas de quoi interroger la
+    /// plateforme sur une facture, et le supposer serait pire que de demander.
+    /// L'exploitant doit dire ce qu'il a vu — <c>--non-certifiee</c> ou
+    /// <c>--reference</c> — et rien n'est deviné à sa place.
+    ///
+    /// Le registre n'oublie rien : l'entrée en suspens est remplacée par une
+    /// entrée qui porte la décision et sa date, jamais effacée.
+    /// </remarks>
+    public async Task<DeblocageResultat> DebloquerAsync(
+        string piece,
+        string? reference,
+        bool nonCertifiee,
+        bool confirme,
+        CancellationToken cancellation = default)
+    {
+        if (nonCertifiee == (reference is not null))
+        {
+            return new DeblocageResultat(
+                false,
+                "Cherchez d'abord la pièce sur le portail de la DGI, puis dites ce que vous y avez " +
+                "vu : --non-certifiee si elle n'y figure pas, --reference REF si elle y figure. " +
+                "L'un ou l'autre, jamais les deux : ce choix ne peut pas être deviné.");
+        }
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion is null)
+        {
+            return new DeblocageResultat(false, $"Aucune facture au numéro {piece}.");
+        }
+
+        var trace = conversion.Certification;
+
+        if (trace is null)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} ne porte aucune trace d'envoi : il n'y a rien à débloquer.");
+        }
+
+        if (trace.Etat == EtatFne.Certified)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est déjà certifiée au registre" +
+                $"{(trace.ReferenceFne == "" ? "" : $" sous {trace.ReferenceFne}")} : " +
+                "une certification ne se réécrit pas. Si elle est erronée, la correction passe " +
+                "par un avoir.");
+        }
+
+        if (trace.Etat != EtatFne.Sending)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est au registre en « {trace.Etat} », pas en suspens : " +
+                "elle peut déjà repartir, rien ne la bloque.");
+        }
+
+        var partiLe = trace.CertifieeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm");
+        var decision = nonCertifiee
+            ? $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy} : la pièce n'y figure pas. " +
+              $"L'envoi du {partiLe} n'a rien certifié."
+            : $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy} : la pièce y figure sous " +
+              $"{reference}. L'envoi du {partiLe} avait abouti.";
+
+        if (!confirme)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Rien n'a été inscrit : la confirmation manque. {decision}",
+                ConfirmationManque: true);
+        }
+
+        // L'entrée en suspens laisse place à la décision : l'état change, la
+        // réponse d'origine et l'empreinte restent, pour que la trace de la
+        // tentative survive à son classement.
+        var classee = nonCertifiee
+            ? trace with { Etat = EtatFne.Error, Erreur = decision }
+            : trace with
+            {
+                Etat = EtatFne.Certified,
+                ReferenceFne = reference ?? "",
+                Erreur = decision,
+            };
+
+        await registre.RecordAsync(classee, cancellation);
+        logger.LogInformation(
+            "Pièce {Piece} débloquée manuellement en {Etat}.", piece, classee.Etat);
+
+        return new DeblocageResultat(
+            true,
+            nonCertifiee
+                ? $"La pièce {piece} redevient à certifier. Relancez « envoyer {piece} » quand elle " +
+                  "sera prête."
+                : $"La pièce {piece} est classée certifiée sous {reference}. Elle ne repartira pas.",
+            classee.Etat);
     }
 
     private static CertifiedInvoice Trace(InvoiceConversion conversion, EtatFne etat) => new()

@@ -19,6 +19,15 @@ public enum EtatPiece
 
     /// <summary>Certifiée, puis modifiée dans Sage : la certifiée ne dit plus le vrai.</summary>
     ModifieeDepuis,
+
+    /// <summary>
+    /// Un envoi est parti et son issue reste inconnue.
+    /// </summary>
+    /// <remarks>
+    /// La DGI l'a peut-être certifiée. Renvoyer créerait un doublon
+    /// irrattrapable : il faut vérifier sur le portail avant tout.
+    /// </remarks>
+    EnSuspens,
 }
 
 /// <summary>
@@ -49,6 +58,7 @@ public sealed class InvoiceConversion
         EtatPiece.ACertifier => "à certifier",
         EtatPiece.DejaCertifiee => "déjà certifiée",
         EtatPiece.ModifieeDepuis => "modifiée depuis",
+        EtatPiece.EnSuspens => "envoi en suspens",
         _ => "bloquée",
     };
 
@@ -69,6 +79,7 @@ public sealed class InvoiceBatch
     public int Bloquees => Compte(EtatPiece.Bloquee);
     public int DejaCertifiees => Compte(EtatPiece.DejaCertifiee);
     public int ModifieesDepuis => Compte(EtatPiece.ModifieeDepuis);
+    public int EnSuspens => Compte(EtatPiece.EnSuspens);
 
     private int Compte(EtatPiece etat) => Conversions.Count(conversion => conversion.Etat == etat);
     public decimal TotalHT => Conversions.Sum(conversion => conversion.TotalHT);

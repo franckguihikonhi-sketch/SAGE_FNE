@@ -60,4 +60,44 @@ public class CommandLineTests
         Assert.Equal("sorties", ligne.Sortie);
         Assert.Equal(20, ligne.Query.Limite);
     }
+
+    [Theory]
+    [InlineData("debloquer")]
+    [InlineData("débloquer")]
+    public void Le_deblocage_se_lit_avec_ou_sans_accent(string verbe)
+    {
+        var ligne = CommandLine.Parse([verbe, "1052", "--non-certifiee", "--confirmer"]);
+
+        Assert.Equal(Verbe.Debloquer, ligne.Verbe);
+        Assert.Equal(["1052"], ligne.Query.Pieces);
+        Assert.True(ligne.NonCertifiee);
+        Assert.True(ligne.Confirme);
+        Assert.Null(ligne.Reference);
+    }
+
+    [Fact]
+    public void La_reference_du_portail_se_lit()
+    {
+        var ligne = CommandLine.Parse(["debloquer", "1052", "--reference", "REF-1", "--confirmer"]);
+
+        Assert.Equal("REF-1", ligne.Reference);
+        Assert.False(ligne.NonCertifiee);
+    }
+
+    [Fact]
+    public void Une_reference_vide_est_refusee()
+    {
+        var ligne = CommandLine.Parse(["debloquer", "1052", "--reference"]);
+
+        Assert.Contains(ligne.Erreurs, erreur => erreur.Contains("portail"));
+    }
+
+    [Fact]
+    public void Sans_verbe_de_deblocage_rien_n_est_demande()
+    {
+        var ligne = CommandLine.Parse(["1052"]);
+
+        Assert.False(ligne.NonCertifiee);
+        Assert.Null(ligne.Reference);
+    }
 }

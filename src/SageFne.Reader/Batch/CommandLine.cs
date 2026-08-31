@@ -39,6 +39,16 @@ public enum Verbe
     /// Vérifier la configuration d'accès à la plateforme. N'appelle aucune API.
     /// </summary>
     Verification,
+
+    /// <summary>
+    /// Trancher le sort d'une pièce dont l'envoi est resté en suspens.
+    /// </summary>
+    /// <remarks>
+    /// Rien ne peut le faire à notre place : seul le portail de la DGI dit si
+    /// la facture y est arrivée. La commande n'appelle aucune API — elle
+    /// inscrit au registre ce que l'exploitant y a lu.
+    /// </remarks>
+    Debloquer,
 }
 
 /// <summary>
@@ -69,6 +79,12 @@ public sealed record CommandLine
     public bool AfficherJson { get; init; }
     /// <summary>Registre des certifications à consulter, à la place de celui configuré.</summary>
     public string? Registre { get; init; }
+
+    /// <summary>Référence lue sur le portail DGI, pour <c>debloquer</c>.</summary>
+    public string? Reference { get; init; }
+
+    /// <summary>Le portail ne connaît pas la pièce : elle peut repartir.</summary>
+    public bool NonCertifiee { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -85,6 +101,8 @@ public sealed record CommandLine
         var afficherJson = false;
         var verbe = Verbe.DryRun;
         var confirme = false;
+        string? reference = null;
+        var nonCertifiee = false;
 
         for (var rang = 0; rang < args.Length; rang++)
         {
@@ -135,6 +153,19 @@ public sealed record CommandLine
                 case "envoyer":
                     verbe = Verbe.Envoyer;
                     break;
+                case "debloquer":
+                case "débloquer":
+                    verbe = Verbe.Debloquer;
+                    break;
+                case "--reference":
+                case "--référence":
+                    reference = Valeur() ?? "";
+                    if (reference is "") erreurs.Add("--reference attend la référence lue sur le portail DGI.");
+                    break;
+                case "--non-certifiee":
+                case "--non-certifiée":
+                    nonCertifiee = true;
+                    break;
                 case "--confirmer":
                     confirme = true;
                     break;
@@ -164,6 +195,8 @@ public sealed record CommandLine
             },
             Sortie = sortie,
             Registre = registre,
+            Reference = reference,
+            NonCertifiee = nonCertifiee,
             AfficherJson = afficherJson,
             Erreurs = erreurs,
         };
@@ -192,6 +225,8 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- fne-check           vérifie l'accès FNE, sans rien appeler
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
+          dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
+          dotnet run --project src/SageFne.Reader -- debloquer 1052 --reference REF --confirmer
 
         Options :
           --du, --au     période, bornes comprises
@@ -200,5 +235,9 @@ public sealed record CommandLine
           --registre F   registre des certifications à consulter
           --json         affiche le JSON de chaque pièce, pas seulement le résumé
           --confirmer    autorise l'envoi réel à la DGI ; sans lui, tout est simulé
+
+        Débloquer une pièce restée « en suspens » — après l'avoir cherchée sur le portail DGI :
+          --non-certifiee   le portail ne la connaît pas : elle redevient à certifier
+          --reference REF   le portail la porte sous cette référence : elle est classée certifiée
         """;
 }
