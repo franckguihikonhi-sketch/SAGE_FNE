@@ -49,4 +49,27 @@ public sealed record CertifiedInvoice
     /// <summary>Empreinte du corps envoyé, pour repérer une pièce modifiée depuis.</summary>
     [JsonPropertyName("empreinte")]
     public string Empreinte { get; init; } = "";
+
+    /// <summary>
+    /// Où en est la pièce dans la chaîne de certification.
+    /// </summary>
+    /// <remarks>
+    /// Cet état vit uniquement ici. La base Sage est en lecture seule et ne
+    /// porte aucune zone pour lui.
+    /// </remarks>
+    [JsonPropertyName("etat")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public Fne.EtatFne Etat { get; init; } = Fne.EtatFne.Certified;
+
+    /// <summary>La réponse de la plateforme, telle quelle.</summary>
+    /// <remarks>
+    /// Conservée pour qu'un envoi dont l'issue est douteuse puisse être
+    /// instruit après coup, sans dépendre de ce que le code a su en lire.
+    /// </remarks>
+    [JsonPropertyName("reponse")]
+    public string Reponse { get; init; } = "";
+
+    /// <summary>Ce qui a échoué, quand l'état est <c>Error</c> ou <c>Sending</c>.</summary>
+    [JsonPropertyName("erreur")]
+    public string Erreur { get; init; } = "";
 }

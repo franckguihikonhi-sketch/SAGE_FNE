@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 171 tests
+dotnet test                                    # 195 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -37,6 +37,8 @@ dotnet run --project src/SageFne.Reader -- detail 1219           # relevé compl
 dotnet run --project src/SageFne.Reader -- colonnes              # colonnes réelles des tables Sage
 dotnet run --project src/SageFne.Reader -- taxes 1219            # paramétrage fiscal autour d'une pièce
 dotnet run --project src/SageFne.Reader -- candidats-fne         # factures d'essai fiscalement nettes
+dotnet run --project src/SageFne.Reader -- envoyer 1052          # montre la requête, n'envoie rien
+dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   # envoie pour de vrai
 ```
 
 | Option | Effet |
@@ -313,6 +315,53 @@ Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocTy
 `DO_Date`, `DO_Tiers`, `CT_Intitule`, le NCC, le nombre de lignes, les taux rencontrés, les
 `customTaxes`, les totaux HT et TTC recalculés face à `DO_TotalTTC`, l'écart, et le statut.
 
+## L'envoi à la certification
+
+**Une facture certifiée ne s'annule pas** : elle se corrige par un avoir. `envoyer` **simule
+par défaut** — elle affiche la requête exacte, adresse et en-têtes compris, et s'arrête.
+Seul `--confirmer` déclenche l'appel.
+
+Trois refus avant même la requête : le jeu d'essai (une facture inventée ne s'envoie pas à
+la DGI), un accès non configuré, une pièce qui n'est pas « à certifier ».
+
+### La configuration, hors du dépôt
+
+```powershell
+cd src\SageFne.Reader
+dotnet user-secrets set "Fne:Api:BaseUrl" "https://…"
+dotnet user-secrets set "Fne:Api:ApiKey"  "…"
+```
+
+`SignPath`, `AuthenticationHeader` et `AuthenticationScheme` sont paramétrables dans
+`appsettings.json` : la documentation de la DGI fait foi, pas ce que le code suppose. La
+clé n'apparaît jamais en clair — la simulation l'affiche réduite à ses quatre premiers et
+quatre derniers caractères.
+
+### Ce qui protège du doublon
+
+L'ordre des opérations. Le registre est marqué **`Sending` avant l'appel**, pas après : si
+la machine s'arrête entre les deux, la trace existe. Les six états vivent **uniquement dans
+le registre du middleware** — Sage reste en lecture seule et n'a aucune zone pour eux.
+
+| État | Ce qu'il dit |
+| --- | --- |
+| `Pending` | lue dans Sage, pas encore contrôlée |
+| `Validating` | contrôles en cours |
+| `Ready` | contrôlée et traduite, elle peut partir |
+| `Sending` | **requête partie, issue inconnue** |
+| `Certified` | certifiée, référence en main |
+| `Error` | bloquée par un contrôle, ou refusée par la plateforme |
+
+`Sending` est le plus important. Un délai dépassé ou une réponse acceptée dont aucune
+référence n'est lisible **y laisse la pièce** : la DGI l'a peut-être enregistrée, et un
+renvoi créerait un doublon irrattrapable. Elle ne repart jamais automatiquement — il faut
+vérifier sur le portail. Un refus franc (4xx), lui, redevient une `Error` que l'on peut
+corriger et renvoyer.
+
+La réponse brute est toujours conservée au registre, y compris en échec : le format exact
+n'étant pas connu d'avance, c'est elle qui permettra de corriger la lecture des champs.
+La référence est cherchée sous plusieurs noms plausibles, à la racine et un niveau plus bas.
+
 ## Les pièces déjà certifiées
 
 Une facture envoyée deux fois à la DGI, c'est un doublon qui ne se rattrape pas. Le lot
@@ -540,7 +589,9 @@ SageFne.sln
 │   │                                    InvoiceBatch, CandidatFne, CommandLine
 │   ├── Certification/                   ICertificationLedger, JsonCertificationLedger,
 │   │                                    CertifiedInvoice, InvoiceFingerprint
-│   ├── Configuration/                   FneOptions, ZeroVatOptions
+│   ├── Configuration/                   FneOptions, ZeroVatOptions, FneApiOptions
+│   ├── Fne/                             IFneClient, HttpFneClient, InvoiceSender,
+│   │                                    EtatFne
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
 │   │                                    SageCustomer, SageTax, SageRemise,
 │   │                                    SageDocumentTypes, SageDocumentTypeSummary,

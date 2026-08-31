@@ -11,6 +11,7 @@ using SageFne.Reader.Batch;
 using SageFne.Reader.Certification;
 using SageFne.Reader.Configuration;
 using SageFne.Reader.Data;
+using SageFne.Reader.Fne;
 using SageFne.Reader.Mapping;
 using SageFne.Reader.Models.Fne;
 using SageFne.Reader.Models.Sage;
@@ -37,6 +38,16 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 });
 builder.Configuration.AddUserSecrets<Program>(optional: true);
 builder.Services.Configure<FneOptions>(builder.Configuration.GetSection(FneOptions.Section));
+
+// L'API de la DGI. La clé vient des secrets utilisateur, jamais d'appsettings.
+var api = new FneApiOptions();
+builder.Configuration.GetSection($"{FneOptions.Section}:Api").Bind(api);
+builder.Services.AddSingleton(api);
+builder.Services.AddHttpClient<HttpFneClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(api.TimeoutSeconds, 5, 300));
+});
+builder.Services.AddSingleton<InvoiceSender>();
 builder.Services.AddSingleton<IFneInvoiceMapper, FneInvoiceMapper>();
 builder.Services.AddSingleton<InvoiceBatchReader>();
 
@@ -168,6 +179,133 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
         "Lecture seule : trois SELECT sur F_DOCENTETE, plus une consultation du " +
         "catalogue pour savoir si la colonne DO_DocType existe. Rien n'a été écrit.");
     return 0;
+}
+
+// Envoi à la certification. Par défaut la commande montre la requête et
+// s'arrête : une facture certifiée ne s'annule pas, elle se corrige par un
+// avoir. Seul --confirmer déclenche l'appel.
+if (ligneDeCommande.Verbe == Verbe.Envoyer)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine("envoyer attend un numéro de pièce, par exemple : envoyer 1052");
+        return 2;
+    }
+
+    var numeroEnvoi = ligneDeCommande.Query.Pieces[0];
+    var reglagesApi = hote.Services.GetRequiredService<FneApiOptions>();
+
+    Titre($"Envoi FNE — pièce {numeroEnvoi}");
+    Console.WriteLine(Source(connexionConfiguree));
+
+    if (!connexionConfiguree)
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            "  Refus : le jeu d'essai ne représente pas votre dossier. Une facture\n" +
+            "  d'essai ne s'envoie pas à la DGI. Renseignez la connexion Sage d'abord.");
+        return 2;
+    }
+
+    if (!reglagesApi.EstConfigure)
+    {
+        Console.WriteLine();
+        Console.WriteLine("""
+              L'accès à la plateforme n'est pas configuré. Il faut, dans les secrets
+              utilisateur — jamais dans appsettings.json, qui est suivi par Git :
+
+                cd src\SageFne.Reader
+                dotnet user-secrets set "Fne:Api:BaseUrl" "https://…"
+                dotnet user-secrets set "Fne:Api:ApiKey"  "…"
+
+              Le chemin (Fne:Api:SignPath), l'en-tête et le préfixe
+              d'authentification sont paramétrables si la DGI en attend d'autres.
+              """);
+        return 2;
+    }
+
+    var expediteur = hote.Services.GetRequiredService<InvoiceSender>();
+    var clientFne = hote.Services.GetRequiredService<HttpFneClient>();
+
+    // La requête exacte, avant tout appel. La clé n'est jamais affichée en clair.
+    var apercuLot = await hote.Services.GetRequiredService<InvoiceBatchReader>()
+        .ReadAsync(InvoiceQuery.Piece(numeroEnvoi));
+    var aEnvoyer = apercuLot.Conversions.FirstOrDefault();
+
+    if (aEnvoyer is null)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Aucune facture au numéro {numeroEnvoi}.");
+        return 1;
+    }
+
+    Titre("État de la pièce");
+    Console.WriteLine($"  Identité   {aEnvoyer.Header.Identite}");
+    Console.WriteLine($"  Client     {aEnvoyer.Customer?.Intitule ?? aEnvoyer.Header.Tiers} " +
+        $"(NCC {Renseigne(aEnvoyer.Customer?.Identifiant)})");
+    Console.WriteLine($"  Lignes     {aEnvoyer.Lines.Count}");
+    Console.WriteLine($"  Total TTC  {Somme(aEnvoyer.TotalTTC)}");
+    Console.WriteLine($"  Empreinte  {aEnvoyer.Empreinte}");
+    Console.WriteLine($"  État       {aEnvoyer.LibelleEtat}");
+
+    if (aEnvoyer.Report.Constats.Count > 0)
+    {
+        Titre("Contrôles");
+        Constats(aEnvoyer.Report.Constats);
+    }
+
+    if (aEnvoyer.Invoice is not null)
+    {
+        Titre("Requête qui serait envoyée");
+        Console.WriteLine(clientFne.DecrireRequete(aEnvoyer.Invoice));
+    }
+
+    if (!ligneDeCommande.Confirme)
+    {
+        Titre("Simulation");
+        Console.WriteLine(aEnvoyer.Etat == EtatPiece.ACertifier
+            ? $"""
+                 Rien n'a été envoyé.
+
+                 Vérifiez la requête ci-dessus — l'adresse, l'en-tête, chaque montant.
+                 Une facture certifiée ne s'annule pas : elle se corrige par un avoir.
+
+                 Pour envoyer réellement :
+                   dotnet run --project src\SageFne.Reader -- envoyer {numeroEnvoi} --confirmer
+                 """
+            : $"  La pièce est « {aEnvoyer.LibelleEtat} » : --confirmer serait refusé.");
+        return aEnvoyer.Etat == EtatPiece.ACertifier ? 0 : 1;
+    }
+
+    Titre("Envoi réel");
+    Console.WriteLine($"  POST vers {reglagesApi.AdresseSignature()}");
+
+    var resultat = await expediteur.EnvoyerAsync(numeroEnvoi, confirme: true);
+
+    Console.WriteLine();
+    Console.WriteLine($"  État final : {resultat.Etat}");
+    Console.WriteLine($"  {resultat.Message}");
+
+    if (resultat.Reponse is { CorpsBrut: not "" } reponse)
+    {
+        Titre("Réponse de la plateforme");
+        Console.WriteLine($"  Code HTTP : {reponse.CodeHttp?.ToString() ?? "aucune réponse"}");
+        Console.WriteLine();
+        Console.WriteLine(reponse.CorpsBrut);
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(resultat.Etat switch
+    {
+        EtatFne.Certified =>
+            "La référence est inscrite au registre du middleware. Rien n'a été écrit dans Sage.",
+        EtatFne.Sending =>
+            "ATTENTION : l'issue est inconnue. La pièce reste « Sending » et ne repartira pas\n" +
+            "automatiquement. Vérifiez sur le portail DGI si elle a été certifiée avant tout renvoi.",
+        _ => "Rien n'a été certifié. Le registre garde la trace de la tentative.",
+    });
+
+    return resultat.Reussi ? 0 : 1;
 }
 
 // De vraies factures du dossier, fiscalement nettes, pour servir de cas d'essai

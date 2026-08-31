@@ -28,6 +28,12 @@ public enum Verbe
     /// servir de cas d'essai au premier envoi.
     /// </summary>
     Candidats,
+
+    /// <summary>
+    /// Envoyer une facture à la certification. Simule par défaut : seul
+    /// <c>--confirmer</c> déclenche l'appel réel.
+    /// </summary>
+    Envoyer,
 }
 
 /// <summary>
@@ -41,6 +47,16 @@ public enum Verbe
 public sealed record CommandLine
 {
     public Verbe Verbe { get; init; } = Verbe.DryRun;
+
+    /// <summary>
+    /// L'envoi réel a été demandé explicitement.
+    /// </summary>
+    /// <remarks>
+    /// Une certification ne s'annule pas : elle se corrige par un avoir. Le
+    /// défaut est donc la simulation, et il faut écrire <c>--confirmer</c> pour
+    /// que quoi que ce soit parte.
+    /// </remarks>
+    public bool Confirme { get; init; }
     public InvoiceQuery Query { get; init; } = new();
     /// <summary>Dossier où écrire un fichier JSON par pièce.</summary>
     public string? Sortie { get; init; }
@@ -63,6 +79,7 @@ public sealed record CommandLine
         string? registre = null;
         var afficherJson = false;
         var verbe = Verbe.DryRun;
+        var confirme = false;
 
         for (var rang = 0; rang < args.Length; rang++)
         {
@@ -105,6 +122,12 @@ public sealed record CommandLine
                 case "taxes":
                     verbe = Verbe.Taxes;
                     break;
+                case "envoyer":
+                    verbe = Verbe.Envoyer;
+                    break;
+                case "--confirmer":
+                    confirme = true;
+                    break;
                 case "candidats-fne":
                     verbe = Verbe.Candidats;
                     // Le tri porte sur tout le dossier : la limite par défaut
@@ -121,6 +144,7 @@ public sealed record CommandLine
         return new CommandLine
         {
             Verbe = verbe,
+            Confirme = confirme,
             Query = new InvoiceQuery
             {
                 Pieces = pieces,
@@ -154,6 +178,8 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
           dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
           dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes
+          dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
+          dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
 
         Options :
           --du, --au     période, bornes comprises
@@ -161,5 +187,6 @@ public sealed record CommandLine
           --sortie DOS   écrit un fichier JSON par pièce dans ce dossier
           --registre F   registre des certifications à consulter
           --json         affiche le JSON de chaque pièce, pas seulement le résumé
+          --confirmer    autorise l'envoi réel à la DGI ; sans lui, tout est simulé
         """;
 }
