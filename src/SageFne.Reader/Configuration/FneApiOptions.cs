@@ -46,32 +46,33 @@ public sealed class FneApiOptions
     public int TimeoutSeconds { get; set; } = 30;
 
     /// <summary>
-    /// Ce qui désigne une plateforme d'essai dans une adresse.
+    /// Les adresses d'essai autorisées, exactement.
     /// </summary>
     /// <remarks>
-    /// Une <b>liste d'autorisation</b>, pas une liste d'interdiction. Interdire
-    /// « prod » laisserait passer n'importe quel nom d'hôte inconnu : c'est
-    /// exactement ainsi qu'une adresse de production finit appelée depuis une
-    /// configuration de test. Ici, ce qui n'est pas reconnu comme un
-    /// environnement d'essai est refusé.
+    /// La procédure publiée par la DGI donne <c>http://54.247.95.108/ws</c> pour
+    /// l'environnement d'essai : du HTTP clair, sur une adresse IP nue. Ce n'est
+    /// pas défendable en général — la clé d'API y voyage en clair, lisible de
+    /// tout équipement traversé.
     ///
-    /// Complétez la liste si la DGI nomme autrement sa plateforme d'essai.
+    /// D'où une <b>exception nominative plutôt qu'une règle</b> : HTTP n'est
+    /// jamais autorisé en tant que tel, cette adresse-ci l'est. Toute autre
+    /// adresse, en HTTP comme en HTTPS, est refusée en environnement d'essai.
+    ///
+    /// La liste reste modifiable — pour un bouchon local, par exemple — mais
+    /// l'ajout est alors un acte délibéré, pas un effet de bord.
     /// </remarks>
-    /// <remarks>
-    /// Vide par défaut, et non pré-remplie : le binder de configuration
-    /// <b>ajoute</b> à une liste existante au lieu de la remplacer, ce qui
-    /// dédoublait chaque marqueur dès que appsettings.json en portait une.
-    /// Les valeurs par défaut sont donc servies par <see cref="Marqueurs"/>.
-    /// </remarks>
-    public List<string> TestHostMarkers { get; set; } = [];
+    public List<string> TestAllowedUrls { get; set; } = [];
 
-    private static readonly string[] MarqueursParDefaut =
-        ["test", "sandbox", "preprod", "recette", "uat", "demo", "localhost", "127.0.0.1"];
+    private static readonly string[] AdressesEssaiParDefaut = ["http://54.247.95.108/ws"];
 
-    /// <summary>Les marqueurs effectivement appliqués.</summary>
-    public IReadOnlyList<string> Marqueurs => TestHostMarkers.Count > 0
-        ? TestHostMarkers.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
-        : MarqueursParDefaut;
+    /// <summary>Les adresses d'essai effectivement admises, normalisées.</summary>
+    public IReadOnlyList<string> AdressesAutorisees =>
+        (TestAllowedUrls.Count > 0 ? TestAllowedUrls.AsEnumerable() : AdressesEssaiParDefaut)
+        .Select(Normaliser)
+        .Where(adresse => adresse is not null)
+        .Select(adresse => adresse!)
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
 
     public bool EstTest => Environment == FneEnvironment.Test;
 
@@ -83,8 +84,45 @@ public sealed class FneApiOptions
 
     public bool EstConfigure => CleRenseignee && UrlRenseignee && Verifier() is null;
 
+    /// <summary>
+    /// L'adresse retenue est en HTTP clair.
+    /// </summary>
+    /// <remarks>
+    /// Vrai pour l'adresse d'essai de la DGI. La clé y voyage en clair : n'y
+    /// utilisez jamais une clé de production, et considérez-la comme exposée.
+    /// </remarks>
+    public bool EnClair => BaseUrlEffective.StartsWith("http://", StringComparison.Ordinal);
+
     /// <summary>L'adresse complète de la certification.</summary>
-    public Uri AdresseSignature() => new(new Uri(BaseUrl.TrimEnd('/') + "/"), SignPath.TrimStart('/'));
+    public Uri AdresseSignature() =>
+        new(new Uri(BaseUrlEffective.TrimEnd('/') + "/"), SignPath.TrimStart('/'));
+
+    /// <summary>
+    /// L'adresse retenue après normalisation, ou celle configurée telle quelle.
+    /// </summary>
+    /// <remarks>
+    /// <c>http://54.247.95.108</c> sans le <c>/ws</c> désigne visiblement la même
+    /// plateforme, mais y ajouter le chemin de signature donnerait
+    /// <c>/external/invoices/sign</c> au lieu de <c>/ws/external/invoices/sign</c>
+    /// — une adresse fausse, et un échec incompréhensible. L'adresse est donc
+    /// ramenée à celle de la liste dont elle ne diffère que par le chemin.
+    /// </remarks>
+    public string BaseUrlEffective
+    {
+        get
+        {
+            var normalisee = Normaliser(BaseUrl);
+            if (normalisee is null) return BaseUrl;
+            if (AdressesAutorisees.Contains(normalisee, StringComparer.Ordinal)) return normalisee;
+
+            var completions = AdressesAutorisees.Where(autorisee =>
+                autorisee.StartsWith(normalisee + "/", StringComparison.Ordinal)).ToList();
+
+            // Une seule complétion possible : c'est un raccourci, pas une
+            // ambiguïté. Plusieurs : on ne devine pas.
+            return completions.Count == 1 ? completions[0] : normalisee;
+        }
+    }
 
     /// <summary>
     /// Ce qui empêche d'utiliser cette configuration, ou null si elle tient.
@@ -93,35 +131,50 @@ public sealed class FneApiOptions
     {
         if (!UrlRenseignee) return "Fne:BaseUrl n'est pas renseignée.";
 
-        if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out var adresse))
+        if (Normaliser(BaseUrl) is null)
         {
-            return $"Fne:BaseUrl « {BaseUrl} » n'est pas une adresse absolue.";
+            return $"Fne:BaseUrl « {BaseUrl} » n'est pas une adresse http(s) absolue.";
         }
 
-        if (adresse.Scheme != Uri.UriSchemeHttps && !EstLocale(adresse))
+        var effective = BaseUrlEffective;
+
+        if (EstTest)
         {
-            return $"Fne:BaseUrl utilise {adresse.Scheme} : la clé d'API ne doit voyager qu'en HTTPS.";
+            // Liste d'autorisation exacte. Rien d'autre ne passe, quel que soit
+            // le protocole : ni une autre adresse HTTP, ni une HTTPS inconnue.
+            return AdressesAutorisees.Contains(effective, StringComparer.Ordinal)
+                ? null
+                : $"Fne:Environment vaut TEST : seules les adresses d'essai déclarées sont admises, " +
+                  $"et « {BaseUrl} » n'en fait pas partie. Autorisée(s) : " +
+                  $"{string.Join(", ", AdressesAutorisees)}. " +
+                  "Envoyer une facture d'essai ailleurs pourrait la certifier pour de vrai. " +
+                  "Corrigez Fne:BaseUrl, ou déclarez l'adresse dans Fne:TestAllowedUrls " +
+                  "en sachant ce que vous faites.";
         }
 
-        if (!EstTest) return null;
-
-        // En TEST, l'adresse doit se reconnaître comme telle.
-        var hote = adresse.Host;
-        var marqueur = Marqueurs.FirstOrDefault(
-            marque => hote.Contains(marque, StringComparison.OrdinalIgnoreCase));
-
-        return marqueur is not null
+        // En production, aucune exception : la clé ne voyage pas en clair.
+        return effective.StartsWith("https://", StringComparison.Ordinal)
             ? null
-            : $"Fne:Environment vaut TEST, mais l'hôte « {hote} » ne se reconnaît pas comme une " +
-              $"plateforme d'essai. Attendu l'un de : {string.Join(", ", TestHostMarkers)}. " +
-              "Envoyer une facture d'essai en production la certifierait pour de vrai. " +
-              "Corrigez Fne:BaseUrl, complétez Fne:TestHostMarkers, ou passez " +
-              "Fne:Environment à Production en connaissance de cause.";
+            : "Fne:Environment vaut Production et Fne:BaseUrl n'est pas en HTTPS. " +
+              "La clé d'API voyagerait en clair : refusé sans exception.";
     }
 
-    private static bool EstLocale(Uri adresse) =>
-        adresse.IsLoopback
-        || adresse.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Ramène une adresse à une forme comparable : protocole et hôte en
+    /// minuscules, port implicite retiré, barres finales supprimées.
+    /// </summary>
+    /// <returns><c>null</c> si ce n'est pas une adresse http(s) absolue.</returns>
+    public static string? Normaliser(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var adresse)) return null;
+        if (adresse.Scheme != Uri.UriSchemeHttp && adresse.Scheme != Uri.UriSchemeHttps) return null;
+
+        var port = adresse.IsDefaultPort ? "" : $":{adresse.Port}";
+        var chemin = adresse.AbsolutePath.TrimEnd('/');
+
+        return $"{adresse.Scheme.ToLowerInvariant()}://{adresse.Host.ToLowerInvariant()}{port}{chemin}";
+    }
 
     /// <summary>
     /// La clé, réduite à ses extrémités.

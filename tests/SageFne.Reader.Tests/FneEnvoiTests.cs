@@ -84,25 +84,23 @@ public class FneApiOptionsTests
     public void Sans_url_ni_cle_rien_ne_peut_partir()
     {
         Assert.False(new FneApiOptions().EstConfigure);
-        Assert.False(new FneApiOptions { BaseUrl = "https://api-test.dgi.gouv.ci" }.EstConfigure);
+        Assert.False(new FneApiOptions { BaseUrl = "http://54.247.95.108/ws" }.EstConfigure);
         Assert.False(new FneApiOptions { BaseUrl = "A_COMPLETER", ApiKey = "k" }.EstConfigure);
-        Assert.True(new FneApiOptions { BaseUrl = "https://api-test.dgi.gouv.ci", ApiKey = "k" }.EstConfigure);
-    }
-
-    [Fact]
-    public void Une_adresse_quelconque_ne_suffit_plus_en_TEST()
-    {
-        // « https://x » passait avant le garde-fou d'environnement. Ce n'est
-        // plus le cas, et c'est le comportement voulu.
-        Assert.False(new FneApiOptions { BaseUrl = "https://x", ApiKey = "k" }.EstConfigure);
+        Assert.True(new FneApiOptions { BaseUrl = "http://54.247.95.108/ws", ApiKey = "k" }.EstConfigure);
     }
 
     [Fact]
     public void L_adresse_se_compose_sans_double_barre()
     {
-        var options = new FneApiOptions { BaseUrl = "https://api.test/", SignPath = "/external/invoices/sign" };
+        var options = new FneApiOptions
+        {
+            BaseUrl = "http://54.247.95.108/ws/",
+            SignPath = "/external/invoices/sign",
+        };
 
-        Assert.Equal("https://api.test/external/invoices/sign", options.AdresseSignature().ToString());
+        Assert.Equal(
+            "http://54.247.95.108/ws/external/invoices/sign",
+            options.AdresseSignature().ToString());
     }
 }
 

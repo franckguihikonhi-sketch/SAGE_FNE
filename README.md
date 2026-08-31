@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 218 tests
+dotnet test                                    # 225 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -350,15 +350,29 @@ d'authentification — **sans appeler quoi que ce soit**. Elle ne contacte aucun
 `Fne:Environment` vaut **`Test` par défaut**, et c'est voulu : un défaut de production
 ferait certifier pour de vrai une configuration oubliée.
 
-En `Test`, l'hôte doit se reconnaître comme une plateforme d'essai — `test`, `sandbox`,
-`preprod`, `recette`, `uat`, `demo`, `localhost` — sinon l'envoi est refusé. C'est une
-**liste d'autorisation, pas une liste d'interdiction** : interdire « prod » laisserait
-passer n'importe quel hôte inconnu, et c'est exactement ainsi qu'une adresse de production
-finit appelée depuis une configuration de test. Complétez `Fne:TestHostMarkers` si la DGI
-nomme autrement sa plateforme d'essai.
+En `Test`, **une seule adresse est admise** — celle que publie la DGI :
 
-L'adresse doit par ailleurs être en HTTPS — la clé ne voyage pas en clair — sauf sur
-`localhost`, où un bouchon local ne présente aucun risque de fuite.
+```
+http://54.247.95.108/ws
+```
+
+C'est du HTTP clair, sur une IP nue. Ce n'est pas défendable en général : **la clé d'API y
+voyage en clair**, lisible de tout équipement traversé. D'où une **exception nominative
+plutôt qu'une règle** — HTTP n'est jamais autorisé en tant que tel, cette adresse-ci l'est.
+Toute autre adresse est refusée, en HTTP comme en HTTPS.
+
+> N'utilisez jamais une clé de production sur cette adresse, et tenez la clé de test pour
+> exposée. `fne-check` le rappelle à chaque exécution.
+
+`http://54.247.95.108` sans le `/ws` est **normalisé** vers l'adresse officielle : sans le
+chemin, l'adresse de signature serait `…/external/invoices/sign` au lieu de
+`…/ws/external/invoices/sign`, et l'échec serait incompréhensible. Les barres finales, la
+casse et le port implicite sont également normalisés.
+
+`Fne:TestAllowedUrls` permet d'en déclarer d'autres — un bouchon local, par exemple. La
+liste configurée **remplace** le défaut, et l'ajout est alors un acte délibéré.
+
+En `Production`, l'exception ne s'applique plus : HTTPS obligatoire, sans dérogation.
 
 ### Ce qui protège du doublon
 

@@ -207,6 +207,16 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
         $"{reglagesApi.AuthenticationHeader}: {reglagesApi.AuthenticationScheme} <clé>".Trim());
     Point(true, "Délai", $"{reglagesApi.TimeoutSeconds} s");
 
+    if (reglagesApi.UrlRenseignee && reglagesApi.EnClair)
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            "  ATTENTION — cette adresse est en HTTP clair. La clé d'API y voyage en clair,\n" +
+            "  lisible de tout équipement traversé. C'est ce que publie la DGI pour son\n" +
+            "  environnement d'essai : n'y utilisez jamais une clé de production, et tenez\n" +
+            "  cette clé de test pour exposée.");
+    }
+
     if (reglagesApi.UrlRenseignee && reglagesApi.CleRenseignee)
     {
         Console.WriteLine();
@@ -217,8 +227,16 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
     Titre("Garde-fou environnement");
     if (refus is null && reglagesApi.EstTest)
     {
-        Console.WriteLine("  L'adresse se reconnaît comme une plateforme d'essai.");
-        Console.WriteLine($"  Marqueurs admis : {string.Join(", ", reglagesApi.Marqueurs)}");
+        Console.WriteLine("  L'adresse figure dans la liste des plateformes d'essai autorisées.");
+        Console.WriteLine($"  Autorisée(s) : {string.Join(", ", reglagesApi.AdressesAutorisees)}");
+
+        if (!string.Equals(FneApiOptions.Normaliser(reglagesApi.BaseUrl), reglagesApi.BaseUrlEffective,
+                StringComparison.Ordinal))
+        {
+            Console.WriteLine(
+                $"  Normalisée : « {reglagesApi.BaseUrl} » → « {reglagesApi.BaseUrlEffective} »\n" +
+                "  Sans le chemin, l'adresse de signature aurait été fausse.");
+        }
     }
     else if (refus is null)
     {
