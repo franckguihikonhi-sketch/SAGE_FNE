@@ -37,6 +37,27 @@ public static class FinancialChecks
                     $"mais DL_MontantHT vaut {ligne.MontantHT} (écart de {ecart}).");
             }
 
+            // FNE ne reçoit pas le montant de la ligne : il reçoit une quantité et
+            // un prix unitaire, et refait la multiplication. Quand ce produit n'est
+            // pas un nombre entier de francs, le total certifié dépend d'une règle
+            // d'arrondi que la DGI ne publie pas — et le franc CFA n'a pas de
+            // centimes. La facture certifiée peut alors différer de celle remise au
+            // client.
+            var centimes = brut - decimal.Truncate(brut);
+            if (centimes != 0m && ligne.Quantite != 0m)
+            {
+                var arrondi = Math.Round(remise.PrixUnitaireNet, 2, MidpointRounding.AwayFromZero);
+                var siArrondi = ligne.Quantite * arrondi;
+
+                rapport.Avertir(
+                    "ARRONDI_NON_TRANCHE",
+                    $"{ou} : {ligne.Quantite} x {remise.PrixUnitaireNet} = {brut}, " +
+                    $"qui n'est pas un nombre entier de francs. Si la plateforme arrondit le " +
+                    $"prix unitaire à deux décimales, elle calculera {siArrondi} " +
+                    $"(écart de {brut - siArrondi}). La règle d'arrondi de la DGI n'étant pas " +
+                    "connue, comparez son total à celui-ci sur la première facture certifiée.");
+            }
+
             // Une remise dont le recalcul concorde avec le net de Sage confirme
             // notre lecture des types. On le note : c'est ce qui permettra de
             // cesser de s'en méfier une fois vu sur de vraies pièces.

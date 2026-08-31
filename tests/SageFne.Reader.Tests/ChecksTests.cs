@@ -101,3 +101,63 @@ public class ChecksTests
         Assert.Contains(rapport.Constats, constat => constat.Code == "QUANTITE_INVALIDE");
     }
 }
+
+/// <summary>
+/// FNE ne reçoit pas le montant d'une ligne : il reçoit une quantité et un prix
+/// unitaire, et refait la multiplication. Le franc CFA n'ayant pas de centimes,
+/// un produit à décimales expose à une règle d'arrondi que la DGI ne publie pas.
+/// </summary>
+public class ArrondiTests
+{
+    private static SageDocumentLine Ligne(decimal quantite, decimal prixUnitaire, decimal montantHT) => new()
+    {
+        Domaine = 0, Type = 7, Piece = "1052", Ligne = 1000,
+        ArticleReference = "P007", Designation = "POITRINE DE POULET 10KG-AURA",
+        Quantite = quantite, PrixUnitaire = prixUnitaire,
+        MontantHT = montantHT, MontantTTC = montantHT * 1.09m,
+        Taxe1 = 9m, CodeTaxe1 = "TVA",
+    };
+
+    private static CheckReport Controler(SageDocumentLine ligne)
+    {
+        var rapport = new CheckReport();
+        FinancialChecks.Run([ligne], rapport);
+        return rapport;
+    }
+
+    [Fact]
+    public void Un_produit_a_decimales_est_signale()
+    {
+        // Le cas réel de la pièce 1052 : 40 x 2752,2936 = 110 091,744.
+        var rapport = Controler(Ligne(40m, 2752.2936m, 110091.744m));
+
+        var constat = Assert.Single(rapport.Constats, c => c.Code == "ARRONDI_NON_TRANCHE");
+        Assert.Equal(Severite.Avertissement, constat.Severite);
+        Assert.Contains("110091.744", constat.Message);
+        Assert.Contains("110091.60", constat.Message);   // ce que donnerait un arrondi à 2 décimales
+    }
+
+    [Fact]
+    public void Un_produit_entier_ne_declenche_rien()
+    {
+        var rapport = Controler(Ligne(20m, 10000m, 200000m));
+
+        Assert.DoesNotContain(rapport.Constats, c => c.Code == "ARRONDI_NON_TRANCHE");
+    }
+
+    [Fact]
+    public void Un_prix_a_decimales_qui_tombe_juste_ne_declenche_rien()
+    {
+        // 196,39 x 2500 = 490 975 : des décimales au prix, mais un total entier.
+        var rapport = Controler(Ligne(196.39m, 2500m, 490975m));
+
+        Assert.DoesNotContain(rapport.Constats, c => c.Code == "ARRONDI_NON_TRANCHE");
+    }
+
+    [Fact]
+    public void Le_constat_ne_bloque_pas_la_piece()
+    {
+        // C'est un point à confirmer avec la DGI, pas une erreur de notre fait.
+        Assert.False(Controler(Ligne(40m, 2752.2936m, 110091.744m)).ContientDesErreurs);
+    }
+}
