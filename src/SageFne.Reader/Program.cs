@@ -37,55 +37,28 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
     ContentRootPath = AppContext.BaseDirectory,
 });
 builder.Configuration.AddUserSecrets<Program>(optional: true);
-builder.Services.Configure<FneOptions>(builder.Configuration.GetSection(FneOptions.Section));
-
-// L'API de la DGI, liée sur la même section que le reste : la clé se pose donc
-// en « Fne:ApiKey », dans les secrets utilisateur et nulle part ailleurs.
-var api = new FneApiOptions();
-builder.Configuration.GetSection(FneOptions.Section).Bind(api);
-builder.Services.AddSingleton(api);
-builder.Services.AddHttpClient<FneApiClient>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(api.TimeoutSeconds, 5, 300));
-});
-builder.Services.AddSingleton<InvoiceSender>();
-builder.Services.AddSingleton<IFneInvoiceMapper, FneInvoiceMapper>();
-builder.Services.AddSingleton<InvoiceBatchReader>();
 
 var chaine = builder.Configuration.GetConnectionString("Sage") ?? "";
-var connexionConfiguree = EstRenseignee(chaine);
+var connexionConfiguree = ServicesMiddleware.ConnexionRenseignee(chaine);
 
-if (connexionConfiguree)
-{
-    builder.Services.AddSingleton<ISageInvoiceRepository>(fournisseur =>
-        new SageInvoiceRepository(chaine, fournisseur.GetRequiredService<ILogger<SageInvoiceRepository>>()));
-}
-else
-{
-    builder.Services.AddSingleton<ISageInvoiceRepository, DemoSageInvoiceRepository>();
-}
-
-// Les deux dépôts savent aussi explorer : même instance, deux rôles.
-builder.Services.AddSingleton<ISageTaxInspector>(fournisseur =>
-    (ISageTaxInspector)fournisseur.GetRequiredService<ISageInvoiceRepository>());
-
-// Le registre des certifications vit hors de Sage : la base y est en lecture
-// seule, et rien n'y prévoit de zone pour la référence FNE.
+// Le registre vit hors de Sage. Sans connexion ni chemin explicite, il reste en
+// mémoire : le jeu d'essai ne laisse pas de trace sur le disque.
 var registre = ligneDeCommande.Registre
     ?? builder.Configuration["Fne:CertificationLedgerPath"]
-    ?? Path.Combine(AppContext.BaseDirectory, "certifications.json");
+    ?? (connexionConfiguree ? Path.Combine(AppContext.BaseDirectory, "certifications.json") : null);
 
-if (connexionConfiguree || ligneDeCommande.Registre is not null)
+builder.Services.AjouterMiddlewareFne(
+    builder.Configuration,
+    chaine,
+    connexionConfiguree || ligneDeCommande.Registre is not null ? registre : null);
+
+// Le conteneur est vérifié à la construction : une dépendance manquante doit
+// échouer ici, pas au milieu d'un envoi.
+builder.Services.Configure<ServiceProviderOptions>(options =>
 {
-    builder.Services.AddSingleton<ICertificationLedger>(fournisseur =>
-        new JsonCertificationLedger(
-            registre,
-            fournisseur.GetRequiredService<ILogger<JsonCertificationLedger>>()));
-}
-else
-{
-    builder.Services.AddSingleton<ICertificationLedger, DemoCertificationLedger>();
-}
+    options.ValidateOnBuild = true;
+    options.ValidateScopes = true;
+});
 
 using var hote = builder.Build();
 
@@ -368,7 +341,7 @@ if (ligneDeCommande.Verbe == Verbe.Envoyer)
     }
 
     var expediteur = hote.Services.GetRequiredService<InvoiceSender>();
-    var clientFne = hote.Services.GetRequiredService<FneApiClient>();
+    var clientFne = hote.Services.GetRequiredService<IFneApiClient>();
 
     // La requête exacte, avant tout appel. La clé n'est jamais affichée en clair.
     var apercuLot = await hote.Services.GetRequiredService<InvoiceBatchReader>()
@@ -1223,11 +1196,6 @@ return lot.Bloquees + lot.ModifieesDepuis > 0 ? 1 : 0;
 /// </summary>
 static bool APublier(InvoiceConversion conversion) =>
     conversion.Invoice is not null && conversion.Etat == EtatPiece.ACertifier;
-
-static bool EstRenseignee(string chaine) =>
-    !string.IsNullOrWhiteSpace(chaine)
-    && !chaine.Contains("SERVEUR_SQL", StringComparison.OrdinalIgnoreCase)
-    && !chaine.Contains("MOT_DE_PASSE", StringComparison.OrdinalIgnoreCase);
 
 /// <summary>
 /// Accord en nombre. Le pluriel par défaut ajoute un « s », ce qui suffit pour

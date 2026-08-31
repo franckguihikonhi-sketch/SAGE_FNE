@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 237 tests
+dotnet test                                    # 262 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -634,7 +634,8 @@ SageFne.sln
 │   │                                    InvoiceBatch, CandidatFne, CommandLine
 │   ├── Certification/                   ICertificationLedger, JsonCertificationLedger,
 │   │                                    CertifiedInvoice, InvoiceFingerprint
-│   ├── Configuration/                   FneOptions, ZeroVatOptions, FneApiOptions
+│   ├── Configuration/                   FneOptions, ZeroVatOptions, FneApiOptions,
+│   │                                    ServicesMiddleware (le câblage)
 │   ├── Fne/                             IFneClient, HttpFneClient, InvoiceSender,
 │   │                                    EtatFne
 │   ├── Models/Sage/                     SageDocumentHeader, SageDocumentLine,
