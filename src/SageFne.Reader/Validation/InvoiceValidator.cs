@@ -36,6 +36,23 @@ public static class InvoiceValidator
                 rapport.Avertir("CLIENT_SANS_NOM", $"Le client {client.CtNum} n'a pas d'intitulé.");
             }
 
+            // Ce que Sage ne porte pas ne s'invente pas : on le signale, et
+            // c'est à l'exploitant de dire si la DGI l'exige.
+            if (string.IsNullOrWhiteSpace(client.Email))
+            {
+                rapport.Avertir(
+                    "CLIENT_SANS_EMAIL",
+                    $"CT_EMail vide pour {client.CtNum} : clientEmail partira vide. " +
+                    "Aucune adresse n'est inventée.");
+            }
+
+            if (string.IsNullOrWhiteSpace(client.Telephone))
+            {
+                rapport.Avertir(
+                    "CLIENT_SANS_TELEPHONE",
+                    $"CT_Telephone vide pour {client.CtNum} : clientPhone partira vide.");
+            }
+
             // Le NCC identifie le client auprès de la DGI : une facture B2B
             // sans NCC sera refusée à la certification.
             if (template.Equals("B2B", StringComparison.OrdinalIgnoreCase)

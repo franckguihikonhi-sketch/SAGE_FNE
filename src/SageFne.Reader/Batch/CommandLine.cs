@@ -119,6 +119,8 @@ public sealed record CommandLine
                     verbe = Verbe.TypesDocuments;
                     break;
                 case "detail":
+                case "apercu":
+                case "aperçu":
                     verbe = Verbe.Detail;
                     break;
                 case "colonnes":
@@ -182,7 +184,8 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --au 2025-12-31
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
           dotnet run --project src/SageFne.Reader -- doctypes            inventaire des types de documents
-          dotnet run --project src/SageFne.Reader -- detail 1219         relevé complet d'une pièce
+          dotnet run --project src/SageFne.Reader -- apercu 1052         aperçu FNE d'une pièce, sans rien envoyer
+          dotnet run --project src/SageFne.Reader -- detail 1219         idem (même commande)
           dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
           dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
           dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes

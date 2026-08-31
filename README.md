@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 225 tests
+dotnet test                                    # 237 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -33,7 +33,7 @@ Et un diagnostic, en lecture seule lui aussi :
 
 ```bash
 dotnet run --project src/SageFne.Reader -- doctypes              # inventaire des types de documents
-dotnet run --project src/SageFne.Reader -- detail 1219           # relevé complet d'une pièce
+dotnet run --project src/SageFne.Reader -- apercu 1052           # aperçu FNE, aucune API contactée
 dotnet run --project src/SageFne.Reader -- colonnes              # colonnes réelles des tables Sage
 dotnet run --project src/SageFne.Reader -- taxes 1219            # paramétrage fiscal autour d'une pièce
 dotnet run --project src/SageFne.Reader -- candidats-fne         # factures d'essai fiscalement nettes
@@ -525,11 +525,19 @@ sur l'entête, `F_DOCENTETE.DO_DocType`, et nulle part ailleurs. Les lignes se r
 leur entête par `DO_Domaine`, `DO_Piece` et `DO_Type`, qui existent bien dans les deux
 tables.
 
-## Le relevé d'une pièce
+## L'aperçu d'une pièce
 
 ```bash
-dotnet run --project src/SageFne.Reader -- detail 1219
+dotnet run --project src/SageFne.Reader -- apercu 1052     # ou « detail », c'est la même
 ```
+
+**Aucune API n'est contactée** : la commande lit Sage en `SELECT`, construit le corps FNE
+et l'affiche. Elle ne connaît même pas l'adresse de la plateforme.
+
+Un tableau donne **chaque champ FNE avec son origine** — de `F_COMPTET.CT_Identifiant` pour
+le NCC à « figé » pour `invoiceType`. C'est le seul moyen de vérifier qu'aucune valeur n'a
+été inventée. Ce que Sage ne porte pas reste vide et se signale : `CLIENT_SANS_EMAIL`,
+`CLIENT_SANS_TELEPHONE`, `PAYMENT_METHOD_SUPPOSE`.
 
 Tout ce que porte la pièce, d'un côté Sage et de l'autre FNE : les documents qui partagent
 son numéro et lesquels sont retenus, le client et son NCC, chaque ligne avec sa quantité,

@@ -111,6 +111,14 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
             });
         }
 
+        // Sage ne porte pas le mode de règlement du document. La valeur vient du
+        // paramétrage, et cela doit se voir sur chaque pièce plutôt que dans une
+        // note de bas de page.
+        report?.Avertir(
+            "PAYMENT_METHOD_SUPPOSE",
+            $"paymentMethod = « {_options.PaymentMethod} », valeur du paramétrage : " +
+            "Sage ne porte pas le mode de règlement de la pièce. À confirmer avec la DGI.");
+
         return new FneInvoice
         {
             InvoiceType = "sale",

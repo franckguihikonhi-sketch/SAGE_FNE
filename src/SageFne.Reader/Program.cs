@@ -187,6 +187,7 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
 if (ligneDeCommande.Verbe == Verbe.Verification)
 {
     var reglagesApi = hote.Services.GetRequiredService<FneApiOptions>();
+    var reglagesFne = hote.Services.GetRequiredService<IOptions<FneOptions>>().Value;
 
     Titre("Vérification de l'accès FNE");
 
@@ -206,6 +207,20 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
     Point(true, "Authentification",
         $"{reglagesApi.AuthenticationHeader}: {reglagesApi.AuthenticationScheme} <clé>".Trim());
     Point(true, "Délai", $"{reglagesApi.TimeoutSeconds} s");
+
+    // Identifiants du dossier auprès de la DGI. Ils ne sont pas secrets — ils
+    // figurent sur chaque facture certifiée — mais leur absence bloque tout.
+    var pointDeVente = reglagesFne.PointOfSale;
+    var etablissement = reglagesFne.Establishment;
+    var identifiantsPresents =
+        !EstGabarit(pointDeVente) && !EstGabarit(etablissement);
+
+    Point(!EstGabarit(pointDeVente), "Fne:PointOfSale",
+        EstGabarit(pointDeVente) ? "non renseigné" : pointDeVente);
+    Point(!EstGabarit(etablissement), "Fne:Establishment",
+        EstGabarit(etablissement) ? "non renseigné" : etablissement);
+    Point(true, "Fne:Template", reglagesFne.Template);
+    Point(true, "Fne:PaymentMethod", $"{reglagesFne.PaymentMethod} (figé, Sage ne le porte pas)");
 
     if (reglagesApi.UrlRenseignee && reglagesApi.EnClair)
     {
@@ -249,6 +264,22 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
         Console.WriteLine($"  REFUS — {refus}");
     }
 
+    if (!identifiantsPresents)
+    {
+        Titre("Identifiants du dossier");
+        Console.WriteLine("""
+              ERREUR — pointOfSale et establishment doivent être renseignés. Ils
+              identifient le point de vente et l'établissement déclarés à la DGI :
+              sans eux, la facture partirait rattachée à un point inconnu.
+
+                cd src\SageFne.Reader
+                dotnet user-secrets set "Fne:PointOfSale"   "…"
+                dotnet user-secrets set "Fne:Establishment" "…"
+
+              Tout envoi est bloqué tant qu'ils manquent.
+              """);
+    }
+
     Titre("Conclusion");
     if (!reglagesApi.CleRenseignee || !reglagesApi.UrlRenseignee)
     {
@@ -265,6 +296,10 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
     {
         Console.WriteLine("  L'accès est renseigné mais refusé par le garde-fou ci-dessus.");
     }
+    else if (!identifiantsPresents)
+    {
+        Console.WriteLine("  L'accès est configuré, mais les identifiants du dossier manquent.");
+    }
     else
     {
         Console.WriteLine("  L'accès est configuré. Aucune facture n'a été envoyée, aucune API appelée.");
@@ -275,7 +310,7 @@ if (ligneDeCommande.Verbe == Verbe.Verification)
         "Cette commande ne contacte aucun service : elle ne fait que lire la configuration.\n" +
         "La clé n'est jamais affichée en clair, ni ici, ni dans les journaux.");
 
-    return reglagesApi.EstConfigure ? 0 : 1;
+    return reglagesApi.EstConfigure && identifiantsPresents ? 0 : 1;
 }
 
 // Envoi à la certification. Par défaut la commande montre la requête et
@@ -318,6 +353,17 @@ if (ligneDeCommande.Verbe == Verbe.Envoyer)
               Le chemin (Fne:Api:SignPath), l'en-tête et le préfixe
               d'authentification sont paramétrables si la DGI en attend d'autres.
               """);
+        return 2;
+    }
+
+    var reglagesDossier = hote.Services.GetRequiredService<IOptions<FneOptions>>().Value;
+    if (EstGabarit(reglagesDossier.PointOfSale) || EstGabarit(reglagesDossier.Establishment))
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            "  Refus : Fne:PointOfSale ou Fne:Establishment n'est pas renseigné.\n" +
+            "  La facture partirait rattachée à un point de vente inconnu de la DGI.\n" +
+            "  Voyez « fne-check ».");
         return 2;
     }
 
@@ -1006,6 +1052,46 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
             Console.WriteLine($"    {hypothese.Consequence}");
         }
 
+        // Champ par champ, avec son origine. C'est le seul moyen de vérifier
+        // qu'aucune valeur n'a été inventée.
+        Titre("Champs FNE et leur origine");
+        Console.WriteLine($"  {"Champ",-24} {"Valeur",-32} Origine");
+
+        void Champ(string nom, string valeur, string origine) =>
+            Console.WriteLine(
+                $"  {nom,-24} {Tronquer(valeur == "" ? "— vide —" : valeur, 32),-32} {origine}");
+
+        Champ("invoiceType", facture.InvoiceType, "figé : toutes les pièces partent en vente");
+        Champ("paymentMethod", facture.PaymentMethod, "paramétrage — Sage ne le porte pas");
+        Champ("template", facture.Template, "paramétrage Fne:Template");
+        Champ("isRne", facture.IsRne ? "true" : "false", "figé à false");
+        Champ("clientNcc", facture.ClientNcc, "F_COMPTET.CT_Identifiant");
+        Champ("clientCompanyName", facture.ClientCompanyName, "F_COMPTET.CT_Intitule");
+        Champ("clientPhone", facture.ClientPhone, "F_COMPTET.CT_Telephone");
+        Champ("clientEmail", facture.ClientEmail, "F_COMPTET.CT_EMail");
+        Champ("clientSellerName", facture.ClientSellerName, "non renseigné — absent de Sage");
+        Champ("pointOfSale", facture.PointOfSale, "paramétrage Fne:PointOfSale");
+        Champ("establishment", facture.Establishment, "paramétrage Fne:Establishment");
+        Champ("discount", Nombre(facture.Discount), "remise d'entête — non lue, toujours 0");
+
+        for (var rang = 0; rang < facture.Items.Count; rang++)
+        {
+            var item = facture.Items[rang];
+            Console.WriteLine();
+            Champ($"items[{rang}].reference", item.Reference, "F_DOCLIGNE.AR_Ref");
+            Champ($"items[{rang}].description", item.Description, "F_DOCLIGNE.DL_Design");
+            Champ($"items[{rang}].quantity", Nombre(item.Quantity), "F_DOCLIGNE.DL_Qte");
+            Champ($"items[{rang}].amount", Nombre(item.Amount),
+                "prix unitaire HT net — déduit de DL_MontantHT / DL_Qte si remise");
+            Champ($"items[{rang}].discount", Nombre(item.Discount), "remise déjà déduite du prix net");
+            Champ($"items[{rang}].measurementUnit", item.MeasurementUnit, "F_DOCLIGNE.EU_Enumere");
+            Champ($"items[{rang}].taxes", string.Join(", ", item.Taxes),
+                "taux de DL_TaxeN — 18→TVA, 9→TVAB, 0→régime déclaré");
+            Champ($"items[{rang}].customTaxes",
+                string.Join(", ", item.CustomTaxes.Select(taxe => $"{taxe.Name} {taxe.Amount}")),
+                "prélèvements explicitement mappés (Fne:CustomTaxes)");
+        }
+
         Titre($"JSON FNE — pièce {numero}");
         Console.WriteLine(JsonSerializer.Serialize(facture, JsonFne()));
     }
@@ -1016,7 +1102,9 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
     }
 
     Console.WriteLine();
-    Console.WriteLine("Lecture seule. Aucun envoi, aucune écriture dans Sage.");
+    Console.WriteLine(
+        "Lecture seule : uniquement des SELECT sur Sage. Aucune API n'a été contactée,\n" +
+        "aucun POST n'a été fait, rien n'a été écrit — ni dans Sage, ni au registre.");
     return piece.Invoice is null ? 1 : 0;
 }
 
@@ -1162,6 +1250,12 @@ static JsonSerializerOptions JsonFne() => new()
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     Converters = { new DecimalJsonConverter() },
 };
+
+/// <summary>Vide, ou resté au gabarit livré : dans les deux cas, non renseigné.</summary>
+static bool EstGabarit(string? valeur) =>
+    string.IsNullOrWhiteSpace(valeur)
+    || valeur.Trim().Equals("A_COMPLETER", StringComparison.OrdinalIgnoreCase)
+    || valeur.Trim().Equals("A_RENSEIGNER", StringComparison.OrdinalIgnoreCase);
 
 /// <summary>Un champ vide se dit, il ne s'affiche pas en blanc.</summary>
 static string Renseigne(string? valeur) =>
