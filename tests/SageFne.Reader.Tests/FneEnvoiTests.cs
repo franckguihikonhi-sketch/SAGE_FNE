@@ -303,3 +303,122 @@ public class InvoiceSenderTests
         Assert.Equal($"0/6/{Envoyable}", registre.Ecritures[^1].Identite);
     }
 }
+
+/// <summary>
+/// Un registre qui ne peut pas écrire doit arrêter l'envoi. Une facture
+/// certifiée par la DGI dont nous n'aurions aucune trace serait pire que pas de
+/// facture du tout : elle repartirait en double au prochain lot.
+/// </summary>
+public class RegistreIndisponibleTests
+{
+    private sealed class RegistreEnPanne : ICertificationLedger
+    {
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                new Dictionary<string, CertifiedInvoice>());
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default) =>
+            throw new IOException("disque plein");
+    }
+
+    private sealed class ClientTemoin : IFneApiClient
+    {
+        public bool Appele { get; private set; }
+        public bool Reel => false;
+        public string DecrireRequete(SageFne.Reader.Models.Fne.FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(
+            SageFne.Reader.Models.Fne.FneInvoice facture, CancellationToken ct = default)
+        {
+            Appele = true;
+            return Task.FromResult(new FneSignResult(true, 200, "REF"));
+        }
+    }
+
+    [Fact]
+    public async Task Un_registre_en_panne_arrete_l_envoi_avant_tout_appel()
+    {
+        var client = new ClientTemoin();
+        var options = Options.Create(new FneOptions
+        {
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            Template = "B2B",
+            PaymentMethod = "deferred",
+        });
+        var registre = new RegistreEnPanne();
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(options), registre, options);
+        var expediteur = new InvoiceSender(
+            lecteur, registre, client, NullLogger<InvoiceSender>.Instance);
+
+        var resultat = await expediteur.EnvoyerAsync("1221", confirme: true);
+
+        Assert.False(client.Appele, "aucun appel ne doit partir si la trace est impossible");
+        Assert.Equal(EtatFne.Error, resultat.Etat);
+        Assert.Contains("disque plein", resultat.Message);
+        Assert.Contains("Rien n'a été envoyé", resultat.Message);
+    }
+}
+
+/// <summary>
+/// Le chemin du registre : le vide compte comme absent.
+/// </summary>
+public class CheminRegistreTests
+{
+    private const string Dossier = "/app";
+
+    [Fact]
+    public void Un_chemin_vide_en_configuration_retombe_sur_le_defaut()
+    {
+        // appsettings.json porte « "CertificationLedgerPath": "" » : un simple
+        // ?? ne retombait pas sur le défaut, et le registre recevait "".
+        var chemin = ServicesMiddleware.CheminRegistre(null, "", Dossier, connexionSageConfiguree: true);
+
+        Assert.Equal(Path.Combine(Dossier, "certifications.json"), chemin);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void Sans_connexion_Sage_le_registre_reste_en_memoire(string? configure)
+    {
+        Assert.Null(ServicesMiddleware.CheminRegistre(null, configure, Dossier, false));
+    }
+
+    [Fact]
+    public void La_ligne_de_commande_l_emporte_sur_la_configuration()
+    {
+        Assert.Equal(
+            "/tmp/mien.json",
+            ServicesMiddleware.CheminRegistre("/tmp/mien.json", "/autre.json", Dossier, true));
+    }
+
+    [Fact]
+    public void Un_chemin_configure_est_respecte_meme_sans_connexion()
+    {
+        // Demander un registre, c'est vouloir qu'il existe.
+        Assert.Equal(
+            "/data/reg.json",
+            ServicesMiddleware.CheminRegistre(null, "/data/reg.json", Dossier, false));
+    }
+
+    [Fact]
+    public void Les_espaces_autour_sont_retires()
+    {
+        Assert.Equal("/data/reg.json",
+            ServicesMiddleware.CheminRegistre("  /data/reg.json  ", null, Dossier, true));
+    }
+
+    [Fact]
+    public void Un_registre_sans_chemin_refuse_d_exister()
+    {
+        // Mieux vaut échouer à la construction qu'au milieu d'un envoi.
+        var erreur = Assert.Throws<ArgumentException>(
+            () => new JsonCertificationLedger("", NullLogger<JsonCertificationLedger>.Instance));
+
+        Assert.Contains("Fne:CertificationLedgerPath", erreur.Message);
+    }
+}

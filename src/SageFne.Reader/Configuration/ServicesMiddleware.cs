@@ -86,6 +86,33 @@ public static class ServicesMiddleware
     }
 
     /// <summary>
+    /// Où écrire le registre des certifications, ou null pour le garder en
+    /// mémoire.
+    /// </summary>
+    /// <remarks>
+    /// Le vide compte comme absent. <c>appsettings.json</c> porte
+    /// <c>"CertificationLedgerPath": ""</c>, et un simple <c>??</c> ne
+    /// retombait pas sur le défaut : le registre recevait une chaîne vide, et
+    /// <c>Path.GetFullPath("")</c> levait au moment d'écrire — c'est-à-dire au
+    /// milieu du premier envoi.
+    /// </remarks>
+    public static string? CheminRegistre(
+        string? demandeEnLigneDeCommande,
+        string? configure,
+        string dossierParDefaut,
+        bool connexionSageConfiguree)
+    {
+        if (!string.IsNullOrWhiteSpace(demandeEnLigneDeCommande)) return demandeEnLigneDeCommande.Trim();
+        if (!string.IsNullOrWhiteSpace(configure)) return configure.Trim();
+
+        // Sans base réelle, rien ne mérite d'être écrit sur le disque : le jeu
+        // d'essai garde son registre en mémoire.
+        return connexionSageConfiguree
+            ? Path.Combine(dossierParDefaut, "certifications.json")
+            : null;
+    }
+
+    /// <summary>
     /// Une chaîne restée au gabarit n'est pas une chaîne : mieux vaut le jeu
     /// d'essai, qui se déclare, qu'une tentative de connexion vers « SERVEUR_SQL ».
     /// </summary>

@@ -70,9 +70,24 @@ public sealed class InvoiceSender(
         }
 
         // Trace avant l'appel : c'est elle qui évitera le doublon si la réponse
-        // se perd.
+        // se perd. Si elle échoue, rien ne part — une facture certifiée dont
+        // nous n'aurions aucune trace serait pire que pas de facture du tout.
         var enCours = Trace(conversion, EtatFne.Sending);
-        await registre.RecordAsync(enCours, cancellation);
+        try
+        {
+            await registre.RecordAsync(enCours, cancellation);
+        }
+        catch (Exception erreur) when (erreur is not OperationCanceledException)
+        {
+            logger.LogError(erreur, "Registre inaccessible : envoi abandonné avant tout appel.");
+            return new EnvoiResultat(
+                EtatFne.Error,
+                $"Le registre des certifications n'a pas pu être écrit : {erreur.Message} " +
+                "Rien n'a été envoyé à la DGI — sans trace, une facture certifiée serait " +
+                "invisible et pourrait repartir en double.",
+                conversion);
+        }
+
         logger.LogInformation("Pièce {Piece} marquée Sending avant appel.", piece);
 
         var reponse = await client.SignAsync(conversion.Invoice, cancellation);

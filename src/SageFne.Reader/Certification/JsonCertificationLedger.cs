@@ -22,7 +22,19 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
     private readonly SemaphoreSlim _verrou = new(1, 1);
 
-    public string Chemin => chemin;
+    /// <summary>
+    /// Un registre sans chemin ne peut rien écrire : autant le dire à la
+    /// construction plutôt qu'au milieu d'un envoi, là où l'échec est le plus
+    /// coûteux.
+    /// </summary>
+    private readonly string _chemin = !string.IsNullOrWhiteSpace(chemin)
+        ? chemin.Trim()
+        : throw new ArgumentException(
+            "Le registre des certifications n'a pas de chemin. Renseignez " +
+            "Fne:CertificationLedgerPath, ou passez --registre.",
+            nameof(chemin));
+
+    public string Chemin => _chemin;
 
     /// <summary>Vrai quand le fichier existe mais n'a pas pu être lu.</summary>
     public bool EstIllisible { get; private set; }
@@ -48,16 +60,16 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
                 [certification.Identite] = certification,
             };
 
-            var dossier = Path.GetDirectoryName(Path.GetFullPath(chemin));
+            var dossier = Path.GetDirectoryName(Path.GetFullPath(_chemin));
             if (!string.IsNullOrEmpty(dossier)) Directory.CreateDirectory(dossier);
 
             // Écriture puis remplacement : jamais de registre à moitié écrit.
-            var provisoire = $"{chemin}.tmp";
+            var provisoire = $"{_chemin}.tmp";
             await File.WriteAllTextAsync(
                 provisoire,
                 JsonSerializer.Serialize(registre.Values.OrderBy(entree => entree.Identite), Options),
                 cancellation);
-            File.Move(provisoire, chemin, overwrite: true);
+            File.Move(provisoire, _chemin, overwrite: true);
         }
         finally
         {
@@ -67,11 +79,11 @@ public sealed class JsonCertificationLedger(string chemin, ILogger<JsonCertifica
 
     private async Task<Dictionary<string, CertifiedInvoice>> LireAsync(CancellationToken cancellation)
     {
-        if (!File.Exists(chemin)) return new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase);
+        if (!File.Exists(_chemin)) return new Dictionary<string, CertifiedInvoice>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
-            var contenu = await File.ReadAllTextAsync(chemin, cancellation);
+            var contenu = await File.ReadAllTextAsync(_chemin, cancellation);
             var entrees = JsonSerializer.Deserialize<List<CertifiedInvoice>>(contenu) ?? [];
             EstIllisible = false;
             return entrees

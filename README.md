@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 262 tests
+dotnet test                                    # 282 tests
 ```
 
 Le dry run lit **un lot** de factures :

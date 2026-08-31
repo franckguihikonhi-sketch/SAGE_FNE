@@ -43,14 +43,13 @@ var connexionConfiguree = ServicesMiddleware.ConnexionRenseignee(chaine);
 
 // Le registre vit hors de Sage. Sans connexion ni chemin explicite, il reste en
 // mémoire : le jeu d'essai ne laisse pas de trace sur le disque.
-var registre = ligneDeCommande.Registre
-    ?? builder.Configuration["Fne:CertificationLedgerPath"]
-    ?? (connexionConfiguree ? Path.Combine(AppContext.BaseDirectory, "certifications.json") : null);
+var registre = ServicesMiddleware.CheminRegistre(
+    ligneDeCommande.Registre,
+    builder.Configuration["Fne:CertificationLedgerPath"],
+    AppContext.BaseDirectory,
+    connexionConfiguree);
 
-builder.Services.AjouterMiddlewareFne(
-    builder.Configuration,
-    chaine,
-    connexionConfiguree || ligneDeCommande.Registre is not null ? registre : null);
+builder.Services.AjouterMiddlewareFne(builder.Configuration, chaine, registre);
 
 // Le conteneur est vérifié à la construction : une dépendance manquante doit
 // échouer ici, pas au milieu d'un envoi.
