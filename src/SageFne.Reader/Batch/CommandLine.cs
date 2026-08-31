@@ -22,6 +22,12 @@ public enum Verbe
     /// l'article, et les colonnes de taxe brutes d'une pièce.
     /// </summary>
     Taxes,
+
+    /// <summary>
+    /// Chercher dans le dossier de vraies factures fiscalement nettes, pour
+    /// servir de cas d'essai au premier envoi.
+    /// </summary>
+    Candidats,
 }
 
 /// <summary>
@@ -44,13 +50,15 @@ public sealed record CommandLine
     public string? Registre { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
+    public const int LimiteParDefaut = 500;
+
     public static CommandLine Parse(string[] args)
     {
         var pieces = new List<string>();
         var erreurs = new List<string>();
         DateTime? depuis = null;
         DateTime? jusqua = null;
-        var limite = 500;
+        var limite = LimiteParDefaut;
         string? sortie = null;
         string? registre = null;
         var afficherJson = false;
@@ -97,6 +105,12 @@ public sealed record CommandLine
                 case "taxes":
                     verbe = Verbe.Taxes;
                     break;
+                case "candidats-fne":
+                    verbe = Verbe.Candidats;
+                    // Le tri porte sur tout le dossier : la limite par défaut
+                    // du dry run passerait à côté de la meilleure pièce.
+                    if (limite == LimiteParDefaut) limite = 2000;
+                    break;
                 default:
                     if (argument.StartsWith('-')) erreurs.Add($"Option inconnue : {argument}");
                     else pieces.Add(argument);
@@ -139,6 +153,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- detail 1219         relevé complet d'une pièce
           dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
           dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
+          dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes
 
         Options :
           --du, --au     période, bornes comprises

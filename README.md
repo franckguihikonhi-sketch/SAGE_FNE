@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 152 tests
+dotnet test                                    # 168 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -36,6 +36,7 @@ dotnet run --project src/SageFne.Reader -- doctypes              # inventaire de
 dotnet run --project src/SageFne.Reader -- detail 1219           # relevé complet d'une pièce
 dotnet run --project src/SageFne.Reader -- colonnes              # colonnes réelles des tables Sage
 dotnet run --project src/SageFne.Reader -- taxes 1219            # paramétrage fiscal autour d'une pièce
+dotnet run --project src/SageFne.Reader -- candidats-fne         # factures d'essai fiscalement nettes
 ```
 
 | Option | Effet |
@@ -259,6 +260,37 @@ la documentation DGI : si `discount` doit porter la remise pour l'afficher sur l
 certifiée, c'est le mapping qui changera, pas le total.
 
 Une remise portée par l'**entête** (`DO_Remise`) n'est pas encore lue.
+
+## Choisir la facture du premier envoi
+
+```bash
+dotnet run --project src/SageFne.Reader -- candidats-fne
+```
+
+Le premier envoi à la DGI est irréversible : ce qui part certifié ne se corrige que par un
+avoir. La pièce d'essai doit donc être la moins discutable du dossier. La commande passe
+tout le domaine des ventes par la **conversion réelle** — même mapping, mêmes contrôles que
+ce qui partirait — puis note chaque facture et propose un meilleur candidat par taux.
+
+**Ce qui écarte sans appel :**
+
+| Motif | Pourquoi |
+| --- | --- |
+| une ligne à 0 % de TVA | régime `TVAC`/`TVAD` non tranché : une pièce d'essai ne doit soulever aucune question |
+| un taux hors nomenclature | 12 % n'existe pas côté FNE |
+| NCC absent | la facture ne peut pas partir en B2B |
+| une erreur de contrôle | quelle qu'elle soit |
+| déjà connue du registre | certifiée, ou modifiée depuis |
+| pas de ligne au taux cherché | ce n'est pas un candidat pour ce taux |
+
+**Ce qui départage**, par ordre de poids : aucun constat du tout (+100), total TTC des
+lignes conforme à `DO_TotalTTC` (+60), taux unique (+40), peu de lignes (+40 pour une
+seule), aucun prélèvement (+15). Chaque point gagné ou perdu est écrit en clair sous le
+candidat — un candidat qu'on ne comprend pas n'en est pas un.
+
+Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocType`,
+`DO_Date`, `DO_Tiers`, `CT_Intitule`, le NCC, le nombre de lignes, les taux rencontrés, les
+`customTaxes`, les totaux HT et TTC recalculés face à `DO_TotalTTC`, l'écart, et le statut.
 
 ## Les pièces déjà certifiées
 
@@ -484,7 +516,7 @@ SageFne.sln
 │   ├── appsettings.json                 gabarit de connexion et paramètres FNE
 │   ├── appsettings.Development.json     réglages du poste (jamais de mot de passe)
 │   ├── Batch/                           InvoiceBatchReader, InvoiceConversion,
-│   │                                    InvoiceBatch, CommandLine
+│   │                                    InvoiceBatch, CandidatFne, CommandLine
 │   ├── Certification/                   ICertificationLedger, JsonCertificationLedger,
 │   │                                    CertifiedInvoice, InvoiceFingerprint
 │   ├── Configuration/                   FneOptions, ZeroVatOptions

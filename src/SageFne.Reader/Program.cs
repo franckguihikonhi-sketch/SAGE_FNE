@@ -170,6 +170,102 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
     return 0;
 }
 
+// De vraies factures du dossier, fiscalement nettes, pour servir de cas d'essai
+// au premier envoi. Aucune n'est envoyée : la commande les note et les classe.
+if (ligneDeCommande.Verbe == Verbe.Candidats)
+{
+    var lecteurCandidats = hote.Services.GetRequiredService<InvoiceBatchReader>();
+
+    Titre("Candidats au premier envoi FNE");
+    Console.WriteLine(Source(connexionConfiguree));
+    Console.WriteLine();
+    Console.WriteLine(
+        $"  Lecture de {ligneDeCommande.Query.Describe()}, limite {ligneDeCommande.Query.Limite}.");
+
+    var examen = await lecteurCandidats.ReadAsync(ligneDeCommande.Query);
+    if (examen.Total == 0)
+    {
+        Titre("Résultat");
+        Constats(examen.Constats);
+        return 1;
+    }
+
+    Console.WriteLine($"  {Pluriel(examen.Total, "pièce")} examinée(s).");
+
+    foreach (var taux in new[] { TauxRecherche.Normal, TauxRecherche.Reduit })
+    {
+        var evalues = examen.Conversions
+            .Select(conversion => CandidatFne.Evaluer(conversion, taux, FinancialChecks.Tolerance))
+            .ToList();
+
+        var retenus = evalues
+            .Where(candidat => candidat.Retenu)
+            .OrderByDescending(candidat => candidat.Score)
+            .ThenBy(candidat => candidat.Conversion.Lines.Count)
+            .ThenBy(candidat => candidat.Conversion.Header.Piece, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Titre($"TVA {(int)taux} % — {Pluriel(retenus.Count, "candidat")}");
+
+        if (retenus.Count == 0)
+        {
+            var proches = evalues
+                .Where(candidat => !candidat.TauxRencontres.Contains(0m)
+                                   && candidat.TauxRencontres.Contains((decimal)(int)taux))
+                .Take(5)
+                .ToList();
+
+            Console.WriteLine($"  Aucune facture à {(int)taux} % ne passe tous les contrôles.");
+            if (proches.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("  Les plus proches, et ce qui les écarte :");
+                foreach (var proche in proches)
+                {
+                    Console.WriteLine($"    {proche.Conversion.Header.Piece,-12} " +
+                        $"{string.Join(" ", proche.Disqualifications)}");
+                }
+            }
+
+            continue;
+        }
+
+        var meilleur = retenus[0];
+        Console.WriteLine();
+        Console.WriteLine($"  ★ MEILLEUR CANDIDAT TVA {(int)taux} % — pièce {meilleur.Conversion.Header.Piece}");
+        Console.WriteLine();
+        Fiche(meilleur);
+
+        if (retenus.Count > 1)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  Autres candidats, du meilleur au moins bon :");
+            Console.WriteLine(
+                $"    {"Pièce",-12} {"Date",-11} {"Client",-26} {"Lg",3} {"Total TTC",15} {"Score",6}  Statut");
+            foreach (var candidat in retenus.Skip(1).Take(9))
+            {
+                Console.WriteLine(
+                    $"    {candidat.Conversion.Header.Piece,-12} " +
+                    $"{candidat.Conversion.Header.Date,-11:dd/MM/yyyy} " +
+                    $"{Tronquer(candidat.Conversion.Customer?.Intitule ?? "", 26),-26} " +
+                    $"{candidat.Conversion.Lines.Count,3} {Somme(candidat.Conversion.TotalTTC),15} " +
+                    $"{candidat.Score,6}  {candidat.Statut}");
+            }
+
+            if (retenus.Count > 10) Console.WriteLine($"    … et {retenus.Count - 10} autres.");
+        }
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("""
+        Aucune facture à 0 % de TVA n'est proposée : leur régime d'exonération
+        n'est pas tranché, et une pièce d'essai ne doit soulever aucune question.
+
+        Lecture seule. Rien n'a été envoyé, rien n'a été écrit.
+        """);
+    return 0;
+}
+
 // Le paramétrage fiscal du dossier, pour chercher ce qui distinguerait une
 // exonération conventionnelle d'une exonération légale. Rien n'est déduit ici :
 // la commande montre, elle ne conclut pas.
@@ -734,6 +830,47 @@ static string Nombre(decimal valeur) => valeur.ToString("N2", CultureInfo.GetCul
 /// </summary>
 static string CodeTaxe(TaxMapping.Resultat taxes) =>
     taxes.RegimeZeroRequis ? "NON DETERMINE" : taxes.Taxes.Count > 0 ? taxes.Taxes[0] : "—";
+
+/// <summary>Le détail d'un candidat, dans l'ordre où on le vérifie.</summary>
+static void Fiche(CandidatFne candidat)
+{
+    var conversion = candidat.Conversion;
+    var entete = conversion.Header;
+
+    void Ligne(string libelle, string valeur) => Console.WriteLine($"    {libelle,-22} {valeur}");
+
+    Ligne("DO_Piece", entete.Piece);
+    Ligne("DO_Type", $"{entete.Type} ({SageDocumentTypes.Libelle(entete.Type)})");
+    Ligne("DO_DocType", entete.DocType.ToString());
+    Ligne("DO_Date", $"{entete.Date:dd/MM/yyyy}");
+    Ligne("DO_Tiers", entete.Tiers);
+    Ligne("CT_Intitule", conversion.Customer?.Intitule ?? "—");
+    Ligne("CT_Identifiant (NCC)", Renseigne(conversion.Customer?.Identifiant));
+    Ligne("Nombre de lignes", conversion.Lines.Count.ToString());
+    Ligne("Taux de TVA", string.Join(", ", candidat.TauxRencontres.Select(taux => $"{taux:0.##} %")));
+    Ligne("Custom taxes", candidat.CustomTaxes.Count > 0
+        ? string.Join(", ", candidat.CustomTaxes)
+        : "aucune");
+    Ligne("Total HT calculé", Somme(conversion.TotalHT));
+    Ligne("Total TTC calculé", Somme(conversion.TotalTTC));
+    Ligne("DO_TotalTTC", Somme(entete.TotalTTC));
+    Ligne("Écart TTC", $"{Somme(candidat.EcartTTC)}");
+    Ligne("Statut", $"{candidat.Statut} — {conversion.LibelleEtat} (score {candidat.Score})");
+
+    Console.WriteLine();
+    Console.WriteLine("    Pourquoi ce classement :");
+    foreach (var raison in candidat.Raisons) Console.WriteLine($"      · {raison}");
+
+    if (conversion.Report.Constats.Count > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("    Réserves :");
+        foreach (var constat in conversion.Report.Constats)
+        {
+            Console.WriteLine($"      [{constat.Code}] {constat.Message}");
+        }
+    }
+}
 
 /// <summary>Affiche une fiche, ou dit pourquoi il n'y en a pas.</summary>
 static void Montrer(SageEnregistrement? fiche, string absence)
