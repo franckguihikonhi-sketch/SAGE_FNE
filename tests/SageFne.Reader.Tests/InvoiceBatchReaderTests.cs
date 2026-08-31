@@ -77,6 +77,9 @@ public class InvoiceBatchReaderTests
 
         public Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<SageDocumentDuplicate>());
+
+        public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageColonnesManquantes>());
     }
 
     private static SageDocumentHeader Entete(string piece, string tiers, int jour) => new()

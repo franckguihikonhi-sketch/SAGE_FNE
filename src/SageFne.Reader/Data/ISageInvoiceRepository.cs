@@ -71,4 +71,16 @@ public interface ISageInvoiceRepository
     /// </remarks>
     Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(
         CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Ce que les tables du dossier ne portent pas, parmi ce que la lecture
+    /// attend.
+    /// </summary>
+    /// <remarks>
+    /// Les colonnes de Sage varient d'une version à l'autre : le dossier HT n'a
+    /// pas de DL_DocType. Plutôt que de le découvrir par une exception au milieu
+    /// d'un lot, on le demande au catalogue.
+    /// </remarks>
+    Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(
+        CancellationToken cancellation = default);
 }

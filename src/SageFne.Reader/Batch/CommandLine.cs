@@ -13,6 +13,9 @@ public enum Verbe
 
     /// <summary>Relevé complet d'une pièce : Sage d'un côté, FNE de l'autre.</summary>
     Detail,
+
+    /// <summary>Ce que les tables du dossier portent, d'après le catalogue SQL.</summary>
+    Colonnes,
 }
 
 /// <summary>
@@ -82,6 +85,9 @@ public sealed record CommandLine
                 case "detail":
                     verbe = Verbe.Detail;
                     break;
+                case "colonnes":
+                    verbe = Verbe.Colonnes;
+                    break;
                 default:
                     if (argument.StartsWith('-')) erreurs.Add($"Option inconnue : {argument}");
                     else pieces.Add(argument);
@@ -122,6 +128,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- --du 2025-12-01 --sortie sorties/
           dotnet run --project src/SageFne.Reader -- doctypes            inventaire des types de documents
           dotnet run --project src/SageFne.Reader -- detail 1219         relevé complet d'une pièce
+          dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
 
         Options :
           --du, --au     période, bornes comprises

@@ -166,6 +166,58 @@ if (ligneDeCommande.Verbe == Verbe.TypesDocuments)
     return 0;
 }
 
+// Ce que les tables du dossier portent vraiment. Deux dossiers Sage n'ont pas
+// forcément les mêmes colonnes : autant le demander au catalogue plutôt que de
+// le découvrir par une exception au milieu d'un lot.
+if (ligneDeCommande.Verbe == Verbe.Colonnes)
+{
+    var depot = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+
+    Titre("Colonnes des tables Sage — d'après sys.columns");
+    Console.WriteLine(Source(connexionConfiguree));
+
+    var releve = await depot.GetColonnesManquantesAsync();
+    if (releve.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Hors base : le jeu d'essai porte par construction tout ce qui est attendu.");
+        return 0;
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"  {"Table",-14} {"Colonnes",9} {"Demandées",10} {"Absentes",9}  État");
+    foreach (var table in releve)
+    {
+        var etat = !table.Utilisable
+            ? "INUTILISABLE"
+            : table.Complet ? "complète" : "lisible, incomplète";
+        Console.WriteLine(
+            $"  {table.Table,-14} {table.Total,9} {table.Demandees,10} {table.Absentes.Count,9}  {etat}");
+    }
+
+    foreach (var table in releve.Where(table => table.Absentes.Count > 0))
+    {
+        Titre($"{table.Table} — colonnes attendues mais absentes");
+        foreach (var colonne in table.Absentes)
+        {
+            var gravite = table.AbsentesIndispensables.Contains(colonne)
+                ? "INDISPENSABLE"
+                : "facultative   ";
+            Console.WriteLine($"  {gravite}  {colonne}");
+        }
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(releve.All(table => table.Complet)
+        ? "Toutes les colonnes attendues existent dans ce dossier."
+        : "Les colonnes facultatives absentes sont simplement laissées de côté :\n" +
+          "elles ne sont pas demandées dans le select, et la lecture continue.");
+
+    Console.WriteLine();
+    Console.WriteLine("Lecture seule : un SELECT sur sys.columns par table. Rien n'a été écrit.");
+    return releve.All(table => table.Utilisable) ? 0 : 1;
+}
+
 // Relevé complet d'une pièce : ce que Sage porte, ce que FNE recevrait, et ce
 // qui manque encore. Lecture seule, aucun envoi.
 if (ligneDeCommande.Verbe == Verbe.Detail)
@@ -182,6 +234,27 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
 
     Titre($"Pièce {numero} — relevé complet");
     Console.WriteLine(Source(connexionConfiguree));
+
+    // Ce que le dossier ne porte pas se dit avant les chiffres : une colonne
+    // absente prive le mapping d'une information, et il vaut mieux que ça se
+    // voie que de lire un zéro sans savoir d'où il vient.
+    var lacunes = (await depot.GetColonnesManquantesAsync())
+        .Where(table => table.Absentes.Count > 0)
+        .ToList();
+
+    if (lacunes.Count > 0)
+    {
+        Titre("Colonnes absentes de ce dossier");
+        foreach (var table in lacunes)
+        {
+            Console.WriteLine($"  {table.Table} : {string.Join(", ", table.Absentes)}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            "  Elles ne sont pas demandées dans le select, et valent leur défaut à la lecture.\n" +
+            "  Voir « colonnes » pour le relevé complet.");
+    }
 
     // 1. Tous les documents portant ce numéro, sans filtre de type : c'est ce
     //    qui permet de dire « ce n'est pas une facture » plutôt que « rien ».

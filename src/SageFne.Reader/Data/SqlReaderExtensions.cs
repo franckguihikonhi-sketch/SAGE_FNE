@@ -62,4 +62,28 @@ internal static class SqlReaderExtensions
         var valeur = reader[colonne];
         return valeur is not (DBNull or null) && Convert.ToInt32(valeur) != 0;
     }
+
+    // --- Colonnes qui peuvent ne pas exister dans le dossier ----------------
+    //
+    // Une colonne absente de la table n'a pas été demandée dans le select : la
+    // lire lèverait IndexOutOfRange. Ces surcharges rendent la valeur par
+    // défaut, exactement comme une colonne présente mais nulle.
+
+    public static string Text(this DbDataReader reader, ColonnesTable colonnes, string nom) =>
+        colonnes.A(nom) ? reader.Text(nom) : "";
+
+    public static decimal Amount(this DbDataReader reader, ColonnesTable colonnes, string nom) =>
+        colonnes.A(nom) ? reader.Amount(nom) : 0m;
+
+    public static short Small(this DbDataReader reader, ColonnesTable colonnes, string nom) =>
+        colonnes.A(nom) ? reader.Small(nom) : (short)0;
+
+    public static int Whole(this DbDataReader reader, ColonnesTable colonnes, string nom) =>
+        colonnes.A(nom) ? reader.Whole(nom) : 0;
+
+    public static DateTime Moment(this DbDataReader reader, ColonnesTable colonnes, string nom) =>
+        colonnes.A(nom) ? reader.Moment(nom) : default;
+
+    public static bool Flag(this DbDataReader reader, ColonnesTable colonnes, string nom) =>
+        colonnes.A(nom) && reader.Flag(nom);
 }

@@ -38,28 +38,65 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     /// </summary>
     private const int TailleTranche = 500;
 
-    private const string ColonnesEntete = """
-        e.DO_Domaine, e.DO_Type, e.DO_DocType, e.DO_Piece, e.DO_Date, e.DO_Tiers,
-        e.DO_TotalHT, e.DO_TotalTTC, e.DO_NetAPayer, e.DO_Statut
-        """;
+    /// <summary>
+    /// Ce qu'on aimerait lire dans F_DOCENTETE. Ce qui n'existe pas dans le
+    /// dossier est retiré du select : voir <see cref="ColonnesTable"/>.
+    /// </summary>
+    private static readonly string[] SouhaiteesEntete =
+    [
+        "DO_Domaine", "DO_Type", "DO_DocType", "DO_Piece", "DO_Date", "DO_Tiers",
+        "DO_TotalHT", "DO_TotalTTC", "DO_NetAPayer", "DO_Statut",
+    ];
 
-    private const string ColonnesLignes = """
-        l.DO_Domaine, l.DO_Type, l.DO_Piece, l.DO_Date, l.DL_Ligne, l.CT_Num, l.DO_Ref,
-        l.AR_Ref, l.DL_Design, l.DL_Qte, l.DL_PrixUnitaire,
-        l.DL_Remise01REM_Valeur, l.DL_Remise01REM_Type,
-        l.DL_Remise02REM_Valeur, l.DL_Remise02REM_Type,
-        l.DL_Remise03REM_Valeur, l.DL_Remise03REM_Type,
-        l.DL_Taxe1, l.DL_TypeTaux1, l.DL_TypeTaxe1, l.DL_CodeTaxe1,
-        l.DL_Taxe2, l.DL_TypeTaux2, l.DL_TypeTaxe2, l.DL_CodeTaxe2,
-        l.DL_Taxe3, l.DL_CodeTaxe3,
-        l.EU_Enumere, l.EU_Qte, l.DL_TTC, l.DL_PUTTC,
-        l.DL_MontantHT, l.DL_MontantTTC, l.DL_DocType
-        """;
+    /// <summary>Sans elles, aucune pièce n'est identifiable.</summary>
+    private static readonly string[] IndispensablesEntete =
+        ["DO_Domaine", "DO_Type", "DO_Piece", "DO_Date", "DO_Tiers"];
 
-    private const string ColonnesClient = """
-        CT_Num, CT_Intitule, CT_Identifiant, CT_Adresse, CT_Complement,
-        CT_CodePostal, CT_Ville, CT_Pays, CT_Telephone, CT_EMail, CT_TypeNIF
-        """;
+    /// <summary>
+    /// Ce qu'on aimerait lire dans F_DOCLIGNE.
+    /// </summary>
+    /// <remarks>
+    /// Aucun équivalent de DO_DocType n'y figure : le type d'origine se lit sur
+    /// l'entête, F_DOCENTETE.DO_DocType, et nulle part ailleurs. La ligne se
+    /// rattache à son entête par DO_Domaine, DO_Piece et DO_Type, qui existent
+    /// bien dans les deux tables.
+    /// </remarks>
+    internal static readonly string[] SouhaiteesLignes =
+    [
+        "DO_Domaine", "DO_Type", "DO_Piece", "DO_Date", "DL_Ligne", "CT_Num", "DO_Ref",
+        "AR_Ref", "DL_Design", "DL_Qte", "DL_PrixUnitaire",
+        "DL_Remise01REM_Valeur", "DL_Remise01REM_Type",
+        "DL_Remise02REM_Valeur", "DL_Remise02REM_Type",
+        "DL_Remise03REM_Valeur", "DL_Remise03REM_Type",
+        "DL_Taxe1", "DL_TypeTaux1", "DL_TypeTaxe1", "DL_CodeTaxe1",
+        "DL_Taxe2", "DL_TypeTaux2", "DL_TypeTaxe2", "DL_CodeTaxe2",
+        "DL_Taxe3", "DL_CodeTaxe3",
+        "EU_Enumere", "EU_Qte", "DL_TTC", "DL_PUTTC",
+        "DL_MontantHT", "DL_MontantTTC",
+    ];
+
+    /// <summary>Sans elles, la ligne ne peut ni être rattachée ni être chiffrée.</summary>
+    private static readonly string[] IndispensablesLignes =
+        ["DO_Domaine", "DO_Type", "DO_Piece", "DL_Ligne", "DL_Design", "DL_Qte", "DL_PrixUnitaire"];
+
+    private static readonly string[] SouhaiteesClient =
+    [
+        "CT_Num", "CT_Intitule", "CT_Identifiant", "CT_Adresse", "CT_Complement",
+        "CT_CodePostal", "CT_Ville", "CT_Pays", "CT_Telephone", "CT_EMail", "CT_TypeNIF",
+    ];
+
+    private static readonly string[] IndispensablesClient = ["CT_Num", "CT_Intitule"];
+
+    public const string TableEntete = "F_DOCENTETE";
+    public const string TableLignes = "F_DOCLIGNE";
+    public const string TableClient = "F_COMPTET";
+
+    /// <summary>
+    /// Le catalogue n'est lu qu'une fois par table et par exécution : il ne
+    /// change pas pendant un lot.
+    /// </summary>
+    private readonly Dictionary<string, ColonnesTable> _catalogue = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _verrouCatalogue = new(1, 1);
 
     // --- Une pièce ---------------------------------------------------------
 
@@ -67,9 +104,12 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     {
         // Une pièce comptabilisée et sa version d'avant portent le même numéro :
         // c'est l'état le plus avancé qui décrit le document aujourd'hui.
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesEnteteAsync(connexion, cancellation);
+
         var sql = $"""
             select top (1)
-            {ColonnesEntete}
+            {colonnes.Selection("e", SouhaiteesEntete)}
             from F_DOCENTETE e
             where e.DO_Domaine = @domaine
               and e.{FiltreTypesFacture}
@@ -77,14 +117,13 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             order by e.DO_Type desc
             """;
 
-        await using var connexion = await OuvrirAsync(cancellation);
         await using var commande = Commande(connexion, sql);
         Ajouter(commande, "@domaine", DomaineVente);
         AjouterTypes(commande);
         Ajouter(commande, "@piece", piece);
 
         await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
-        return await lecteur.ReadAsync(cancellation) ? LireEntete(lecteur) : null;
+        return await lecteur.ReadAsync(cancellation) ? LireEntete(lecteur, colonnes) : null;
     }
 
     /// <remarks>
@@ -98,19 +137,21 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
     public async Task<SageCustomer?> GetCustomerAsync(string ctNum, CancellationToken cancellation = default)
     {
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesClientAsync(connexion, cancellation);
+
         var sql = $"""
             select top (1)
-            {ColonnesClient}
-            from F_COMPTET
-            where CT_Num = @ctNum
+            {colonnes.Selection("c", SouhaiteesClient)}
+            from F_COMPTET c
+            where c.CT_Num = @ctNum
             """;
 
-        await using var connexion = await OuvrirAsync(cancellation);
         await using var commande = Commande(connexion, sql);
         Ajouter(commande, "@ctNum", ctNum);
 
         await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
-        return await lecteur.ReadAsync(cancellation) ? LireClient(lecteur) : null;
+        return await lecteur.ReadAsync(cancellation) ? LireClient(lecteur, colonnes) : null;
     }
 
     // --- Un lot ------------------------------------------------------------
@@ -121,12 +162,15 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     {
         var entetes = new List<SageDocumentHeader>();
 
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesEnteteAsync(connexion, cancellation);
+
         foreach (var tranche in Tranches(query))
         {
             var criteres = new CritereSql("e");
             var sql = $"""
                 select top (@limite)
-                {ColonnesEntete}
+                {colonnes.Selection("e", SouhaiteesEntete)}
                 from F_DOCENTETE e
                 where e.DO_Domaine = @domaine
                   and e.{FiltreTypesFacture}
@@ -134,7 +178,6 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
                 order by e.DO_Date, e.DO_Piece
                 """;
 
-            await using var connexion = await OuvrirAsync(cancellation);
             await using var commande = Commande(connexion, sql);
             Ajouter(commande, "@domaine", DomaineVente);
             AjouterTypes(commande);
@@ -142,7 +185,7 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             criteres.Appliquer(commande, tranche);
 
             await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
-            while (await lecteur.ReadAsync(cancellation)) entetes.Add(LireEntete(lecteur));
+            while (await lecteur.ReadAsync(cancellation)) entetes.Add(LireEntete(lecteur, colonnes));
         }
 
         logger.LogDebug("{Nombre} entête(s) lue(s) pour {Critere}.", entetes.Count, query.Describe());
@@ -155,16 +198,20 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     {
         var lignes = new List<SageDocumentLine>();
 
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesLignesAsync(connexion, cancellation);
+
         foreach (var tranche in Tranches(query))
         {
             var criteres = new CritereSql("e");
-            await using var connexion = await OuvrirAsync(cancellation);
-            await using var commande = Commande(connexion, SqlLignes(criteres, tranche));
+            await using var commande = Commande(
+                connexion,
+                SqlLignes(criteres, tranche, colonnes.Selection("l", SouhaiteesLignes)));
             Ajouter(commande, "@domaine", DomaineVente);
             AjouterTypes(commande);
             criteres.Appliquer(commande, tranche);
 
-            lignes.AddRange(await LireLignesAsync(commande, cancellation));
+            lignes.AddRange(await LireLignesAsync(commande, colonnes, cancellation));
         }
 
         return lignes;
@@ -177,22 +224,24 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         var clients = new List<SageCustomer>();
         var distincts = ctNums.Where(nom => !string.IsNullOrWhiteSpace(nom)).Distinct().ToList();
 
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesClientAsync(connexion, cancellation);
+
         foreach (var tranche in distincts.Chunk(TailleTranche))
         {
             var noms = tranche.Select((_, rang) => $"@ct{rang}").ToArray();
             var sql = $"""
                 select
-                {ColonnesClient}
-                from F_COMPTET
-                where CT_Num in ({string.Join(", ", noms)})
+                {colonnes.Selection("c", SouhaiteesClient)}
+                from F_COMPTET c
+                where c.CT_Num in ({string.Join(", ", noms)})
                 """;
 
-            await using var connexion = await OuvrirAsync(cancellation);
             await using var commande = Commande(connexion, sql);
             for (var rang = 0; rang < tranche.Length; rang++) Ajouter(commande, noms[rang], tranche[rang]);
 
             await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
-            while (await lecteur.ReadAsync(cancellation)) clients.Add(LireClient(lecteur));
+            while (await lecteur.ReadAsync(cancellation)) clients.Add(LireClient(lecteur, colonnes));
         }
 
         return clients;
@@ -385,23 +434,25 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         string piece,
         CancellationToken cancellation = default)
     {
+        await using var connexion = await OuvrirAsync(cancellation);
+        var colonnes = await ColonnesEnteteAsync(connexion, cancellation);
+
         var sql = $"""
             select
-            {ColonnesEntete}
+            {colonnes.Selection("e", SouhaiteesEntete)}
             from F_DOCENTETE e
             where e.DO_Domaine = @domaine
               and e.DO_Piece = @piece
             order by e.DO_Type
             """;
 
-        await using var connexion = await OuvrirAsync(cancellation);
         await using var commande = Commande(connexion, sql);
         Ajouter(commande, "@domaine", DomaineVente);
         Ajouter(commande, "@piece", piece);
 
         var entetes = new List<SageDocumentHeader>();
         await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
-        while (await lecteur.ReadAsync(cancellation)) entetes.Add(LireEntete(lecteur));
+        while (await lecteur.ReadAsync(cancellation)) entetes.Add(LireEntete(lecteur, colonnes));
         return entetes;
     }
 
@@ -452,6 +503,94 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         return doublons;
     }
 
+    // --- Le catalogue ------------------------------------------------------
+
+    /// <summary>
+    /// Les colonnes d'une table, demandées au catalogue de SQL Server.
+    /// </summary>
+    /// <remarks>
+    /// <c>sys.columns</c> et <c>sys.tables</c> sont lisibles par n'importe quel
+    /// compte ayant accès à la base : un <c>db_datareader</c> suffit. C'est une
+    /// lecture comme les autres, passée par le même garde-fou.
+    /// </remarks>
+    internal const string SqlColonnesDeTable = """
+        select c.name as Colonne
+        from sys.columns c
+        inner join sys.tables t on t.object_id = c.object_id
+        where t.name = @table
+        """;
+
+    private async Task<ColonnesTable> ColonnesAsync(
+        SqlConnection connexion,
+        string table,
+        CancellationToken cancellation)
+    {
+        await _verrouCatalogue.WaitAsync(cancellation);
+        try
+        {
+            if (_catalogue.TryGetValue(table, out var connues)) return connues;
+
+            await using var commande = Commande(connexion, SqlColonnesDeTable);
+            Ajouter(commande, "@table", table);
+
+            var noms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            await using (var lecteur = await commande.ExecuteReaderAsync(cancellation))
+            {
+                while (await lecteur.ReadAsync(cancellation)) noms.Add(lecteur.Text("Colonne"));
+            }
+
+            if (noms.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"La table {table} est introuvable dans cette base. " +
+                    "La chaîne de connexion pointe-t-elle bien sur le dossier commercial Sage ?");
+            }
+
+            var colonnes = new ColonnesTable(table, noms);
+            _catalogue[table] = colonnes;
+            logger.LogDebug("{Table} : {Nombre} colonnes au catalogue.", table, noms.Count);
+            return colonnes;
+        }
+        finally
+        {
+            _verrouCatalogue.Release();
+        }
+    }
+
+    /// <summary>
+    /// Ce que le dossier ne porte pas, parmi ce que la lecture aimerait avoir.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostic : une colonne absente ne fait plus échouer la lecture, mais
+    /// elle prive le mapping d'une information. Autant que ça se voie.
+    /// </remarks>
+    public async Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(
+        CancellationToken cancellation = default)
+    {
+        await using var connexion = await OuvrirAsync(cancellation);
+
+        var releve = new List<SageColonnesManquantes>();
+        foreach (var (table, souhaitees, indispensables) in new[]
+                 {
+                     (TableEntete, SouhaiteesEntete, IndispensablesEntete),
+                     (TableLignes, SouhaiteesLignes, IndispensablesLignes),
+                     (TableClient, SouhaiteesClient, IndispensablesClient),
+                 })
+        {
+            var colonnes = await ColonnesAsync(connexion, table, cancellation);
+            releve.Add(new SageColonnesManquantes
+            {
+                Table = table,
+                Total = colonnes.Presentes.Count,
+                Demandees = souhaitees.Length,
+                Absentes = colonnes.Absentes(souhaitees),
+                AbsentesIndispensables = colonnes.Absentes(indispensables),
+            });
+        }
+
+        return releve;
+    }
+
     // --- Plomberie ---------------------------------------------------------
 
     /// <summary>
@@ -469,9 +608,14 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
     /// phase. Les deux côtés restent bornés à {6, 7}, ce qui écarte toujours le
     /// bon de livraison.
     /// </remarks>
-    internal static string SqlLignes(CritereSql criteres, InvoiceQuery query) => $"""
+    /// <param name="colonnes">
+    /// Liste de sélection déjà réduite à ce que F_DOCLIGNE porte réellement.
+    /// Par défaut, tout ce que la lecture souhaite : les tests s'en servent
+    /// pour vérifier le texte sans toucher à une base.
+    /// </param>
+    internal static string SqlLignes(CritereSql criteres, InvoiceQuery query, string? colonnes = null) => $"""
         select
-        {ColonnesLignes}
+        {colonnes ?? string.Join(", ", SouhaiteesLignes.Select(colonne => $"l.{colonne}"))}
         from F_DOCLIGNE l
         where l.DO_Domaine = @domaine
           and l.{FiltreTypesFacture}
@@ -498,79 +642,99 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
 
     private static async Task<List<SageDocumentLine>> LireLignesAsync(
         SqlCommand commande,
+        ColonnesTable colonnes,
         CancellationToken cancellation)
     {
         var lignes = new List<SageDocumentLine>();
         await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
-        while (await lecteur.ReadAsync(cancellation)) lignes.Add(LireLigne(lecteur));
+        while (await lecteur.ReadAsync(cancellation)) lignes.Add(LireLigne(lecteur, colonnes));
         return lignes;
     }
 
-    private static SageDocumentHeader LireEntete(SqlDataReader lecteur) => new()
+    private Task<ColonnesTable> ColonnesEnteteAsync(SqlConnection connexion, CancellationToken cancellation) =>
+        ColonnesVerifieesAsync(connexion, TableEntete, IndispensablesEntete, cancellation);
+
+    private Task<ColonnesTable> ColonnesLignesAsync(SqlConnection connexion, CancellationToken cancellation) =>
+        ColonnesVerifieesAsync(connexion, TableLignes, IndispensablesLignes, cancellation);
+
+    private Task<ColonnesTable> ColonnesClientAsync(SqlConnection connexion, CancellationToken cancellation) =>
+        ColonnesVerifieesAsync(connexion, TableClient, IndispensablesClient, cancellation);
+
+    private async Task<ColonnesTable> ColonnesVerifieesAsync(
+        SqlConnection connexion,
+        string table,
+        string[] indispensables,
+        CancellationToken cancellation)
     {
-        Domaine = lecteur.Small("DO_Domaine"),
-        Type = lecteur.Small("DO_Type"),
-        DocType = lecteur.Small("DO_DocType"),
-        Piece = lecteur.Text("DO_Piece"),
-        Date = lecteur.Moment("DO_Date"),
-        Tiers = lecteur.Text("DO_Tiers"),
-        TotalHT = lecteur.Amount("DO_TotalHT"),
-        TotalTTC = lecteur.Amount("DO_TotalTTC"),
-        NetAPayer = lecteur.Amount("DO_NetAPayer"),
-        Statut = lecteur.Small("DO_Statut"),
+        var colonnes = await ColonnesAsync(connexion, table, cancellation);
+        colonnes.Exiger(indispensables);
+        return colonnes;
+    }
+
+    private static SageDocumentHeader LireEntete(SqlDataReader lecteur, ColonnesTable colonnes) => new()
+    {
+        Domaine = lecteur.Small(colonnes, "DO_Domaine"),
+        Type = lecteur.Small(colonnes, "DO_Type"),
+        DocType = lecteur.Small(colonnes, "DO_DocType"),
+        Piece = lecteur.Text(colonnes, "DO_Piece"),
+        Date = lecteur.Moment(colonnes, "DO_Date"),
+        Tiers = lecteur.Text(colonnes, "DO_Tiers"),
+        TotalHT = lecteur.Amount(colonnes, "DO_TotalHT"),
+        TotalTTC = lecteur.Amount(colonnes, "DO_TotalTTC"),
+        NetAPayer = lecteur.Amount(colonnes, "DO_NetAPayer"),
+        Statut = lecteur.Small(colonnes, "DO_Statut"),
     };
 
-    private static SageDocumentLine LireLigne(SqlDataReader lecteur) => new()
+    private static SageDocumentLine LireLigne(SqlDataReader lecteur, ColonnesTable colonnes) => new()
     {
-        Domaine = lecteur.Small("DO_Domaine"),
-        Type = lecteur.Small("DO_Type"),
-        Piece = lecteur.Text("DO_Piece"),
-        Ligne = lecteur.Whole("DL_Ligne"),
-        Date = lecteur.Moment("DO_Date"),
-        CtNum = lecteur.Text("CT_Num"),
-        DocumentReference = lecteur.Text("DO_Ref"),
-        ArticleReference = lecteur.Text("AR_Ref"),
-        Designation = lecteur.Text("DL_Design"),
-        Quantite = lecteur.Amount("DL_Qte"),
-        PrixUnitaire = lecteur.Amount("DL_PrixUnitaire"),
-        Unite = lecteur.Text("EU_Enumere"),
-        QuantiteUnite = lecteur.Amount("EU_Qte"),
-        Remise1 = lecteur.Amount("DL_Remise01REM_Valeur"),
-        Remise1Type = lecteur.Small("DL_Remise01REM_Type"),
-        Remise2 = lecteur.Amount("DL_Remise02REM_Valeur"),
-        Remise2Type = lecteur.Small("DL_Remise02REM_Type"),
-        Remise3 = lecteur.Amount("DL_Remise03REM_Valeur"),
-        Remise3Type = lecteur.Small("DL_Remise03REM_Type"),
-        Taxe1 = lecteur.Amount("DL_Taxe1"),
-        CodeTaxe1 = lecteur.Text("DL_CodeTaxe1"),
-        TypeTaux1 = lecteur.Small("DL_TypeTaux1"),
-        TypeTaxe1 = lecteur.Small("DL_TypeTaxe1"),
-        Taxe2 = lecteur.Amount("DL_Taxe2"),
-        CodeTaxe2 = lecteur.Text("DL_CodeTaxe2"),
-        TypeTaux2 = lecteur.Small("DL_TypeTaux2"),
-        TypeTaxe2 = lecteur.Small("DL_TypeTaxe2"),
-        Taxe3 = lecteur.Amount("DL_Taxe3"),
-        CodeTaxe3 = lecteur.Text("DL_CodeTaxe3"),
-        MontantHT = lecteur.Amount("DL_MontantHT"),
-        MontantTTC = lecteur.Amount("DL_MontantTTC"),
-        PrixUnitaireTTC = lecteur.Amount("DL_PUTTC"),
-        EstTTC = lecteur.Flag("DL_TTC"),
-        DocType = lecteur.Small("DL_DocType"),
+        Domaine = lecteur.Small(colonnes, "DO_Domaine"),
+        Type = lecteur.Small(colonnes, "DO_Type"),
+        Piece = lecteur.Text(colonnes, "DO_Piece"),
+        Ligne = lecteur.Whole(colonnes, "DL_Ligne"),
+        Date = lecteur.Moment(colonnes, "DO_Date"),
+        CtNum = lecteur.Text(colonnes, "CT_Num"),
+        DocumentReference = lecteur.Text(colonnes, "DO_Ref"),
+        ArticleReference = lecteur.Text(colonnes, "AR_Ref"),
+        Designation = lecteur.Text(colonnes, "DL_Design"),
+        Quantite = lecteur.Amount(colonnes, "DL_Qte"),
+        PrixUnitaire = lecteur.Amount(colonnes, "DL_PrixUnitaire"),
+        Unite = lecteur.Text(colonnes, "EU_Enumere"),
+        QuantiteUnite = lecteur.Amount(colonnes, "EU_Qte"),
+        Remise1 = lecteur.Amount(colonnes, "DL_Remise01REM_Valeur"),
+        Remise1Type = lecteur.Small(colonnes, "DL_Remise01REM_Type"),
+        Remise2 = lecteur.Amount(colonnes, "DL_Remise02REM_Valeur"),
+        Remise2Type = lecteur.Small(colonnes, "DL_Remise02REM_Type"),
+        Remise3 = lecteur.Amount(colonnes, "DL_Remise03REM_Valeur"),
+        Remise3Type = lecteur.Small(colonnes, "DL_Remise03REM_Type"),
+        Taxe1 = lecteur.Amount(colonnes, "DL_Taxe1"),
+        CodeTaxe1 = lecteur.Text(colonnes, "DL_CodeTaxe1"),
+        TypeTaux1 = lecteur.Small(colonnes, "DL_TypeTaux1"),
+        TypeTaxe1 = lecteur.Small(colonnes, "DL_TypeTaxe1"),
+        Taxe2 = lecteur.Amount(colonnes, "DL_Taxe2"),
+        CodeTaxe2 = lecteur.Text(colonnes, "DL_CodeTaxe2"),
+        TypeTaux2 = lecteur.Small(colonnes, "DL_TypeTaux2"),
+        TypeTaxe2 = lecteur.Small(colonnes, "DL_TypeTaxe2"),
+        Taxe3 = lecteur.Amount(colonnes, "DL_Taxe3"),
+        CodeTaxe3 = lecteur.Text(colonnes, "DL_CodeTaxe3"),
+        MontantHT = lecteur.Amount(colonnes, "DL_MontantHT"),
+        MontantTTC = lecteur.Amount(colonnes, "DL_MontantTTC"),
+        PrixUnitaireTTC = lecteur.Amount(colonnes, "DL_PUTTC"),
+        EstTTC = lecteur.Flag(colonnes, "DL_TTC"),
     };
 
-    private static SageCustomer LireClient(SqlDataReader lecteur) => new()
+    private static SageCustomer LireClient(SqlDataReader lecteur, ColonnesTable colonnes) => new()
     {
-        CtNum = lecteur.Text("CT_Num"),
-        Intitule = lecteur.Text("CT_Intitule"),
-        Identifiant = lecteur.Text("CT_Identifiant"),
-        Adresse = lecteur.Text("CT_Adresse"),
-        Complement = lecteur.Text("CT_Complement"),
-        CodePostal = lecteur.Text("CT_CodePostal"),
-        Ville = lecteur.Text("CT_Ville"),
-        Pays = lecteur.Text("CT_Pays"),
-        Telephone = lecteur.Text("CT_Telephone"),
-        Email = lecteur.Text("CT_EMail"),
-        TypeNif = lecteur.Small("CT_TypeNIF"),
+        CtNum = lecteur.Text(colonnes, "CT_Num"),
+        Intitule = lecteur.Text(colonnes, "CT_Intitule"),
+        Identifiant = lecteur.Text(colonnes, "CT_Identifiant"),
+        Adresse = lecteur.Text(colonnes, "CT_Adresse"),
+        Complement = lecteur.Text(colonnes, "CT_Complement"),
+        CodePostal = lecteur.Text(colonnes, "CT_CodePostal"),
+        Ville = lecteur.Text(colonnes, "CT_Ville"),
+        Pays = lecteur.Text(colonnes, "CT_Pays"),
+        Telephone = lecteur.Text(colonnes, "CT_Telephone"),
+        Email = lecteur.Text(colonnes, "CT_EMail"),
+        TypeNif = lecteur.Small(colonnes, "CT_TypeNIF"),
     };
 
     private async Task<SqlConnection> OuvrirAsync(CancellationToken cancellation)

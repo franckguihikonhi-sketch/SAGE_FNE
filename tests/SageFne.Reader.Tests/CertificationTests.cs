@@ -53,6 +53,9 @@ public class CertificationTests
 
         public Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<SageDocumentDuplicate>());
+
+        public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageColonnesManquantes>());
     }
 
     private static Depot DepotDUnePiece(decimal prixUnitaire = 2500m) => new()

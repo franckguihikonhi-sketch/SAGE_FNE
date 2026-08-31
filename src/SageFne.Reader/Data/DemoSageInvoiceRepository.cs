@@ -221,6 +221,14 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
             })
             .ToList());
 
+    /// <remarks>
+    /// Hors base : le jeu d'essai porte par construction tout ce que le mapping
+    /// demande. Seule la vraie base peut répondre à cette question.
+    /// </remarks>
+    public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(
+        CancellationToken cancellation = default) =>
+        Task.FromResult(new List<SageColonnesManquantes>());
+
     private static bool Retenue(InvoiceQuery query, SageDocumentHeader entete) =>
         (query.Pieces.Count == 0 || query.Pieces.Contains(entete.Piece))
         && (query.Depuis is null || entete.Date >= query.Depuis)
@@ -300,6 +308,5 @@ public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository
         CodeTaxe2 = code2,
         Remise1 = remise1,
         Remise1Type = remise1Type,
-        DocType = 6,
     };
 }

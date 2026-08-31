@@ -62,7 +62,6 @@ public sealed class SageDocumentLine
     public decimal MontantTTC { get; init; }
     public decimal PrixUnitaireTTC { get; init; }
     public bool EstTTC { get; init; }
-    public short DocType { get; init; }
 
     /// <summary>Les trois emplacements de taxe, dans l'ordre de Sage.</summary>
     public IEnumerable<SageTax> Taxes()

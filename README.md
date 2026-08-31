@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 83 tests
+dotnet test                                    # 91 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -34,6 +34,7 @@ Et un diagnostic, en lecture seule lui aussi :
 ```bash
 dotnet run --project src/SageFne.Reader -- doctypes              # inventaire des types de documents
 dotnet run --project src/SageFne.Reader -- detail 1219           # relevé complet d'une pièce
+dotnet run --project src/SageFne.Reader -- colonnes              # colonnes réelles des tables Sage
 ```
 
 | Option | Effet |
@@ -244,6 +245,44 @@ plutôt que de risquer une double certification.
 client ce qu'il vient de rendre : la logique des avoirs demande son propre travail, et
 elle n'est pas écrite.
 
+## Les colonnes ne sont pas les mêmes d'un dossier à l'autre
+
+La liste des colonnes lues était écrite en dur. Le dossier HT n'a pas de
+`DL_DocType` dans `F_DOCLIGNE`, et **toute la lecture des lignes échouait sur ce seul
+nom** : `Invalid column name 'DL_DocType'`, au milieu d'un lot.
+
+Les colonnes sont désormais demandées au catalogue avant la requête :
+
+```sql
+select c.name as Colonne
+from sys.columns c
+inner join sys.tables t on t.object_id = c.object_id
+where t.name = @table
+```
+
+Ce qui existe est demandé, ce qui manque est laissé de côté et vaut son défaut à la
+lecture. Un `db_datareader` suffit à lire `sys.columns`, et la requête passe par le même
+`ReadOnlyGuard` que les autres. Le catalogue n'est lu qu'une fois par table et par
+exécution.
+
+Une colonne **indispensable** absente — `DL_Qte`, `DL_PrixUnitaire`, `DO_Piece`… — lève
+en revanche une erreur qui la nomme, plutôt que de laisser passer un montant faux :
+
+> La table F_DOCLIGNE du dossier ne porte pas DL_Qte, DL_PrixUnitaire. Ces colonnes sont
+> indispensables à la lecture des factures.
+
+```bash
+dotnet run --project src/SageFne.Reader -- colonnes
+```
+
+liste, pour `F_DOCENTETE`, `F_DOCLIGNE` et `F_COMPTET`, ce que la table porte et ce qui
+manque. `detail` le signale aussi en tête de son relevé.
+
+**F_DOCLIGNE n'a aucun équivalent de `DO_DocType`.** Le type d'origine d'un document se lit
+sur l'entête, `F_DOCENTETE.DO_DocType`, et nulle part ailleurs. Les lignes se rattachent à
+leur entête par `DO_Domaine`, `DO_Piece` et `DO_Type`, qui existent bien dans les deux
+tables.
+
 ## Le relevé d'une pièce
 
 ```bash
@@ -353,7 +392,7 @@ SageFne.sln
 │   ├── Models/Fne/                      FneInvoice, FneInvoiceItem, FneCustomTax
 │   ├── Data/                            ISageInvoiceRepository, SageInvoiceRepository,
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
-│   │                                    CritereSql, ReadOnlyGuard
+│   │                                    CritereSql, ReadOnlyGuard, ColonnesTable
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,
 │   │                                    TaxMapping, RemiseMapping
 │   └── Validation/                      InvoiceValidator, FinancialChecks,
