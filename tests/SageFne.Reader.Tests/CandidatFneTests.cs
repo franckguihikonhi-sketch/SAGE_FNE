@@ -85,7 +85,7 @@ public class CandidatFneTests
         var candidat = Evaluer(Conversion([Ligne(1, 18m, 10000m), Ligne(2, 0m, 5000m)]));
 
         Assert.False(candidat.Retenu);
-        Assert.Contains(candidat.Disqualifications, raison => raison.Contains("0 %"));
+        Assert.Contains(candidat.Disqualifications, raison => raison.Message.Contains("0 %"));
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class CandidatFneTests
         var candidat = Evaluer(Conversion([Ligne(1, 18m, 10000m), Ligne(2, 12m, 5000m)]));
 
         Assert.False(candidat.Retenu);
-        Assert.Contains(candidat.Disqualifications, raison => raison.Contains("12"));
+        Assert.Contains(candidat.Disqualifications, raison => raison.Message.Contains("12"));
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public class CandidatFneTests
         var candidat = Evaluer(Conversion([Ligne(1, 18m, 10000m)], ncc: ""));
 
         Assert.False(candidat.Retenu);
-        Assert.Contains(candidat.Disqualifications, raison => raison.Contains("NCC"));
+        Assert.Contains(candidat.Disqualifications, raison => raison.Message.Contains("NCC"));
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class CandidatFneTests
         var candidat = Evaluer(Conversion([Ligne(1, 18m, 10000m)], rapport: rapport));
 
         Assert.False(candidat.Retenu);
-        Assert.Contains(candidat.Disqualifications, raison => raison.Contains("ZERO_VAT_CATEGORY_UNKNOWN"));
+        Assert.Contains(candidat.Disqualifications, raison => raison.Message.Contains("ZERO_VAT_CATEGORY_UNKNOWN"));
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class CandidatFneTests
         var candidat = Evaluer(Conversion([Ligne(1, 18m, 10000m)], etat: EtatPiece.DejaCertifiee));
 
         Assert.False(candidat.Retenu);
-        Assert.Contains(candidat.Disqualifications, raison => raison.Contains("registre"));
+        Assert.Contains(candidat.Disqualifications, raison => raison.Message.Contains("registre"));
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public class CandidatFneTests
         var candidat = Evaluer(Conversion([Ligne(1, 9m, 10000m)]), TauxRecherche.Normal);
 
         Assert.False(candidat.Retenu);
-        Assert.Contains(candidat.Disqualifications, raison => raison.Contains("18"));
+        Assert.Contains(candidat.Disqualifications, raison => raison.Message.Contains("18"));
     }
 
     [Fact]
@@ -233,5 +233,75 @@ public class CandidatFneTests
         // Il existe au moins une pièce à 18 % et une à 9 % dans le jeu d'essai :
         // sans quoi la commande ne montrerait jamais sa sortie complète.
         Assert.NotEmpty(entetes);
+    }
+}
+
+/// <summary>
+/// Un recensement doit pouvoir se compter : cinq pièces prises au hasard ne
+/// disent pas s'il y en a douze ou huit cents derrière.
+/// </summary>
+public class DisqualificationTests
+{
+    private static SageDocumentLine Ligne(decimal tva) => new()
+    {
+        Domaine = 0, Type = 6, Piece = "1500", Ligne = 1,
+        ArticleReference = "ART1", Designation = "Article",
+        Quantite = 1m, PrixUnitaire = 10000m,
+        MontantHT = 10000m, MontantTTC = 10000m * (1m + tva / 100m),
+        Taxe1 = tva, CodeTaxe1 = tva == 0m ? "" : "TVA",
+    };
+
+    private static CandidatFne Evaluer(string ncc, decimal tva, EtatPiece etat = EtatPiece.ACertifier) =>
+        CandidatFne.Evaluer(
+            new InvoiceConversion
+            {
+                Header = new SageDocumentHeader
+                {
+                    Domaine = 0, Type = 6, DocType = 6, Piece = "1500",
+                    Date = new DateTime(2025, 12, 3), Tiers = "4111X",
+                    TotalTTC = 10000m * (1m + tva / 100m),
+                },
+                Customer = new SageCustomer { CtNum = "4111X", Intitule = "X", Identifiant = ncc },
+                Lines = [Ligne(tva)],
+                Invoice = new FneInvoice(),
+                Report = new CheckReport(),
+                Etat = etat,
+            },
+            TauxRecherche.Normal,
+            1m);
+
+    [Fact]
+    public void Chaque_motif_porte_un_code_stable()
+    {
+        Assert.True(Evaluer(ncc: "", tva: 18m).Ecarte(Disqualification.NccAbsent));
+        Assert.True(Evaluer(ncc: "1432262S", tva: 0m).Ecarte(Disqualification.TvaZero));
+        Assert.True(Evaluer(ncc: "1432262S", tva: 9m).Ecarte(Disqualification.TauxAbsent));
+        Assert.True(Evaluer(ncc: "1432262S", tva: 12m).Ecarte(Disqualification.HorsNomenclature));
+        Assert.True(Evaluer(ncc: "1432262S", tva: 18m, etat: EtatPiece.DejaCertifiee)
+            .Ecarte(Disqualification.DejaAuRegistre));
+    }
+
+    [Fact]
+    public void Un_candidat_retenu_ne_porte_aucun_motif()
+    {
+        var candidat = Evaluer(ncc: "1432262S", tva: 18m);
+
+        Assert.True(candidat.Retenu);
+        Assert.False(candidat.Ecarte(Disqualification.NccAbsent));
+        Assert.Empty(candidat.Disqualifications);
+    }
+
+    [Fact]
+    public void Les_motifs_se_cumulent_et_se_comptent()
+    {
+        // Une pièce sans NCC et à 0 % porte les deux : le recensement doit voir
+        // les deux murs, pas seulement le premier.
+        var candidat = Evaluer(ncc: "", tva: 0m);
+
+        Assert.True(candidat.Ecarte(Disqualification.NccAbsent));
+        Assert.True(candidat.Ecarte(Disqualification.TvaZero));
+        Assert.Equal(
+            candidat.Disqualifications.Count,
+            candidat.Disqualifications.Select(motif => motif.Code).Distinct().Count());
     }
 }

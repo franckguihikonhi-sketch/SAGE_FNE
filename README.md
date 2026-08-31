@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 168 tests
+dotnet test                                    # 171 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -287,6 +287,12 @@ ce qui partirait — puis note chaque facture et propose un meilleur candidat pa
 lignes conforme à `DO_TotalTTC` (+60), taux unique (+40), peu de lignes (+40 pour une
 seule), aucun prélèvement (+15). Chaque point gagné ou perdu est écrit en clair sous le
 candidat — un candidat qu'on ne comprend pas n'en est pas un.
+
+Quand **aucune** facture ne passe pour un taux, la commande recense les motifs plutôt que
+d'en montrer cinq au hasard — combien de pièces butent sur le NCC, combien sur une ligne à
+0 %, combien sur une erreur de contrôle. Elle liste ensuite les comptes clients dépourvus
+de `CT_Identifiant`, avec le nombre de factures concernées : c'est dans Sage que cela se
+corrige, pas ici.
 
 Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocType`,
 `DO_Date`, `DO_Tiers`, `CT_Intitule`, le NCC, le nombre de lignes, les taux rencontrés, les

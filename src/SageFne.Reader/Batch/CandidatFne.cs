@@ -3,6 +3,24 @@ using SageFne.Reader.Validation;
 
 namespace SageFne.Reader.Batch;
 
+/// <summary>
+/// Pourquoi une facture ne peut pas servir de cas d'essai.
+/// </summary>
+/// <param name="Code">
+/// Repère stable, pour compter combien de pièces butent sur le même mur.
+/// Cinq pièces prises au hasard ne disent pas s'il y en a douze ou huit cents.
+/// </param>
+public sealed record Disqualification(string Code, string Message)
+{
+    public const string NonTraduite = "NON_TRADUITE";
+    public const string ErreursControle = "ERREURS_CONTROLE";
+    public const string TauxAbsent = "TAUX_CHERCHE_ABSENT";
+    public const string TvaZero = "LIGNE_TVA_ZERO";
+    public const string HorsNomenclature = "TAUX_HORS_NOMENCLATURE";
+    public const string NccAbsent = "NCC_ABSENT";
+    public const string DejaAuRegistre = "DEJA_AU_REGISTRE";
+}
+
 /// <summary>Le taux de TVA qu'un candidat doit démontrer.</summary>
 public enum TauxRecherche
 {
@@ -38,9 +56,13 @@ public sealed class CandidatFne
     public required IReadOnlyList<string> Raisons { get; init; }
 
     /// <summary>Ce qui l'écarte définitivement. Vide : le candidat tient.</summary>
-    public required IReadOnlyList<string> Disqualifications { get; init; }
+    public required IReadOnlyList<Disqualification> Disqualifications { get; init; }
 
     public bool Retenu => Disqualifications.Count == 0;
+
+    /// <summary>Le candidat porte-t-il ce motif d'exclusion ?</summary>
+    public bool Ecarte(string code) =>
+        Disqualifications.Any(motif => motif.Code == code);
 
     /// <summary>Écart entre le TTC des lignes et celui de l'entête.</summary>
     public decimal EcartTTC => Conversion.TotalTTC - Conversion.Header.TotalTTC;
@@ -73,7 +95,7 @@ public sealed class CandidatFne
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList() ?? [];
 
-        var disqualifications = new List<string>();
+        var disqualifications = new List<Disqualification>();
         var raisons = new List<string>();
         var score = 0;
 
@@ -81,7 +103,8 @@ public sealed class CandidatFne
 
         if (conversion.Invoice is null)
         {
-            disqualifications.Add("la facture n'a pas pu être traduite.");
+            disqualifications.Add(new Disqualification(
+                Disqualification.NonTraduite, "la facture n'a pas pu être traduite."));
         }
 
         if (conversion.Report.ContientDesErreurs)
@@ -91,18 +114,22 @@ public sealed class CandidatFne
                 .Select(constat => constat.Code)
                 .Distinct()
                 .ToList();
-            disqualifications.Add($"erreurs de contrôle : {string.Join(", ", codes)}.");
+            disqualifications.Add(new Disqualification(
+                Disqualification.ErreursControle, $"erreurs de contrôle : {string.Join(", ", codes)}."));
         }
 
         if (!tauxRencontres.Contains(attendu))
         {
-            disqualifications.Add($"aucune ligne à {attendu} % de TVA.");
+            disqualifications.Add(new Disqualification(
+                Disqualification.TauxAbsent, $"aucune ligne à {attendu} % de TVA."));
         }
 
         // Une ligne à 0 % soulève la question TVAC/TVAD, qui n'est pas tranchée.
         if (tauxRencontres.Contains(0m))
         {
-            disqualifications.Add("une ligne au moins est à 0 % de TVA : régime d'exonération non tranché.");
+            disqualifications.Add(new Disqualification(
+                Disqualification.TvaZero,
+                "une ligne au moins est à 0 % de TVA : régime d'exonération non tranché."));
         }
 
         var horsNomenclature = tauxRencontres
@@ -110,13 +137,15 @@ public sealed class CandidatFne
             .ToList();
         if (horsNomenclature.Count > 0)
         {
-            disqualifications.Add(
-                $"taux hors nomenclature FNE : {string.Join(", ", horsNomenclature.Select(t => $"{t} %"))}.");
+            disqualifications.Add(new Disqualification(
+                Disqualification.HorsNomenclature,
+                $"taux hors nomenclature FNE : {string.Join(", ", horsNomenclature.Select(t => $"{t} %"))}."));
         }
 
         if (string.IsNullOrWhiteSpace(conversion.Customer?.Identifiant))
         {
-            disqualifications.Add("NCC absent : la facture ne peut pas partir en B2B.");
+            disqualifications.Add(new Disqualification(
+                Disqualification.NccAbsent, "NCC absent : la facture ne peut pas partir en B2B."));
         }
 
         // --- Ce qui départage -----------------------------------------------
@@ -180,7 +209,8 @@ public sealed class CandidatFne
 
         if (conversion.Etat == EtatPiece.DejaCertifiee || conversion.Etat == EtatPiece.ModifieeDepuis)
         {
-            disqualifications.Add($"déjà connue du registre ({conversion.LibelleEtat}).");
+            disqualifications.Add(new Disqualification(
+                Disqualification.DejaAuRegistre, $"déjà connue du registre ({conversion.LibelleEtat})."));
         }
 
         return new CandidatFne

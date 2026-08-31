@@ -209,22 +209,46 @@ if (ligneDeCommande.Verbe == Verbe.Candidats)
 
         if (retenus.Count == 0)
         {
-            var proches = evalues
-                .Where(candidat => !candidat.TauxRencontres.Contains(0m)
-                                   && candidat.TauxRencontres.Contains((decimal)(int)taux))
-                .Take(5)
+            Console.WriteLine($"  Aucune facture à {(int)taux} % ne passe tous les contrôles.");
+
+            // Un recensement, pas un échantillon : cinq pièces prises au hasard
+            // ne disent pas s'il y en a douze ou huit cents derrière.
+            var portantLeTaux = evalues
+                .Where(candidat => !candidat.Ecarte(Disqualification.TauxAbsent))
                 .ToList();
 
-            Console.WriteLine($"  Aucune facture à {(int)taux} % ne passe tous les contrôles.");
-            if (proches.Count > 0)
+            if (portantLeTaux.Count == 0)
             {
-                Console.WriteLine();
-                Console.WriteLine("  Les plus proches, et ce qui les écarte :");
-                foreach (var proche in proches)
-                {
-                    Console.WriteLine($"    {proche.Conversion.Header.Piece,-12} " +
-                        $"{string.Join(" ", proche.Disqualifications)}");
-                }
+                Console.WriteLine($"  Aucune pièce du dossier ne porte de ligne à {(int)taux} %.");
+                continue;
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(
+                $"  Sur {Pluriel(portantLeTaux.Count, "pièce")} portant du {(int)taux} %, " +
+                "voici ce qui les écarte :");
+            Console.WriteLine();
+
+            foreach (var motif in portantLeTaux
+                         .SelectMany(candidat => candidat.Disqualifications)
+                         .GroupBy(motif => motif.Code)
+                         .OrderByDescending(groupe => groupe.Count()))
+            {
+                Console.WriteLine($"    {motif.Key,-24} {Pluriel(motif.Count(), "pièce"),12}");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("    Exemples :");
+            foreach (var exemple in portantLeTaux
+                         .OrderBy(candidat => candidat.Disqualifications.Count)
+                         .ThenBy(candidat => candidat.Conversion.Lines.Count)
+                         .Take(5))
+            {
+                Console.WriteLine(
+                    $"      {exemple.Conversion.Header.Piece,-10} " +
+                    $"{exemple.Conversion.Header.Date,-11:dd/MM/yyyy} " +
+                    $"{Tronquer(exemple.Conversion.Customer?.Intitule ?? exemple.Conversion.Header.Tiers, 24),-24} " +
+                    $"{string.Join(", ", exemple.Disqualifications.Select(motif => motif.Code))}");
             }
 
             continue;
@@ -254,6 +278,35 @@ if (ligneDeCommande.Verbe == Verbe.Candidats)
 
             if (retenus.Count > 10) Console.WriteLine($"    … et {retenus.Count - 10} autres.");
         }
+    }
+
+    // Le NCC manquant écarte une facture quel que soit son taux, et il se
+    // corrige dans Sage, pas ici. Autant nommer les comptes concernés.
+    var sansNcc = examen.Conversions
+        .Where(conversion => string.IsNullOrWhiteSpace(conversion.Customer?.Identifiant))
+        .GroupBy(conversion => conversion.Header.Tiers, StringComparer.OrdinalIgnoreCase)
+        .OrderByDescending(groupe => groupe.Count())
+        .ToList();
+
+    if (sansNcc.Count > 0)
+    {
+        var pieces = sansNcc.Sum(groupe => groupe.Count());
+        Titre("Clients sans NCC");
+        Console.WriteLine(
+            $"  {Pluriel(pieces, "facture")} sur {examen.Total} portent un client sans CT_Identifiant.\n" +
+            $"  {Pluriel(sansNcc.Count, "compte")} concerné(s). Le NCC est obligatoire en B2B :\n" +
+            "  ces factures ne pourront pas être certifiées tant qu'il manque.");
+        Console.WriteLine();
+        Console.WriteLine($"  {"CT_Num",-20} {"Intitulé",-32} {"Factures",9}");
+        foreach (var compte in sansNcc.Take(15))
+        {
+            Console.WriteLine(
+                $"  {Tronquer(compte.Key, 20),-20} " +
+                $"{Tronquer(compte.First().Customer?.Intitule ?? "— client introuvable —", 32),-32} " +
+                $"{compte.Count(),9}");
+        }
+
+        if (sansNcc.Count > 15) Console.WriteLine($"  … et {sansNcc.Count - 15} autres comptes.");
     }
 
     Console.WriteLine();
