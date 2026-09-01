@@ -111,6 +111,17 @@ public sealed record EtatCampagneNcc
     public IReadOnlyList<NccDouteux> Douteux { get; init; } = [];
     public IReadOnlyList<NccEcart> Ecarts { get; init; } = [];
 
+    /// <summary>
+    /// Vrai quand <c>CT_TypeNIF</c> vaut la même chose partout.
+    /// </summary>
+    /// <remarks>
+    /// Un champ constant ne distingue rien. Le dire une fois vaut mieux que
+    /// d'aligner soixante-quatorze fois la même valeur dans une colonne : une
+    /// colonne de zéros se lit comme une donnée, alors que c'est une absence.
+    /// </remarks>
+    public bool TypeNifConstant =>
+        Comptes.Count > 1 && Comptes.Select(compte => compte.TypeNif).Distinct().Count() == 1;
+
     /// <summary>La forme la plus portée du dossier, quand une se détache.</summary>
     public FormeNcc? FormeDominante =>
         Formes.Count > 0 && Formes[0].Comptes > 1 ? Formes[0] : null;

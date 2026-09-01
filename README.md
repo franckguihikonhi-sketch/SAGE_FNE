@@ -416,11 +416,20 @@ Deux cas se signalent à part :
   passée, ou du commercial qui suit le compte. Sur le dossier réel, **68 comptes sur 74** sont
   dans ce cas : la campagne ne peut pas se mener au téléphone.
 
-La colonne `NIF` reprend `CT_TypeNIF` tel quel. Sage porte ce champ, et rien ne le lisait
-jusqu'ici. S'il distingue réellement les entreprises des particuliers dans votre dossier, il
-répond à la question qui précède toute la campagne — **un particulier n'a pas de NCC à
-donner**, et sa facture ne relève pas du gabarit B2B. La commande montre la valeur sans
-l'interpréter.
+### La question qui précède la campagne
+
+**Un particulier n'a pas de NCC à donner.** Avant de chercher 74 numéros, il faut savoir
+combien de ces comptes sont des entreprises — et rien dans Sage ne le dit ici : `CT_TypeNIF`
+vaut `0` sur les 74 comptes du dossier réel. La commande le signale une fois et masque la
+colonne plutôt que d'aligner soixante-quatorze zéros, qui se liraient comme une donnée alors
+que c'est une absence.
+
+Cette distinction est donc un jugement humain, compte par compte. C'est à cela que sert la
+colonne `Nature_du_tiers` de l'export, vide et placée **avant** `NCC_a_saisir` : on tranche la
+nature d'abord, on ne cherche un numéro qu'ensuite.
+
+Le middleware envoie aujourd'hui `template: "B2B"` sur toutes les factures, en dur. Aucun
+chemin B2C n'existe : ce qu'il faudra envoyer pour un particulier reste à établir avec la DGI.
 
 ### La liste à confier
 

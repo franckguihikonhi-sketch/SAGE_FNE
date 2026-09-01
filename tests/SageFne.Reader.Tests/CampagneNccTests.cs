@@ -439,6 +439,41 @@ public class CampagneNccTests
     }
 
     [Fact]
+    public void Un_type_de_nif_constant_ne_distingue_rien()
+    {
+        // Le dossier réel porte 0 sur les 74 comptes. Aligner soixante-quatorze
+        // zéros dans une colonne les ferait lire comme une donnée, alors que
+        // c'est une absence : le champ n'est pas renseigné, voilà tout.
+        var etat = Analyser(
+            [Entete("1", "C1"), Entete("2", "C2")],
+            [Ligne("1", 100m), Ligne("2", 100m)],
+            Client("C1"), Client("C2"));
+
+        Assert.True(etat.TypeNifConstant);
+    }
+
+    [Fact]
+    public void Un_type_de_nif_qui_varie_distingue_quelque_chose()
+    {
+        var etat = Analyser(
+            [Entete("1", "C1"), Entete("2", "C2")],
+            [Ligne("1", 100m), Ligne("2", 100m)],
+            Client("C1", typeNif: 1), Client("C2", typeNif: 3));
+
+        Assert.False(etat.TypeNifConstant);
+    }
+
+    [Fact]
+    public void Un_seul_compte_ne_fait_pas_une_constante()
+    {
+        // Une valeur unique n'est pas un champ constant : elle ne dit rien du
+        // dossier, et l'annoncer comme un fait serait conclure sur un exemple.
+        var etat = Analyser([Entete("1", "C1")], [Ligne("1", 100m)], Client("C1"));
+
+        Assert.False(etat.TypeNifConstant);
+    }
+
+    [Fact]
     public void La_campagne_ne_propose_jamais_de_ncc()
     {
         // Le test qui compte : rien dans le résultat ne doit ressembler à un

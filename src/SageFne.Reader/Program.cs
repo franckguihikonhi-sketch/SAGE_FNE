@@ -757,10 +757,18 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         Console.WriteLine(
             "  Classé par montant TTC en jeu. Le NCC se saisit dans Sage,\n" +
             "  fiche client, champ CT_Identifiant.");
+        var nifParlant = !campagne.TypeNifConstant;
+        if (!nifParlant && campagne.Comptes.Count > 1)
+        {
+            Console.WriteLine(
+                $"  CT_TypeNIF vaut {campagne.Comptes[0].TypeNif} sur les " +
+                $"{campagne.Comptes.Count} comptes : ce champ ne distingue rien ici.");
+        }
+
         Console.WriteLine();
         Console.WriteLine(
             $"  {"CT_Num",-16} {"Intitulé",-28} {"Fact.",5} {"Montant TTC",16} " +
-            $"{"Cumul %",8}  {"NIF",3}  {"Dernière",10}  Contact");
+            $"{"Cumul %",8}  {(nifParlant ? $"{"NIF",3}  " : "")}{"Dernière",10}  Contact");
 
         var cumulNcc = 0m;
         var affiches = ligneDeCommande.Client is null ? 25 : campagne.Comptes.Count;
@@ -778,7 +786,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 28),-28} " +
                 $"{compte.Factures,5} {Somme(compte.MontantTTC),16} " +
                 $"{(campagne.MontantSansNcc == 0 ? "—" : $"{cumulNcc / campagne.MontantSansNcc:P0}"),8}  " +
-                $"{compte.TypeNif,3}  " +
+                $"{(nifParlant ? $"{compte.TypeNif,3}  " : "")}" +
                 $"{compte.DerniereFacture,10:dd/MM/yyyy}  {Tronquer(compte.MoyenDeContact, 28)}");
         }
 
@@ -953,8 +961,12 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
     if (ligneDeCommande.Export is { } chemin)
     {
         var csv = new StringBuilder();
+        // Deux colonnes vides, et dans cet ordre : la nature du tiers se tranche
+        // avant d'aller chercher un NCC, parce qu'un particulier n'en a pas à
+        // donner. Rien dans Sage ne porte cette distinction dans ce dossier —
+        // c'est un jugement humain, ligne par ligne.
         csv.AppendLine("CT_Num;Intitule;Factures;MontantTTC;PremiereFacture;DerniereFacture;" +
-                       "Ville;Telephone;Email;CT_TypeNIF;NCC_a_saisir");
+                       "Ville;Telephone;Email;CT_TypeNIF;Nature_du_tiers;NCC_a_saisir");
 
         static string Cellule(string valeur) =>
             valeur.Replace("\"", "\"\"").Replace(';', ',').Replace('\n', ' ').Replace('\r', ' ');
@@ -975,6 +987,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 Cellule(compte.Telephone),
                 Cellule(compte.Email),
                 compte.TypeNif.ToString(CultureInfo.InvariantCulture),
+                "",
                 ""));
         }
 
@@ -984,7 +997,9 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
 
         Titre("Liste exportée");
         Console.WriteLine($"  {campagne.Comptes.Count} compte(s) écrits dans {Path.GetFullPath(chemin)}");
-        Console.WriteLine("  La colonne NCC_a_saisir est vide : c'est celle que la campagne remplit.");
+        Console.WriteLine(
+            "  Deux colonnes vides : Nature_du_tiers d'abord — entreprise ou particulier —\n" +
+            "  puis NCC_a_saisir, qui ne concerne que les entreprises.");
         Console.WriteLine("  Ce fichier ne revient pas tout seul dans Sage — la saisie s'y fait à la main.");
     }
 
