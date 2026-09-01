@@ -537,18 +537,20 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
               " — le 0 % ne tient donc pas à l'article seul.");
 
         Console.WriteLine("    Codes de taxe sur les lignes à 0 % :");
-        if (article.CodesObserves.Count == 0)
+        foreach (var code in article.CodesObserves)
         {
-            Console.WriteLine("      aucun — les trois emplacements sont vides.");
+            Console.WriteLine(
+                $"      DL_CodeTaxe{code.Position} = « {(code.Code == "" ? "—" : code.Code)} », " +
+                $"DL_Taxe{code.Position} = {code.Taux:0.##}  ({code.Lignes} ligne(s))");
         }
-        else
+
+        // Sans cette ligne, le total des codes semble démentir le nombre de
+        // lignes : une ligne sans code n'apparaît nulle part au-dessus.
+        if (article.LignesSansAucunCode > 0)
         {
-            foreach (var code in article.CodesObserves)
-            {
-                Console.WriteLine(
-                    $"      DL_CodeTaxe{code.Position} = « {(code.Code == "" ? "—" : code.Code)} », " +
-                    $"DL_Taxe{code.Position} = {code.Taux:0.##}  ({code.Lignes} ligne(s))");
-            }
+            Console.WriteLine(
+                $"      aucun code, les trois emplacements vides  " +
+                $"({article.LignesSansAucunCode} ligne(s))");
         }
 
         Console.WriteLine("    Clients :");
@@ -572,7 +574,7 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
         Console.WriteLine(
             $"  {Tronquer(famille.Libelle, 14),-14} {famille.LignesAZero,7} {famille.LignesTaxees,8}  " +
             $"{famille.MontantHTAZero,16:N2}  " +
-            (famille.ToutesLignesAZero ? "jamais taxée dans ce dossier" : "panachée"));
+            famille.Lecture);
     }
 
     Titre("Par client");
@@ -584,7 +586,7 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
         Console.WriteLine(
             $"  {Tronquer(client.Libelle, 30),-30} {client.LignesAZero,7} {client.LignesTaxees,8}  " +
             $"{client.MontantHTAZero,16:N2}  " +
-            (client.ToutesLignesAZero ? "n'achète jamais taxé" : "panaché"));
+            client.Lecture);
     }
 
     Titre("Ce que ces chiffres ne disent pas");

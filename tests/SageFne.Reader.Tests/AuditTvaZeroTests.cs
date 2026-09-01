@@ -598,3 +598,119 @@ public class FiltresAuditTests
         Assert.Equal(2000, ligne.Query.Limite);
     }
 }
+
+/// <summary>
+/// Ce que le dossier réel a corrigé dans l'audit lui-même.
+/// </summary>
+public class AuditFaitsObservesTests
+{
+    private static SageDocumentHeader Entete(string piece, string tiers) => new()
+    {
+        Piece = piece, Domaine = 0, Type = 6, DocType = 6,
+        Date = new DateTime(2025, 10, 22), Tiers = tiers,
+    };
+
+    private static SageDocumentLine Ligne(
+        string piece, int rang, string article, decimal taux,
+        string codeTva = "TVA", decimal airsi = 0m, int emplacementAirsi = 2) => new()
+    {
+        Piece = piece, Domaine = 0, Type = 6, Ligne = rang,
+        ArticleReference = article, Designation = $"Article {article}",
+        Quantite = 1m, MontantHT = 1000m,
+        CodeTaxe1 = emplacementAirsi == 1 && airsi != 0m ? "AIRSI" : (taux == 0m && codeTva == "" ? "" : codeTva),
+        Taxe1 = emplacementAirsi == 1 && airsi != 0m ? airsi : taux,
+        CodeTaxe2 = emplacementAirsi == 2 && airsi != 0m ? "AIRSI" : "",
+        Taxe2 = emplacementAirsi == 2 ? airsi : 0m,
+    };
+
+    private static AuditTvaZero Analyser(
+        IEnumerable<SageDocumentHeader> entetes, IEnumerable<SageDocumentLine> lignes) =>
+        AuditTvaZero.Analyser(
+            [.. entetes], [.. lignes],
+            new Dictionary<string, SageCustomer>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+    [Fact]
+    public void Le_compte_de_clients_ne_vient_pas_de_la_liste_tronquee()
+    {
+        // Sur le dossier réel, l'audit annonçait « 10 client(s) » là où il y en
+        // avait 13 : le plafond d'affichage se lisait comme un fait.
+        var entetes = Enumerable.Range(1, 13).Select(n => Entete($"{n}", $"C{n}")).ToList();
+        var lignes = entetes.Select(e => Ligne(e.Piece, 1000, "A", 0m, codeTva: "")).ToList();
+
+        var article = Assert.Single(Analyser(entetes, lignes).Articles);
+
+        Assert.Equal(13, article.NombreClients);
+        Assert.Equal(10, article.Clients.Count);
+    }
+
+    [Fact]
+    public void Les_lignes_sans_aucun_code_sont_comptees_a_part()
+    {
+        // Elles n'apparaissent dans aucun code observé, par construction : sans
+        // ce compte, le détail semble démentir le nombre de lignes.
+        var audit = Analyser(
+            [Entete("1", "C1"), Entete("2", "C1"), Entete("3", "C1")],
+            [
+                Ligne("1", 1000, "A", 0m, codeTva: ""),
+                Ligne("2", 1000, "A", 0m, codeTva: ""),
+                Ligne("3", 1000, "A", 0m, codeTva: "TVA"),
+            ]);
+
+        var article = Assert.Single(audit.Articles);
+
+        Assert.Equal(3, article.LignesAZero);
+        Assert.Equal(2, article.LignesSansAucunCode);
+        Assert.Equal(1, article.CodesObserves.Sum(code => code.Lignes));
+    }
+
+    [Fact]
+    public void Une_ligne_portant_le_code_TVA_a_zero_est_bien_a_zero()
+    {
+        // Le dossier réel porte « DL_CodeTaxe1 = TVA, DL_Taxe1 = 0 » sur des
+        // dizaines de lignes : un code présent ne veut pas dire un taux.
+        var audit = Analyser([Entete("1", "C1")], [Ligne("1", 1000, "A", 0m, codeTva: "TVA")]);
+
+        var article = Assert.Single(audit.Articles);
+        Assert.Equal(0, article.LignesSansAucunCode);
+
+        var code = Assert.Single(article.CodesObserves);
+        Assert.Equal(("TVA", 0m), (code.Code, code.Taux));
+    }
+
+    [Fact]
+    public void L_AIRSI_est_reconnu_en_position_1_comme_en_position_2()
+    {
+        // Le dossier réel le porte aux deux endroits. S'attendre à la position 2
+        // ferait lire 1,5 % de TVA là où il n'y en a pas.
+        var enUn = Analyser([Entete("1", "C1")], [Ligne("1", 1000, "A", 0m, airsi: 1.5m, emplacementAirsi: 1)]);
+        var enDeux = Analyser([Entete("1", "C1")], [Ligne("1", 1000, "A", 0m, codeTva: "", airsi: 1.5m)]);
+
+        Assert.Single(enUn.Articles);
+        Assert.Single(enDeux.Articles);
+        Assert.Equal(1, Assert.Single(enUn.Articles).CodesObserves.Single().Position);
+        Assert.Equal(2, Assert.Single(enDeux.Articles).CodesObserves.Single().Position);
+    }
+
+    [Theory]
+    [InlineData(1, "jamais taxé, mais sur 1 ligne(s) seulement")]
+    [InlineData(4, "jamais taxé, mais sur 4 ligne(s) seulement")]
+    [InlineData(5, "jamais taxé")]
+    [InlineData(50, "jamais taxé")]
+    public void Une_lecture_dit_sur_combien_d_observations_elle_repose(int lignes, string attendu)
+    {
+        // Un client vu une fois n'est pas un client exonéré : c'est un client
+        // dont on ne sait rien. Le dire du même ton ferait paramétrer une règle
+        // sur une observation unique.
+        var regroupement = new RegroupementAZero("C", "Client", lignes, 0, 1000m);
+
+        Assert.Equal(attendu, regroupement.Lecture);
+    }
+
+    [Fact]
+    public void Un_regroupement_panache_le_reste_quel_que_soit_le_volume()
+    {
+        Assert.Equal("panaché", new RegroupementAZero("C", "Client", 1, 1, 0m).Lecture);
+        Assert.Equal("panaché", new RegroupementAZero("C", "Client", 500, 1, 0m).Lecture);
+    }
+}

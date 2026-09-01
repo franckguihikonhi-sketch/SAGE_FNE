@@ -44,7 +44,27 @@ public sealed record ArticleAZero
     /// <summary>Vrai quand cet article n'est jamais vendu autrement qu'à 0 %.</summary>
     public bool ExclusivementAZero => AutresTaux.Count == 0;
 
-    public int NombreClients => Clients.Count;
+    /// <summary>
+    /// Combien de clients distincts, tous comptés.
+    /// </summary>
+    /// <remarks>
+    /// Renseigné à part, et non déduit de <see cref="Clients"/> : cette liste
+    /// est tronquée pour l'affichage, et en tirer un compte annonçait « 10
+    /// clients » là où il y en avait 13. Un plafond d'affichage n'est pas un
+    /// fait.
+    /// </remarks>
+    public int NombreClients { get; init; }
+
+    /// <summary>
+    /// Lignes à 0 % dont les trois emplacements de taxe sont vides.
+    /// </summary>
+    /// <remarks>
+    /// Le cas dominant sur le dossier réel, et invisible dans le détail des
+    /// codes : une ligne sans code n'y apparaît par construction pas. Il faut
+    /// donc la compter à part, sans quoi le total des codes observés semble
+    /// démentir le nombre de lignes.
+    /// </remarks>
+    public int LignesSansAucunCode { get; init; }
 }
 
 /// <param name="ToutesLignesAZero">
@@ -59,6 +79,25 @@ public sealed record RegroupementAZero(
     decimal MontantHTAZero)
 {
     public bool ToutesLignesAZero => LignesTaxees == 0;
+
+    /// <summary>
+    /// En dessous, « jamais taxé » ne décrit pas une habitude.
+    /// </summary>
+    /// <remarks>
+    /// Un client qui a acheté une fois, sans TVA, n'est pas un client exonéré :
+    /// c'est un client dont on ne sait rien. Affirmer les deux du même ton
+    /// ferait paramétrer une règle sur une observation unique.
+    /// </remarks>
+    public const int ObservationsSuffisantes = 5;
+
+    /// <summary>Ce que ce regroupement autorise à dire, et rien de plus.</summary>
+    public string Lecture => (ToutesLignesAZero, LignesAZero) switch
+    {
+        (true, < ObservationsSuffisantes) =>
+            $"jamais taxé, mais sur {LignesAZero} ligne(s) seulement",
+        (true, _) => "jamais taxé",
+        _ => "panaché",
+    };
 }
 
 /// <summary>
@@ -201,6 +240,9 @@ public sealed record AuditTvaZero
             QuantiteCumulee = lignes.Sum(ligne => ligne.Quantite),
             MontantHTCumule = lignes.Sum(ligne => ligne.MontantHT),
             CodesObserves = codes,
+            LignesSansAucunCode = lignes.Count(ligne =>
+                ligne.Taxes().All(taxe => string.IsNullOrWhiteSpace(taxe.Code) && taxe.Taux == 0m)),
+            NombreClients = parClient.Count,
             Clients = [.. parClient.Take(clientsParArticle)],
             AutresTaux = autresTaux,
             ExemplesPieces = [.. lignes

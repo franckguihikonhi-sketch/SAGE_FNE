@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 459 tests
+dotnet test                                    # 468 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -132,9 +132,17 @@ La nomenclature FNE distingue deux exonérations qui valent **toutes deux 0 %** 
 - `TVAD` — exonération **légale**, TEE/RME
 
 **Sage ne porte pas la différence**, et la vérification faite sur le dossier HT l'a
-confirmé : `F_TAXE` n'a aucune fiche à taux 0, et une ligne exonérée ne porte aucun code
-de taxe — `DL_CodeTaxe1` vide, `DL_Taxe1 = 0`. La distinction est un fait juridique que
-Sage n'a jamais eu de raison d'enregistrer.
+confirmé : `F_TAXE` n'a aucune fiche à taux 0.
+
+Une première lecture avait conclu qu'une ligne exonérée ne porte aucun code de taxe.
+`audit-tva-zero` sur le dossier réel l'a démentie : sur les 153 lignes d'un seul article,
+61 portent `DL_CodeTaxe1 = "TVA"` avec `DL_Taxe1 = 0`, 5 portent `AIRSI` en position 1, et
+les autres n'ont rien. **Un code présent ne dit donc pas un taux**, et son absence ne dit
+rien non plus — les deux formes coexistent dans le même dossier, sur le même article, selon
+l'époque de saisie.
+
+Cela ne change rien à la conclusion : aucune de ces formes ne distingue `TVAC` de `TVAD`.
+La distinction reste un fait juridique que Sage n'a jamais eu de raison d'enregistrer.
 
 Elle se déclare donc, du plus précis au plus général :
 
