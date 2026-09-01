@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 406 tests
+dotnet test                                    # 422 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -446,6 +446,34 @@ dotnet run --project src\SageFne.Reader -- debloquer 1072 --non-certifiee `
 
 Le classement conserve tout : identité, empreinte, réponse HTTP d'origine, journal des
 tentatives. Aucune référence n'est inventée, et la pièce ne repart plus jamais.
+
+### Reconstituer une histoire qui n'a jamais été écrite
+
+Les envois antérieurs au journal n'ont laissé aucune trace. Cette histoire n'a pas été
+perdue : elle n'a jamais été écrite, et rien ne permet de la déduire. La déduire serait la
+pire des réponses — **un journal inventé vaut moins qu'un journal vide, parce qu'on le
+croit.**
+
+Ce que l'exploitant sait, lui, peut être inscrit :
+
+```powershell
+dotnet run --project src\SageFne.Reader -- journal 1072 `
+  --ajouter "POST n° 1, HTTP 500, issue inconnue" --quand "2026-08-31 23:40" `
+  --code-http 500 --confirmer
+```
+
+L'entrée porte le genre **reconstitué**, qui la sépare pour toujours d'un fait observé, et
+la date des faits plutôt que celle de sa saisie. Le stockage garde l'ordre d'écriture —
+c'est lui, la trace — tandis que `statut` affiche la chronologie, si bien qu'un événement
+reconstitué se lit à sa place et non à la fin.
+
+La date est obligatoire : sans elle, l'entrée se rangerait au présent et fausserait la
+chronologie qu'elle sert à rétablir. Une date à venir est refusée. Rien d'autre ne bouge :
+ni l'état, ni l'identité, ni l'empreinte, ni la référence.
+
+Côté base d'audit, `certification_tentatives` porte le même journal, en ajout seul par
+déclencheur, sans politique d'`update` ni de `delete`. Un fait observé ne peut pas y être
+antidaté ; une reconstitution le peut, et c'est tout son objet.
 
 ### Une certification peut ne porter aucune référence
 

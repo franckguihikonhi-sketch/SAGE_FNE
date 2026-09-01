@@ -81,6 +81,11 @@ public enum Verbe
     /// Établir l'origine d'une certification que le registre ne qualifie pas.
     /// </summary>
     ReparerSource,
+
+    /// <summary>
+    /// Compléter le journal d'une pièce par un événement non observé.
+    /// </summary>
+    Journal,
 }
 
 /// <summary>
@@ -141,6 +146,15 @@ public sealed record CommandLine
 
     /// <summary>Pourquoi cette décision a été prise. Conservé au registre.</summary>
     public string? Motif { get; init; }
+
+    /// <summary>Événement à inscrire au journal, pour <c>journal</c>.</summary>
+    public string? Evenement { get; init; }
+
+    /// <summary>Quand cet événement a eu lieu — sa date réelle, non celle de la saisie.</summary>
+    public DateTimeOffset? Quand { get; init; }
+
+    /// <summary>Code HTTP de l'événement reconstitué, s'il est connu.</summary>
+    public int? CodeHttp { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -161,6 +175,9 @@ public sealed record CommandLine
         string? jeton = null;
         string? motif = null;
         string? referenceActuelle = null;
+        string? evenement = null;
+        DateTimeOffset? quand = null;
+        int? codeHttp = null;
         var nonCertifiee = false;
         var sansReference = false;
         var supprimerReference = false;
@@ -238,6 +255,22 @@ public sealed record CommandLine
                 case "réparer-source":
                     verbe = Verbe.ReparerSource;
                     break;
+                case "journal":
+                    verbe = Verbe.Journal;
+                    break;
+                case "--ajouter":
+                    evenement = Valeur() ?? "";
+                    if (evenement is "") erreurs.Add("--ajouter attend la description de l'événement.");
+                    break;
+                case "--quand":
+                    var lue = Valeur();
+                    if (DateTimeOffset.TryParse(lue, out var date)) quand = date;
+                    else erreurs.Add("--quand attend une date et une heure, par exemple 2026-08-31 23:40.");
+                    break;
+                case "--code-http":
+                    if (int.TryParse(Valeur(), out var http) && http is >= 100 and <= 599) codeHttp = http;
+                    else erreurs.Add("--code-http attend un code entre 100 et 599.");
+                    break;
                 case "--sans-reference":
                 case "--sans-référence":
                     sansReference = true;
@@ -307,6 +340,9 @@ public sealed record CommandLine
             Jeton = jeton,
             Motif = motif,
             ReferenceActuelle = referenceActuelle,
+            Evenement = evenement,
+            Quand = quand,
+            CodeHttp = codeHttp,
             NonCertifiee = nonCertifiee,
             SansReference = sansReference,
             SupprimerReference = supprimerReference,
@@ -343,6 +379,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- registre-info      où vit le registre, ce qu'il contient
           dotnet run --project src/SageFne.Reader -- reconcilier 1052 --reference REF --confirmer
           dotnet run --project src/SageFne.Reader -- reparer-source 1052   origine d'une entrée ancienne
+          dotnet run --project src/SageFne.Reader -- journal 1072 --ajouter "..." --quand "..." --confirmer
           dotnet run --project src/SageFne.Reader -- corriger-reconciliation 1052 --supprimer-reference ...
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --non-certifiee --confirmer
           dotnet run --project src/SageFne.Reader -- debloquer 1052 --reference REF --confirmer
@@ -365,6 +402,12 @@ public sealed record CommandLine
           --sans-reference    le portail n'en publie aucune — exige --motif
           --token JETON       jeton du QR code, s'il figure sur le PDF
           --motif "…"         pourquoi, conservé au registre
+
+        Compléter le journal d'une pièce par un événement que le middleware n'a pas observé :
+          --ajouter "…"     ce qui s'est passé
+          --quand "…"       quand — la date des faits, pas celle de la saisie
+          --code-http N     le code reçu, s'il est connu
+        L'entrée est marquée « reconstitué » : elle ne se confond jamais avec un fait observé.
 
         Corriger une réconciliation fautive, sans défaire la certification :
           --supprimer-reference       retire la référence, garde l'état Certified

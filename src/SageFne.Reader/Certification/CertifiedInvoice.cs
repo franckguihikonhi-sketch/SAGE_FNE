@@ -136,18 +136,34 @@ public sealed record CertifiedInvoice
         Tentatives.LastOrDefault(t => t.Genre == GenreTentative.Reponse);
 
     /// <summary>Ajoute une ligne au journal, sans jamais en retirer.</summary>
+    /// <param name="quand">
+    /// Renseigné pour un événement reconstitué, qui porte alors sa date réelle
+    /// et non celle de sa saisie.
+    /// </param>
     public CertifiedInvoice AvecTentative(
-        GenreTentative genre, string detail, int? codeHttp = null) =>
+        GenreTentative genre, string detail, int? codeHttp = null, DateTimeOffset? quand = null) =>
         this with
         {
             Tentatives = [.. Tentatives, new TentativeEnvoi
             {
-                Quand = DateTimeOffset.Now,
+                Quand = quand ?? DateTimeOffset.Now,
                 Genre = genre,
                 CodeHttp = codeHttp,
                 Detail = detail,
             }],
         };
+
+    /// <summary>
+    /// Le journal remis dans l'ordre des faits, pour l'affichage.
+    /// </summary>
+    /// <remarks>
+    /// Le stockage garde l'ordre d'écriture — c'est lui, la trace. Mais un
+    /// événement reconstitué porte une date passée : le lire à sa place dans la
+    /// chronologie vaut mieux que de le voir surgir à la fin.
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyList<TentativeEnvoi> Chronologie =>
+        [.. Tentatives.OrderBy(t => t.Quand)];
 
     /// <summary>Vrai quand la référence est absente ou vide.</summary>
     /// <remarks>

@@ -13,6 +13,17 @@ public enum GenreTentative
 
     /// <summary>Un opérateur a tranché, portail en main.</summary>
     Decision,
+
+    /// <summary>
+    /// Un événement saisi après coup, que le middleware n'a pas observé.
+    /// </summary>
+    /// <remarks>
+    /// Les envois antérieurs au journal n'ont laissé aucune trace : leur
+    /// histoire n'a pas été perdue, elle n'a jamais été écrite. La reconstituer
+    /// est légitime, la confondre avec un fait observé ne l'est pas. Ce genre
+    /// existe pour que la différence reste lisible à jamais.
+    /// </remarks>
+    Reconstitue,
 }
 
 /// <summary>
@@ -46,8 +57,13 @@ public sealed record TentativeEnvoi
     [JsonPropertyName("detail")]
     public string Detail { get; init; } = "";
 
+    /// <summary>Vrai quand l'événement a été saisi après coup.</summary>
+    [JsonIgnore]
+    public bool EstReconstitue => Genre == GenreTentative.Reconstitue;
+
     /// <summary>Une ligne lisible, pour l'affichage et le journal.</summary>
     public string Decrire() =>
         $"{Quand.ToLocalTime():dd/MM/yyyy HH:mm:ss}  " +
-        $"{Genre,-9} {(CodeHttp is { } code ? $"HTTP {code}" : "—       "),-9} {Detail}";
+        $"{(EstReconstitue ? "~ reconstitué" : Genre.ToString()),-13} " +
+        $"{(CodeHttp is { } code ? $"HTTP {code}" : "—       "),-9} {Detail}";
 }

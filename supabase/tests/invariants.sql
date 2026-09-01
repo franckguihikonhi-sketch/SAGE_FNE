@@ -111,9 +111,12 @@ select attendre_echec($$
   'une règle de dossier avec une clé');
 
 \echo '--- RLS ---'
-select case when count(*) = 7 then 'OK     RLS active sur les 7 tables'
-            else format('ÉCHEC — RLS active sur %s tables seulement', count(*)) end
-  from pg_tables where schemaname = 'public' and rowsecurity;
+-- Aucune table sans RLS, plutôt qu'un compte figé : une table ajoutée sans
+-- politique doit faire échouer ce test, pas seulement décaler un nombre.
+select case when count(*) = 0 then 'OK     aucune table sans RLS'
+            else format('ÉCHEC — %s table(s) sans RLS : %s',
+                        count(*), string_agg(tablename, ', ')) end
+  from pg_tables where schemaname = 'public' and not rowsecurity;
 
 \echo '--- Vue des envois en suspens ---'
 -- 1053 vient d'être débloquée : la vue doit être vide, c'est tout son intérêt.
@@ -363,3 +366,75 @@ values ('22222222-2222-2222-2222-222222222222', '0/6/1065', '1065', 'error',
 select attendre_echec($$
   select requalifier_source((select id from certifications where identite = '0/6/1065'))$$,
   'la requalification d''une entrée non certifiée');
+
+\echo '--- Le journal des tentatives ---'
+insert into certifications (dossier_id, id, identite, piece, etat, environnement)
+values ('22222222-2222-2222-2222-222222222222',
+        '55555555-5555-5555-5555-555555555555', '0/6/1072', '1072', 'sending', 'test');
+
+insert into certification_tentatives (certification_id, genre, detail)
+values ('55555555-5555-5555-5555-555555555555', 'envoi', 'POST n° 1');
+insert into certification_tentatives (certification_id, genre, code_http, detail)
+values ('55555555-5555-5555-5555-555555555555', 'reponse', 500, 'issue inconnue');
+insert into certification_tentatives (certification_id, genre, detail)
+values ('55555555-5555-5555-5555-555555555555', 'decision', 'non certifiée — portail consulté trop tôt');
+insert into certification_tentatives (certification_id, genre, detail)
+values ('55555555-5555-5555-5555-555555555555', 'envoi', 'POST n° 2');
+insert into certification_tentatives (certification_id, genre, code_http, detail)
+values ('55555555-5555-5555-5555-555555555555', 'reponse', 500, 'issue inconnue');
+
+select case when count(*) = 5 then 'OK     les cinq étapes sont journalisées'
+            else format('ÉCHEC — %s entrée(s)', count(*)) end
+  from certification_tentatives
+ where certification_id = '55555555-5555-5555-5555-555555555555';
+
+select case when envois_partis('55555555-5555-5555-5555-555555555555') = 2
+            then 'OK     deux envois comptés'
+            else format('ÉCHEC — %s envoi(s) comptés',
+                        envois_partis('55555555-5555-5555-5555-555555555555')) end;
+
+select case when count(*) = 1 then 'OK     la pièce ressort comme doublon possible'
+            else format('ÉCHEC — %s ligne(s) dans la vue', count(*)) end
+  from certifications_multi_envois where identite = '0/6/1072';
+
+\echo '--- Rien ne s''y réécrit ---'
+select attendre_echec($$
+  update certification_tentatives set detail = 'autre chose'
+   where certification_id = '55555555-5555-5555-5555-555555555555'$$,
+  'la réécriture d''une tentative');
+
+select attendre_echec($$
+  delete from certification_tentatives
+   where certification_id = '55555555-5555-5555-5555-555555555555'$$,
+  'la suppression d''une tentative');
+
+\echo '--- Un fait observé ne se date pas dans le passé ---'
+select attendre_echec($$
+  insert into certification_tentatives (certification_id, genre, survenu_le, detail)
+  values ('55555555-5555-5555-5555-555555555555', 'envoi', now() - interval '2 hours', 'antidaté')$$,
+  'un envoi observé daté d''il y a deux heures');
+
+-- Une reconstitution, elle, porte la date des faits : c'est tout son objet.
+insert into certification_tentatives (certification_id, genre, survenu_le, code_http, detail)
+values ('55555555-5555-5555-5555-555555555555', 'reconstitue',
+        now() - interval '2 hours', 500, 'POST antérieur au journal, saisi après coup');
+
+select case when count(*) = 1 then 'OK     une reconstitution peut porter une date passée'
+            else 'ÉCHEC — la reconstitution a été refusée' end
+  from certification_tentatives
+ where certification_id = '55555555-5555-5555-5555-555555555555'
+   and genre = 'reconstitue';
+
+-- Et elle se distingue pour toujours d'un fait observé.
+select case when count(*) = 5 then 'OK     les faits observés restent distincts des reconstitutions'
+            else format('ÉCHEC — %s fait(s) observé(s)', count(*)) end
+  from certification_tentatives
+ where certification_id = '55555555-5555-5555-5555-555555555555'
+   and genre <> 'reconstitue';
+
+\echo '--- Le journal se lit dans l''ordre des faits ---'
+select case when survenu_le = min(survenu_le) over () then 'OK     la reconstitution se range en tête'
+            else 'ÉCHEC — ordre chronologique faux' end
+  from certification_tentatives
+ where certification_id = '55555555-5555-5555-5555-555555555555'
+ order by survenu_le limit 1;

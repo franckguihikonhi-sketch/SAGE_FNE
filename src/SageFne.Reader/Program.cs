@@ -394,6 +394,49 @@ if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
     return fichier.Existe ? 0 : 1;
 }
 
+// Compléter le journal d'une pièce par un événement que le middleware n'a pas
+// observé. Rien n'est déduit : l'exploitant dicte, et l'entrée porte sa marque.
+if (ligneDeCommande.Verbe == Verbe.Journal)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine(
+            "journal attend un numéro de pièce, par exemple :\n" +
+            "  journal 1072 --ajouter \"POST n° 1, HTTP 500\" --quand \"2026-08-31 23:40\" --confirmer");
+        return 2;
+    }
+
+    var numeroJournal = ligneDeCommande.Query.Pieces[0];
+    Titre($"Journal — pièce {numeroJournal}");
+    Console.WriteLine("Aucune API n'est appelée. Sage reste en lecture seule.");
+    Console.WriteLine("L'entrée sera marquée « reconstitué » : un fait saisi n'est pas un fait observé.");
+    Console.WriteLine();
+
+    var ajout = await hote.Services.GetRequiredService<InvoiceSender>()
+        .AjouterAuJournalAsync(
+            numeroJournal,
+            ligneDeCommande.Evenement,
+            ligneDeCommande.Quand,
+            ligneDeCommande.CodeHttp,
+            ligneDeCommande.Confirme);
+
+    Console.WriteLine($"  {ajout.Message}");
+
+    if (ajout.ConfirmationManque)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Pour inscrire : ajoutez --confirmer.");
+    }
+
+    if (ajout.Applique)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  Vérifiez : dotnet run --project src\\SageFne.Reader -- statut {numeroJournal}");
+    }
+
+    return ajout.Applique ? 0 : 1;
+}
+
 // Établir l'origine d'une certification que le registre ne qualifie pas. Les
 // entrées antérieures au suivi de la source se relisent « inconnue », et une
 // réconciliation manuelle qu'on ne reconnaît plus devient incorrigible.
@@ -603,7 +646,7 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
         if (connue.Tentatives.Count > 0)
         {
             Titre("Journal de la pièce");
-            foreach (var tentative in connue.Tentatives)
+            foreach (var tentative in connue.Chronologie)
             {
                 Console.WriteLine($"  {tentative.Decrire()}");
             }

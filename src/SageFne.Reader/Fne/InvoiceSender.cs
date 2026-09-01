@@ -729,6 +729,109 @@ public sealed class InvoiceSender(
     /// défaut d'une énumération pour dire quelque chose de vrai est l'erreur qui
     /// a rendu une réconciliation manuelle indiscernable d'une réponse de la DGI.
     /// </remarks>
+    /// <summary>
+    /// Inscrit au journal un événement que le middleware n'a pas observé.
+    /// </summary>
+    /// <remarks>
+    /// Les envois antérieurs au journal n'ont laissé aucune trace : leur
+    /// histoire n'a pas été perdue, elle n'a jamais été écrite. Rien ne permet
+    /// de la déduire, et la déduire serait la pire des réponses — un journal
+    /// inventé vaut moins qu'un journal vide, parce qu'on le croit.
+    ///
+    /// Ce que l'exploitant sait, lui, peut être inscrit. L'entrée porte alors
+    /// le genre <see cref="GenreTentative.Reconstitue"/>, qui la sépare pour
+    /// toujours d'un fait observé, et la date de l'événement plutôt que celle
+    /// de sa saisie.
+    ///
+    /// Rien n'est remplacé : l'ajout est la seule opération possible sur ce
+    /// journal, ici comme ailleurs.
+    /// </remarks>
+    public async Task<DeblocageResultat> AjouterAuJournalAsync(
+        string piece,
+        string? evenement,
+        DateTimeOffset? quand,
+        int? codeHttp,
+        bool confirme,
+        CancellationToken cancellation = default)
+    {
+        if (string.IsNullOrWhiteSpace(evenement))
+        {
+            return new DeblocageResultat(
+                false,
+                "Dites ce qui s'est passé : --ajouter \"…\". Par exemple " +
+                "\"POST n° 1, HTTP 500, issue inconnue\".");
+        }
+
+        if (quand is null)
+        {
+            return new DeblocageResultat(
+                false,
+                "Datez l'événement : --quand \"2026-08-31 23:40\". Sans date, l'entrée se " +
+                "rangerait au présent et fausserait la chronologie qu'elle sert à rétablir.");
+        }
+
+        if (quand > DateTimeOffset.Now)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La date {quand:dd/MM/yyyy à HH:mm} est à venir. Un journal ne reconstitue que " +
+                "le passé.");
+        }
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion?.Certification is not { } trace)
+        {
+            return new DeblocageResultat(
+                false,
+                conversion is null
+                    ? $"Aucune facture au numéro {piece} dans Sage."
+                    : $"La pièce {piece} ne porte aucune trace au registre : rien à compléter.");
+        }
+
+        var detail = $"{evenement.Trim()} [saisi le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm}, non observé par le middleware]";
+
+        if (!confirme)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Rien n'a été inscrit : la confirmation manque.\n" +
+                $"  Serait ajouté  {quand:dd/MM/yyyy HH:mm:ss}  ~ reconstitué  " +
+                $"{(codeHttp is { } code ? $"HTTP {code}" : "—")}  {detail}\n" +
+                $"  Inchangé       état {trace.Etat}, identité {trace.Identite}, " +
+                $"{trace.Tentatives.Count} entrée(s) déjà au journal",
+                ConfirmationManque: true);
+        }
+
+        string? sauvegarde = null;
+        if (registre is JsonCertificationLedger surFichier)
+        {
+            try
+            {
+                sauvegarde = await surFichier.SauvegarderAsync(cancellation);
+            }
+            catch (Exception erreur) when (erreur is IOException or UnauthorizedAccessException)
+            {
+                return new DeblocageResultat(
+                    false,
+                    $"Le registre n'a pas pu être sauvegardé : {erreur.Message} Rien n'a été " +
+                    "inscrit.");
+            }
+        }
+
+        var complete = trace.AvecTentative(GenreTentative.Reconstitue, detail, codeHttp, quand);
+        await registre.RecordAsync(complete, cancellation);
+        logger.LogInformation("Pièce {Piece} : événement reconstitué ajouté au journal.", piece);
+
+        return new DeblocageResultat(
+            true,
+            $"Ajouté au journal de la pièce {piece}, marqué « reconstitué ». " +
+            $"Le journal compte {complete.Tentatives.Count} entrée(s)." +
+            (sauvegarde is null ? "" : $"\n  Sauvegarde : {sauvegarde}"),
+            trace.Etat);
+    }
+
     /// <param name="precedente">
     /// Ce que le registre portait déjà. Son journal est repris : c'est la seule
     /// chose qui empêche un second envoi de croire qu'il est le premier.

@@ -2266,3 +2266,314 @@ public class DoublonMilleSoixanteDouzeTests
             t => t.Genre == GenreTentative.Reponse && t.Detail.Contains("Refus net"));
     }
 }
+
+/// <summary>
+/// Le journal est en ajout seul, et une reconstitution ne se confond jamais
+/// avec un fait observé.
+/// </summary>
+public class JournalReconstitueTests
+{
+    private sealed class Registre : ICertificationLedger
+    {
+        private readonly Dictionary<string, CertifiedInvoice> _entrees = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                identites.Where(_entrees.ContainsKey)
+                    .ToDictionary(identite => identite, identite => _entrees[identite]));
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            _entrees[certification.Identite] = certification;
+            return Task.CompletedTask;
+        }
+
+        public CertifiedInvoice Actuelle => _entrees["0/6/1221"];
+        public bool Vide => _entrees.Count == 0;
+    }
+
+    private sealed class ClientQuiEchoue : IFneApiClient
+    {
+        public int Appels { get; private set; }
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default)
+        {
+            Appels++;
+            return Task.FromResult(new FneSignResult(
+                false, 500, CorpsBrut: "{}", Erreur: "la plateforme a répondu 500."));
+        }
+    }
+
+    private const string Piece = "1221";
+
+    private static (InvoiceSender Expediteur, Registre Registre, ClientQuiEchoue Client) Monter()
+    {
+        var registre = new Registre();
+        var client = new ClientQuiEchoue();
+        var reglages = ReglagesDEssai.SansDelaiPortail;
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        return (new InvoiceSender(
+            lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages), registre, client);
+    }
+
+    private static readonly DateTimeOffset Hier = DateTimeOffset.Now.AddDays(-1);
+
+    [Fact]
+    public async Task Deux_envois_et_une_decision_entre_eux_ne_s_ecrasent_pas()
+    {
+        // Le déroulé du point 5, produit par le middleware lui-même.
+        var (expediteur, registre, client) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: true, motif: "Absente du portail.");
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Deux factures au portail.");
+
+        var journal = registre.Actuelle;
+
+        Assert.Equal(2, client.Appels);
+        Assert.Equal(2, journal.NombreEnvois);
+        Assert.Equal(6, journal.Tentatives.Count);
+        Assert.Equal(EtatFne.Certified, journal.Etat);
+
+        // Aucune entrée reconstituée : tout a été observé.
+        Assert.DoesNotContain(journal.Tentatives, t => t.EstReconstitue);
+
+        // Et les deux 500 sont là, l'un et l'autre.
+        Assert.Equal(2, journal.Tentatives.Count(t => t.CodeHttp == 500));
+    }
+
+    [Fact]
+    public async Task Le_journal_ne_perd_jamais_une_entree()
+    {
+        var (expediteur, registre, _) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var apresPremier = registre.Actuelle.Tentatives.ToList();
+
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: true, motif: "Absente.");
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        // Les premières entrées sont toujours là, inchangées et en tête.
+        Assert.Equal(
+            apresPremier.Select(t => t.Detail),
+            registre.Actuelle.Tentatives.Take(apresPremier.Count).Select(t => t.Detail));
+    }
+
+    [Fact]
+    public async Task L_etat_courant_reste_separe_du_journal()
+    {
+        // Point 6 : le journal raconte, l'état décide.
+        var (expediteur, registre, _) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Constatée au portail.");
+
+        Assert.Equal(EtatFne.Certified, registre.Actuelle.Etat);
+        Assert.Contains(registre.Actuelle.Tentatives, t => t.CodeHttp == 500);
+    }
+
+    // --- La reconstitution ---------------------------------------------------
+
+    [Fact]
+    public async Task Un_evenement_reconstitue_porte_sa_marque()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        var resultat = await expediteur.AjouterAuJournalAsync(
+            Piece, "POST n° 1, antérieur au journal", Hier, 500, confirme: true);
+
+        Assert.True(resultat.Applique);
+        var ajoutee = registre.Actuelle.Tentatives[^1];
+
+        Assert.Equal(GenreTentative.Reconstitue, ajoutee.Genre);
+        Assert.True(ajoutee.EstReconstitue);
+        Assert.Equal(500, ajoutee.CodeHttp);
+        Assert.Contains("non observé par le middleware", ajoutee.Detail);
+        Assert.Contains("~ reconstitué", ajoutee.Decrire());
+    }
+
+    [Fact]
+    public async Task Un_evenement_reconstitue_porte_la_date_des_faits()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        await expediteur.AjouterAuJournalAsync(Piece, "POST antérieur", Hier, 500, confirme: true);
+
+        Assert.Equal(Hier, registre.Actuelle.Tentatives[^1].Quand);
+    }
+
+    [Fact]
+    public async Task La_chronologie_range_la_reconstitution_a_sa_place()
+    {
+        // Point 9 : historique ordonné chronologiquement. Le stockage garde
+        // l'ordre d'écriture ; l'affichage remet les faits en ordre.
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.AjouterAuJournalAsync(Piece, "POST antérieur", Hier, 500, confirme: true);
+
+        var journal = registre.Actuelle;
+
+        Assert.True(journal.Tentatives[^1].EstReconstitue, "en stockage, elle est la dernière écrite");
+        Assert.True(journal.Chronologie[0].EstReconstitue, "en lecture, elle est la première survenue");
+        Assert.Equal(
+            journal.Chronologie.OrderBy(t => t.Quand).Select(t => t.Quand),
+            journal.Chronologie.Select(t => t.Quand));
+    }
+
+    [Fact]
+    public async Task La_reconstitution_n_efface_rien()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var avant = registre.Actuelle.Tentatives.ToList();
+
+        await expediteur.AjouterAuJournalAsync(Piece, "POST antérieur", Hier, 500, confirme: true);
+
+        var apres = registre.Actuelle.Tentatives;
+        Assert.Equal(avant.Count + 1, apres.Count);
+        Assert.Equal(avant.Select(t => t.Detail), apres.Take(avant.Count).Select(t => t.Detail));
+    }
+
+    [Fact]
+    public async Task La_reconstitution_ne_touche_ni_l_etat_ni_l_identite()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Constatée au portail.");
+        var avant = registre.Actuelle;
+
+        await expediteur.AjouterAuJournalAsync(Piece, "POST antérieur", Hier, 500, confirme: true);
+        var apres = registre.Actuelle;
+
+        Assert.Equal(avant.Etat, apres.Etat);
+        Assert.Equal(avant.Identite, apres.Identite);
+        Assert.Equal(avant.Empreinte, apres.Empreinte);
+        Assert.Equal(avant.CertifieeLe, apres.CertifieeLe);
+        Assert.Equal(avant.ReferenceFne, apres.ReferenceFne);
+    }
+
+    [Fact]
+    public async Task Sans_confirmation_rien_n_est_ajoute()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var avant = registre.Actuelle.Tentatives.Count;
+
+        var resultat = await expediteur.AjouterAuJournalAsync(
+            Piece, "POST antérieur", Hier, 500, confirme: false);
+
+        Assert.False(resultat.Applique);
+        Assert.True(resultat.ConfirmationManque);
+        Assert.Equal(avant, registre.Actuelle.Tentatives.Count);
+    }
+
+    [Fact]
+    public async Task Un_evenement_sans_date_est_refuse()
+    {
+        // Sans date, il se rangerait au présent et fausserait la chronologie
+        // qu'il sert justement à rétablir.
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var avant = registre.Actuelle.Tentatives.Count;
+
+        var resultat = await expediteur.AjouterAuJournalAsync(
+            Piece, "POST antérieur", null, 500, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("--quand", resultat.Message);
+        Assert.Equal(avant, registre.Actuelle.Tentatives.Count);
+    }
+
+    [Fact]
+    public async Task Un_evenement_a_venir_est_refuse()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var avant = registre.Actuelle.Tentatives.Count;
+
+        var resultat = await expediteur.AjouterAuJournalAsync(
+            Piece, "POST", DateTimeOffset.Now.AddHours(1), null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Equal(avant, registre.Actuelle.Tentatives.Count);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Un_evenement_sans_texte_est_refuse(string? texte)
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        var resultat = await expediteur.AjouterAuJournalAsync(Piece, texte, Hier, null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("--ajouter", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_piece_sans_trace_n_a_pas_de_journal_a_completer()
+    {
+        var (expediteur, registre, _) = Monter();
+
+        var resultat = await expediteur.AjouterAuJournalAsync(
+            Piece, "POST antérieur", Hier, 500, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.True(registre.Vide);
+    }
+
+    [Fact]
+    public async Task Le_deroule_complet_de_la_1072_se_reconstitue()
+    {
+        // Point 5, sur une pièce dont les envois précèdent le journal : rien
+        // n'est déduit, tout est dicté, et tout est marqué.
+        var (expediteur, registre, client) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Deux factures au portail.");
+        var appels = client.Appels;
+
+        foreach (var (texte, quand, code) in new (string, DateTimeOffset, int?)[]
+                 {
+                     ("POST n° 1", Hier.AddMinutes(-6), null),
+                     ("HTTP 500 — issue inconnue", Hier.AddMinutes(-5), 500),
+                     ("Décision --non-certifiee, portail consulté trop tôt", Hier.AddMinutes(-1), null),
+                     ("POST n° 2", Hier, null),
+                     ("HTTP 500 — issue inconnue", Hier.AddSeconds(27), 500),
+                 })
+        {
+            var ajout = await expediteur.AjouterAuJournalAsync(Piece, texte, quand, code, confirme: true);
+            Assert.True(ajout.Applique);
+        }
+
+        var journal = registre.Actuelle;
+
+        Assert.Equal(appels, client.Appels);
+        Assert.Equal(EtatFne.Certified, journal.Etat);
+        Assert.Equal(5, journal.Tentatives.Count(t => t.EstReconstitue));
+
+        // Les cinq reconstitutions précèdent les faits observés du jour.
+        Assert.All(journal.Chronologie.Take(5), t => Assert.True(t.EstReconstitue));
+        Assert.DoesNotContain(journal.Chronologie.Skip(5), t => t.EstReconstitue);
+    }
+}
