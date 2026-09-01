@@ -759,8 +759,8 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
             "  fiche client, champ CT_Identifiant.");
         Console.WriteLine();
         Console.WriteLine(
-            $"  {"CT_Num",-16} {"Intitulé",-30} {"Fact.",5} {"Montant TTC",16} " +
-            $"{"Cumul %",8}  {"Dernière",10}  Contact");
+            $"  {"CT_Num",-16} {"Intitulé",-28} {"Fact.",5} {"Montant TTC",16} " +
+            $"{"Cumul %",8}  {"NIF",3}  {"Dernière",10}  Contact");
 
         var cumulNcc = 0m;
         var affiches = ligneDeCommande.Client is null ? 25 : campagne.Comptes.Count;
@@ -775,10 +775,11 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
             cumulNcc += compte.MontantTTC;
             Console.WriteLine(
                 $"  {Tronquer(compte.CtNum, 16),-16} " +
-                $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 30),-30} " +
+                $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 28),-28} " +
                 $"{compte.Factures,5} {Somme(compte.MontantTTC),16} " +
                 $"{(campagne.MontantSansNcc == 0 ? "—" : $"{cumulNcc / campagne.MontantSansNcc:P0}"),8}  " +
-                $"{compte.DerniereFacture,10:dd/MM/yyyy}  {Tronquer(compte.MoyenDeContact, 34)}");
+                $"{compte.TypeNif,3}  " +
+                $"{compte.DerniereFacture,10:dd/MM/yyyy}  {Tronquer(compte.MoyenDeContact, 28)}");
         }
 
         if (listeNcc.Count > affiches)
@@ -788,8 +789,49 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
 
         Console.WriteLine();
         Console.WriteLine(
-            $"  {campagne.ComptesPour(0.5m)} compte(s) suffisent à couvrir la moitié des factures " +
-            $"en attente,\n  {campagne.ComptesPour(0.8m)} pour en couvrir les quatre cinquièmes.");
+            $"  Par le montant : {campagne.ComptesPourMontant(0.5m)} compte(s) couvrent la moitié " +
+            $"des {Somme(campagne.MontantSansNcc)} en attente,\n" +
+            $"                   {campagne.ComptesPourMontant(0.8m)} en couvrent les quatre cinquièmes. " +
+            "Ce sont les lignes ci-dessus.");
+
+        // Deux classements, et souvent pas les mêmes comptes : quelques gros
+        // clients portent l'essentiel du montant, quelques comptes à volume
+        // portent l'essentiel des factures. Mais « souvent » n'est pas
+        // « toujours » — sur un petit périmètre les deux coïncident, et
+        // l'affirmer sans regarder serait dire une chose fausse avec aplomb.
+        var parNombre = campagne.ParNombre;
+        var tetePourNombre = campagne.ComptesPour(0.8m);
+        var memesComptes = parNombre
+            .Take(tetePourNombre)
+            .Select(compte => compte.CtNum)
+            .SequenceEqual(campagne.Comptes.Take(tetePourNombre).Select(compte => compte.CtNum),
+                StringComparer.OrdinalIgnoreCase);
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  Par le nombre  : {campagne.ComptesPour(0.5m)} compte(s) couvrent la moitié des " +
+            $"{Pluriel(campagne.FacturesSansNcc, "facture")},\n" +
+            $"                   {tetePourNombre} en couvrent les quatre cinquièmes. " +
+            (memesComptes
+                ? "Ce sont les mêmes comptes."
+                : "Ce ne sont pas les mêmes comptes."));
+
+        if (!memesComptes)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  {"CT_Num",-16} {"Intitulé",-28} {"Fact.",5} {"Cumul %",8}  Montant TTC");
+
+            var cumulNombre = 0;
+            foreach (var compte in parNombre.Take(8))
+            {
+                cumulNombre += compte.Factures;
+                Console.WriteLine(
+                    $"  {Tronquer(compte.CtNum, 16),-16} " +
+                    $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 28),-28} " +
+                    $"{compte.Factures,5} {Part(cumulNombre, campagne.FacturesSansNcc),8}  " +
+                    $"{Somme(compte.MontantTTC)}");
+            }
+        }
 
         var introuvables = campagne.Comptes.Count(compte => compte.FicheIntrouvable);
         var sansContact = campagne.Comptes.Count(compte => compte.MoyenDeContact == "— aucun —");
@@ -867,6 +909,27 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         }
     }
 
+    if (campagne.Ecarts.Count > 0)
+    {
+        Titre("Des NCC qui ne ressemblent pas aux autres du dossier");
+        Console.WriteLine(
+            "  Un écart n'est pas une faute : ce n'est pas à cette commande de dire\n" +
+            "  quelle forme un NCC doit avoir. C'est une comparaison avec ce que ce\n" +
+            "  dossier porte majoritairement — de quoi aller regarder la fiche.");
+        Console.WriteLine();
+        foreach (var ecart in campagne.Ecarts.Take(20))
+        {
+            Console.WriteLine(
+                $"  {Tronquer(ecart.CtNum, 16),-16} {Tronquer(ecart.Intitule, 24),-24} " +
+                $"{Tronquer(ecart.Ncc, 18),-18} {ecart.Observation}");
+        }
+
+        if (campagne.Ecarts.Count > 20)
+        {
+            Console.WriteLine($"  … et {campagne.Ecarts.Count - 20} autres.");
+        }
+    }
+
     if (campagne.Douteux.Count > 0)
     {
         Titre("Des valeurs présentes qui n'ont pas l'air d'un NCC");
@@ -891,7 +954,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
     {
         var csv = new StringBuilder();
         csv.AppendLine("CT_Num;Intitule;Factures;MontantTTC;PremiereFacture;DerniereFacture;" +
-                       "Ville;Telephone;Email;NCC_a_saisir");
+                       "Ville;Telephone;Email;CT_TypeNIF;NCC_a_saisir");
 
         static string Cellule(string valeur) =>
             valeur.Replace("\"", "\"\"").Replace(';', ',').Replace('\n', ' ').Replace('\r', ' ');
@@ -911,6 +974,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 Cellule(compte.Ville),
                 Cellule(compte.Telephone),
                 Cellule(compte.Email),
+                compte.TypeNif.ToString(CultureInfo.InvariantCulture),
                 ""));
         }
 

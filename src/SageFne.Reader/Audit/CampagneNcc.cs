@@ -29,6 +29,19 @@ public sealed record CompteSansNcc
     /// <summary>Vrai quand la fiche client elle-même est introuvable.</summary>
     public bool FicheIntrouvable { get; init; }
 
+    /// <summary>
+    /// <c>CT_TypeNIF</c>, tel quel. Sage le porte, et personne ne le lisait.
+    /// </summary>
+    /// <remarks>
+    /// Ce champ est censé distinguer les natures de tiers. S'il sépare
+    /// réellement les entreprises des particuliers dans ce dossier, il répond à
+    /// la question qui précède toute la campagne : un particulier n'a pas de
+    /// NCC à donner, et sa facture ne relève pas du gabarit B2B. Aucune
+    /// interprétation n'est faite ici : la valeur est montrée, à vous de dire
+    /// ce qu'elle vaut dans ce dossier.
+    /// </remarks>
+    public short TypeNif { get; init; }
+
     /// <summary>De quoi on dispose pour joindre ce client.</summary>
     public string MoyenDeContact => (Telephone, Email) switch
     {
@@ -68,6 +81,17 @@ public sealed record NccPartage(string Ncc, IReadOnlyList<string> Comptes, int F
 public sealed record NccDouteux(string CtNum, string Intitule, string Ncc, string Pourquoi);
 
 /// <summary>
+/// Un NCC qui ne ressemble pas aux autres du dossier.
+/// </summary>
+/// <remarks>
+/// Un écart n'est pas une faute : ce n'est pas au middleware de dire quelle
+/// forme un NCC doit avoir. C'est une comparaison entre ce qui est saisi ici et
+/// ce que ce même dossier porte majoritairement — de quoi aller regarder la
+/// fiche, rien de plus.
+/// </remarks>
+public sealed record NccEcart(string CtNum, string Intitule, string Ncc, string Observation);
+
+/// <summary>
 /// L'état de la campagne : ce qui manque, dans quel ordre le chercher, et ce
 /// que porte déjà le dossier.
 /// </summary>
@@ -85,28 +109,52 @@ public sealed record EtatCampagneNcc
     public IReadOnlyList<FormeNcc> Formes { get; init; } = [];
     public IReadOnlyList<NccPartage> Partages { get; init; } = [];
     public IReadOnlyList<NccDouteux> Douteux { get; init; } = [];
+    public IReadOnlyList<NccEcart> Ecarts { get; init; } = [];
+
+    /// <summary>La forme la plus portée du dossier, quand une se détache.</summary>
+    public FormeNcc? FormeDominante =>
+        Formes.Count > 0 && Formes[0].Comptes > 1 ? Formes[0] : null;
 
     public int FacturesCouvertes => Factures - FacturesSansNcc;
 
     /// <summary>
     /// Combien de comptes il faut renseigner pour couvrir cette part des
-    /// factures qui en manquent.
+    /// <b>factures</b> en attente.
     /// </summary>
     /// <remarks>
-    /// C'est le chiffre qui décide d'une campagne : savoir que cinq appels
-    /// valent mieux que soixante-quatorze change la manière de s'y prendre.
+    /// À ne pas confondre avec <see cref="ComptesPourMontant"/> : ce ne sont pas
+    /// les mêmes comptes. Trois comptes de ce dossier portent 563 factures pour
+    /// 137 millions ; cinq autres portent 71 factures pour un milliard. Annoncer
+    /// « trois comptes suffisent » sous un tableau classé par montant laisse
+    /// croire que ce sont les trois premières lignes. Ce n'en est aucune.
     /// </remarks>
-    public int ComptesPour(decimal part)
-    {
-        if (FacturesSansNcc == 0) return 0;
+    public int ComptesPour(decimal part) =>
+        Combien(part, FacturesSansNcc, compte => compte.Factures);
 
-        var vise = FacturesSansNcc * part;
+    /// <summary>
+    /// Combien de comptes il faut renseigner pour couvrir cette part du
+    /// <b>montant</b> en attente.
+    /// </summary>
+    public int ComptesPourMontant(decimal part) =>
+        Combien(part, MontantSansNcc, compte => compte.MontantTTC);
+
+    /// <summary>Les comptes qui débloquent le plus de factures, quel qu'en soit le montant.</summary>
+    public IReadOnlyList<CompteSansNcc> ParNombre =>
+        Comptes.OrderByDescending(compte => compte.Factures)
+               .ThenByDescending(compte => compte.MontantTTC)
+               .ToList();
+
+    private int Combien(decimal part, decimal total, Func<CompteSansNcc, decimal> mesure)
+    {
+        if (total <= 0) return 0;
+
+        var vise = total * part;
         decimal cumul = 0;
         var comptes = 0;
 
-        foreach (var compte in Comptes.OrderByDescending(compte => compte.Factures))
+        foreach (var compte in Comptes.OrderByDescending(mesure))
         {
-            cumul += compte.Factures;
+            cumul += mesure(compte);
             comptes++;
             if (cumul >= vise) break;
         }
@@ -176,6 +224,7 @@ public static class CampagneNcc
                     Email = fiche?.Email.Trim() ?? "",
                     Ville = fiche?.Ville.Trim() ?? "",
                     FicheIntrouvable = fiche is null,
+                    TypeNif = fiche?.TypeNif ?? 0,
                 };
             })
             // Le montant d'abord : c'est lui qui dit par quel appel commencer.
@@ -206,6 +255,7 @@ public static class CampagneNcc
             Formes = Formes(renseignes),
             Partages = Partages(facturesParCompte, renseignes),
             Douteux = Douteux(renseignes),
+            Ecarts = Ecarts(renseignes),
         };
     }
 
@@ -288,6 +338,52 @@ public static class CampagneNcc
         return douteux
             .OrderBy(entree => entree.CtNum, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// Ce qui s'écarte de la forme majoritaire du dossier.
+    /// </summary>
+    /// <remarks>
+    /// Deux observations seulement, et toutes deux relatives : une valeur qui
+    /// retrouve la forme majoritaire une fois les espaces ôtés — presque
+    /// toujours une frappe — et une forme que ce seul compte porte, quand
+    /// plusieurs en partagent une autre. Ni l'une ni l'autre ne dit « invalide » :
+    /// ce dossier n'a que huit NCC saisis, et huit valeurs ne font pas une règle.
+    /// </remarks>
+    private static List<NccEcart> Ecarts(IReadOnlyList<SageCustomer> renseignes)
+    {
+        var formes = Formes(renseignes);
+        if (formes.Count == 0) return [];
+
+        var dominante = formes[0];
+        if (dominante.Comptes < 2) return [];
+
+        var ecarts = new List<NccEcart>();
+
+        foreach (var client in renseignes)
+        {
+            var ncc = client.Identifiant.Trim();
+            var gabarit = Gabarit(ncc);
+            if (gabarit == dominante.Gabarit) continue;
+
+            var sansEspaces = Gabarit(ncc.Replace(" ", ""));
+            var porteurs = formes.First(forme => forme.Gabarit == gabarit).Comptes;
+
+            var observation =
+                sansEspaces == dominante.Gabarit
+                    ? $"un espace près : « {ncc.Replace(" ", "")} » aurait la forme majoritaire du dossier"
+                : porteurs == 1
+                    ? $"forme « {gabarit} » portée par ce seul compte, quand {dominante.Comptes} " +
+                      $"en partagent « {dominante.Gabarit} »"
+                : null;
+
+            if (observation is not null)
+            {
+                ecarts.Add(new NccEcart(client.CtNum, client.Intitule, ncc, observation));
+            }
+        }
+
+        return ecarts.OrderBy(ecart => ecart.CtNum, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>

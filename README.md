@@ -394,16 +394,33 @@ l'intitulé, le nombre de factures, le montant, le cumul en pourcentage, la date
 dernière facture — un client sans commande depuis deux ans se retrouve mal — et le moyen de
 le joindre tel que Sage le porte.
 
-Deux chiffres closent le tableau : combien de comptes suffisent à couvrir la moitié des
-factures en attente, et combien pour en couvrir les quatre cinquièmes. C'est ce qui décide
-de la manière de mener la campagne — quelques appels, ou toute une tournée.
+### Deux classements, et rarement les mêmes comptes
+
+La commande donne ensuite **deux** chiffres, et ils ne désignent pas les mêmes appels :
+
+- **Par le montant** : sur le dossier réel, 9 comptes portent les quatre cinquièmes du
+  1,84 milliard en attente. Ce sont les premières lignes du tableau.
+- **Par le nombre** : 3 comptes portent la moitié des 977 factures — et aucun des trois n'est
+  dans les cinq premiers par montant. Ce sont des comptes à volume : 223, 213 et 127 factures
+  de faible valeur chacune.
+
+Le second tableau ne s'affiche que lorsque les deux classements diffèrent réellement. Les
+confondre ferait commencer la campagne par les mauvais appels — c'est le défaut qu'a révélé
+la première exécution sur le dossier réel.
 
 Deux cas se signalent à part :
 
 - **Un compte facturé sans fiche dans `F_COMPTET`.** Ce n'est pas un NCC qui manque, c'est le
   client : on ne peut appeler personne.
 - **Un compte sans téléphone ni courriel.** Le NCC devra venir d'ailleurs — d'une facture
-  passée, ou du commercial qui suit le compte.
+  passée, ou du commercial qui suit le compte. Sur le dossier réel, **68 comptes sur 74** sont
+  dans ce cas : la campagne ne peut pas se mener au téléphone.
+
+La colonne `NIF` reprend `CT_TypeNIF` tel quel. Sage porte ce champ, et rien ne le lisait
+jusqu'ici. S'il distingue réellement les entreprises des particuliers dans votre dossier, il
+répond à la question qui précède toute la campagne — **un particulier n'a pas de NCC à
+donner**, et sa facture ne relève pas du gabarit B2B. La commande montre la valeur sans
+l'interpréter.
 
 ### La liste à confier
 
@@ -435,6 +452,13 @@ successives sans règle commune : à faire trancher avant d'en ajouter.
 deux comptes partiraient alors sous un seul contribuable — celui dont le numéro a été recopié,
 qui verrait apparaître chez lui des ventes qu'il n'a pas faites. C'est le défaut le plus
 coûteux que cette commande cherche.
+
+**Un NCC qui ne ressemble pas aux autres du dossier** est signalé à part, et l'écart n'est pas
+une faute : c'est une comparaison avec la forme majoritaire, pas avec un format décrété. Deux
+observations seulement — une valeur qui retrouve la forme majoritaire une fois les espaces
+ôtés (presque toujours une frappe : `2403386 B` pour `2403386B`), et une forme que ce seul
+compte porte quand plusieurs en partagent une autre. S'il n'y a pas de forme majoritaire,
+rien n'est comparé : quelques valeurs ne font pas une règle.
 
 **Une valeur qui n'a pas l'air d'un NCC** est signalée sur des faits, jamais sur un format :
 un numéro identique au compte Sage (le champ a servi à autre chose), un seul caractère répété,

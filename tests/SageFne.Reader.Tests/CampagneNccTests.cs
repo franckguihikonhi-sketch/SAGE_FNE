@@ -43,13 +43,14 @@ public class CampagneNccTests
 
     private static SageCustomer Client(
         string ctNum, string ncc = "", string intitule = "Client",
-        string telephone = "", string email = "") => new()
+        string telephone = "", string email = "", short typeNif = 0) => new()
     {
         CtNum = ctNum,
         Intitule = intitule,
         Identifiant = ncc,
         Telephone = telephone,
         Email = email,
+        TypeNif = typeNif,
     };
 
     private static EtatCampagneNcc Analyser(
@@ -314,6 +315,127 @@ public class CampagneNccTests
             Client("C1", "CI-2026-000123"), Client("C2", "P0512345X"));
 
         Assert.Empty(etat.Douteux);
+    }
+
+    // --- Les deux classements ne sont pas le même --------------------------
+
+    [Fact]
+    public void Le_classement_par_montant_et_par_nombre_designent_des_comptes_differents()
+    {
+        // Le cas du dossier réel, en petit : un compte porte le montant, un
+        // autre porte les factures. Annoncer « un compte suffit » sous un
+        // tableau classé par montant désignait la mauvaise ligne.
+        var entetes = new List<SageDocumentHeader> { Entete("G1", "GROS") };
+        var lignes = new List<SageDocumentLine> { Ligne("G1", 900_000m) };
+
+        for (var rang = 1; rang <= 9; rang++)
+        {
+            entetes.Add(Entete($"V{rang}", "VOLUME"));
+            lignes.Add(Ligne($"V{rang}", 1_000m));
+        }
+
+        var etat = Analyser(entetes, lignes, Client("GROS"), Client("VOLUME"));
+
+        Assert.Equal("GROS", etat.Comptes[0].CtNum);
+        Assert.Equal("VOLUME", etat.ParNombre[0].CtNum);
+
+        Assert.Equal(1, etat.ComptesPourMontant(0.5m));
+        Assert.Equal(1, etat.ComptesPour(0.5m));
+
+        // Et ce n'est pas le même compte derrière ces deux « 1 ».
+        Assert.NotEqual(etat.Comptes[0].CtNum, etat.ParNombre[0].CtNum);
+    }
+
+    // --- Ce qui s'écarte de la forme du dossier -----------------------------
+
+    /// <summary>Les huit NCC réellement saisis dans le dossier.</summary>
+    private static SageCustomer[] HuitNccReels() =>
+    [
+        Client("C1", "5011806N"), Client("C2", "1529193P"), Client("C3", "1010983N"),
+        Client("C4", "0803099K"),
+        Client("C5", "2403386 B", "Espace en trop"),
+        Client("C6", "1000221588", "Dix chiffres"),
+        Client("C7", "N° CI 000922575", "Libellé dans le champ"),
+        Client("C8", "163778S", "Un chiffre de moins"),
+    ];
+
+    private static EtatCampagneNcc HuitComptes()
+    {
+        var clients = HuitNccReels();
+        return Analyser(
+            clients.Select((client, rang) => Entete($"{rang}", client.CtNum)),
+            clients.Select((_, rang) => Ligne($"{rang}", 100m)),
+            clients);
+    }
+
+    [Fact]
+    public void Un_espace_en_trop_se_reconnait_comme_tel()
+    {
+        // « 2403386 B » n'est pas une autre forme : c'est la forme majoritaire
+        // avec une frappe de trop. Le dire évite de croire à deux conventions.
+        var ecart = Assert.Single(HuitComptes().Ecarts, entree => entree.CtNum == "C5");
+
+        Assert.Contains("espace", ecart.Observation);
+        Assert.Contains("2403386B", ecart.Observation);
+    }
+
+    [Fact]
+    public void Une_forme_isolee_se_compare_a_la_majoritaire()
+    {
+        var etat = HuitComptes();
+
+        Assert.Equal("9999999A", etat.FormeDominante?.Gabarit);
+
+        foreach (var compte in new[] { "C6", "C7", "C8" })
+        {
+            var ecart = Assert.Single(etat.Ecarts, entree => entree.CtNum == compte);
+            Assert.Contains("9999999A", ecart.Observation);
+        }
+    }
+
+    [Fact]
+    public void Les_ncc_de_la_forme_majoritaire_ne_sont_pas_signales()
+    {
+        var etat = HuitComptes();
+
+        Assert.DoesNotContain(etat.Ecarts, ecart => ecart.CtNum is "C1" or "C2" or "C3" or "C4");
+        Assert.Equal(4, etat.Ecarts.Count);
+    }
+
+    [Fact]
+    public void Sans_forme_majoritaire_rien_ne_se_compare()
+    {
+        // Trois NCC de trois formes : aucune ne fait référence, et prétendre le
+        // contraire signalerait les trois comme déviants de rien.
+        var etat = Analyser(
+            [Entete("1", "C1"), Entete("2", "C2"), Entete("3", "C3")],
+            [Ligne("1", 100m), Ligne("2", 100m), Ligne("3", 100m)],
+            Client("C1", "1432262S"), Client("C2", "1000221588"), Client("C3", "CI-2026-0001"));
+
+        Assert.Null(etat.FormeDominante);
+        Assert.Empty(etat.Ecarts);
+    }
+
+    [Fact]
+    public void Un_ecart_de_forme_n_est_pas_une_valeur_douteuse()
+    {
+        // Les deux listes ne disent pas la même chose. « N° CI 000922575 » est
+        // inhabituel dans ce dossier ; il n'est pas pour autant impossible.
+        var etat = HuitComptes();
+
+        Assert.NotEmpty(etat.Ecarts);
+        Assert.Empty(etat.Douteux);
+    }
+
+    [Fact]
+    public void Le_type_de_nif_est_repris_tel_quel()
+    {
+        // Sage le porte, personne ne le lisait. Aucune interprétation ici : la
+        // valeur passe, et c'est au dossier de dire ce qu'elle vaut.
+        var etat = Analyser(
+            [Entete("1", "C1")], [Ligne("1", 100m)], Client("C1", typeNif: 3));
+
+        Assert.Equal(3, Assert.Single(etat.Comptes).TypeNif);
     }
 
     [Fact]
