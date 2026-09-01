@@ -418,9 +418,126 @@ C'est cette lecture qui répond à la question posée, sans jamais la dépasser 
 article est panaché dit que le 0 % ne tient pas à l'article — cela ne dit toujours pas s'il
 relève de `TVAC` ou de `TVAD`.
 
-Le fondement juridique se déclare ensuite dans `Fne:ZeroVat`, par article, famille, client
-ou dossier. Tant qu'il manque, les pièces concernées restent bloquées par
-`ZERO_VAT_CATEGORY_UNKNOWN`, et c'est voulu.
+## Le code FNE n'est pas le fondement juridique
+
+`TVAC` et `TVAD` sont des **codes** : ce qui part chez la DGI. Ils ne disent pas *pourquoi*
+la ligne est exonérée. Le fondement est autre chose, et c'est lui qu'un contrôle demandera :
+
+| Fondement | Ce qu'il désigne |
+| --- | --- |
+| `RegimeAcheteur` | L'acheteur est déclaré **TEE** ou **RME**. Les deux ont le même fondement. |
+| `ExonerationLegaleProduit` | Le produit lui-même est exonéré par la loi. |
+| `Convention` | Une convention ou un agrément nommé. |
+| `AutreValide` | Autre fondement établi, décrit dans le motif. |
+
+Les deux se déclarent séparément parce qu'ils bougent séparément : la DGI peut préciser sa
+nomenclature de codes sans que le droit change, et un acheteur peut perdre son agrément sans
+que le code bouge. Confondus dans une seule colonne, on ne peut corriger l'un sans réécrire
+l'autre.
+
+**`TVAD` dépend du régime fiscal de l'acheteur, pas de la nature du produit.** Ce régime se
+déclare compte par compte, sur pièce. Il ne se déduit **jamais** de l'historique des
+factures : une suite de ventes à 0 % ne prouve pas un régime, elle peut être une erreur de
+saisie répétée depuis deux ans.
+
+### Le registre des règles
+
+Une facture certifiée l'est pour toujours. La question « sur quel fondement cette
+facture-là a-t-elle été exonérée » se posera donc longtemps après que la règle aura changé.
+`appsettings.json` ne sait pas y répondre : il dit quel code envoyer, pas qui l'a autorisé
+ni sur quel document.
+
+Les règles vivent donc dans un registre **versionné et en ajout seul**, à côté du registre
+des certifications :
+
+```
+%APPDATA%\SageFne\regles-tva-zero.json
+```
+
+Modifier une règle y ajoute une version ; la révoquer aussi. La version sous laquelle des
+factures sont parties reste lisible telle qu'elle était.
+
+```powershell
+dotnet run --project src\SageFne.Reader -- zero-vat-regle afficher
+dotnet run --project src\SageFne.Reader -- zero-vat-regle verifier
+```
+
+`afficher` liste les règles courantes avec leur état et leur preuve. `verifier` signale ce
+qui reste à traiter — brouillons, règles expirées, déclarations d'`appsettings.json` encore
+non promues — et sort en code 1 tant qu'il en reste.
+
+### Écrire une règle
+
+```powershell
+dotnet run --project src\SageFne.Reader -- zero-vat-regle article 25SN001 `
+  --code Tvac --fondement Convention `
+  --valide-par "Franck" --reference "Convention DGI n° 42 du 12/03/2026" --confirmer
+```
+
+Pour un acheteur au régime TEE ou RME, la règle porte le compte **et** le régime :
+
+```powershell
+dotnet run --project src\SageFne.Reader -- zero-vat-regle client 4111SOGEL `
+  --regime TEE --code Tvad `
+  --valide-par "Franck" --reference "Attestation TEE du 05/01/2026" --confirmer
+```
+
+Les portées, de la plus prioritaire à la plus générale : `regime_acheteur`, `article`,
+`famille`, `client`, `dossier`. Le régime de l'acheteur passe devant tout le reste — c'est
+une qualité de la personne, pas du produit qu'on lui vend.
+
+Une règle qui ne s'applique pas **bloque** au lieu de laisser la main à la suivante. Sans
+cela, une règle expirée ferait discrètement repasser la ligne sous une règle plus générale,
+et la facture partirait sous un code que personne n'a arrêté pour ce cas-là.
+
+Options complémentaires : `--valide-du` et `--valide-au` pour les bornes d'un agrément,
+`--empreinte` pour l'empreinte d'un justificatif conservé en fichier, `--motif` pour le
+commentaire, `--brouillon` pour écrire sans valider.
+
+### Ce que la commande refuse
+
+Une règle **validée porte sa preuve**. Sans `--valide-par` et sans `--reference` (ou
+`--empreinte`), la validation est refusée : « validée » ne doit pas vouloir dire seulement
+« écrite ». Sans `--brouillon` ni preuve, rien n'est écrit.
+
+Une règle en brouillon **ne produit aucun code** : les lignes concernées restent bloquées.
+C'est l'état par défaut, et le seul qui n'affirme rien.
+
+### Révoquer
+
+```powershell
+dotnet run --project src\SageFne.Reader -- zero-vat-regle revoquer article-25sn001 `
+  --motif "Convention échue au 31/12/2026, non renouvelée." --confirmer
+```
+
+La révocation est une version de plus, jamais un effacement. Les factures déjà certifiées
+sous la version précédente ne changent pas.
+
+### Les déclarations héritées d'`appsettings.json`
+
+`Fne:ZeroVat` est toujours lu, mais il ne certifie plus rien par lui-même. Une valeur qui
+s'y trouve sans règle validée correspondante est signalée comme **non promue**, avec la
+commande exacte qui la promouvrait. Tant qu'elle ne l'est pas, la pièce reste bloquée par
+`ZERO_VAT_CATEGORY_UNKNOWN` — le paramétrage disait quel code envoyer, il ne disait pas qui
+l'avait autorisé.
+
+### Côté Supabase
+
+`regles_tva_zero` porte la même chose en base, avec les mêmes garde-fous : versions qui se
+suivent, déclencheur refusant `update` et `delete`, contrainte exigeant code, fondement,
+validateur et preuve pour l'état `validee`. `regles_tva_zero_courantes` donne la dernière
+version de chaque règle ; `regles_tva_zero_a_relire` signale les brouillons, les règles
+expirées et les fondements de régime qui ne portent pas `TVAD` — **elle signale, elle ne
+corrige pas**.
+
+`certification_regles_appliquees` relie chaque ligne certifiée à la **version exacte** de la
+règle qui l'a classée. Sans elle, la justification d'une facture ne survit pas au prochain
+changement de règle.
+
+Les lignes de l'ancienne table sont reprises **en brouillon** : leur colonne `regime` mêlait
+le code et le fondement, et personne n'a validé la traduction de l'un vers l'autre. Les
+promouvoir d'office aurait inventé exactement la validation que cette table existe pour
+exiger.
 
 ## L'envoi à la certification
 
@@ -1023,13 +1140,23 @@ SageFne.sln
 │   │                                    DemoSageInvoiceRepository, InvoiceQuery,
 │   │                                    CritereSql, ReadOnlyGuard, ColonnesTable
 │   ├── Mapping/                         IFneInvoiceMapper, FneInvoiceMapper,
-│   │                                    TaxMapping, RemiseMapping,
-│   │                                    RegimeTvaZero, IZeroVatPolicy,
-│   │                                    ConfiguredZeroVatPolicy, TaxCatalogue
+│   │                                    TaxMapping, RemiseMapping, TaxCatalogue,
+│   │                                    CodeTvaZero, FondementExoneration,
+│   │                                    IZeroVatPolicy, ConfiguredZeroVatPolicy
+│   ├── Regles/                          RegleZeroVat, RegistreRegles,
+│   │                                    RegistreZeroVatPolicy — le registre
+│   │                                    versionné des règles de TVA 0 %
+│   ├── Audit/                           AuditTvaZero, ArticleAZero,
+│   │                                    RegroupementAZero, DetailArticle
 │   └── Validation/                      InvoiceValidator, FinancialChecks,
 │                                        FneCompleteness, CheckReport
+├── supabase/migrations/                 schéma, règles métier, RLS, vues,
+│                                        journal des tentatives, règles versionnées
+├── supabase/tests/                      invariants.sql — 78 vérifications sur
+│                                        PostgreSQL réel
 └── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,
-                                        ligne de commande, garde-fou SQL
+                                        ligne de commande, garde-fou SQL,
+                                        registre des règles
 ```
 
 ## Prochaines étapes, pas encore faites

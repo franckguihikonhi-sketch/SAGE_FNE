@@ -14,6 +14,7 @@ using SageFne.Reader.Configuration;
 using SageFne.Reader.Data;
 using SageFne.Reader.Fne;
 using SageFne.Reader.Mapping;
+using SageFne.Reader.Regles;
 using SageFne.Reader.Models.Fne;
 using SageFne.Reader.Models.Sage;
 using SageFne.Reader.Validation;
@@ -393,6 +394,307 @@ if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
     Console.WriteLine("Aucune API n'a été contactée, rien n'a été écrit.");
 
     return fichier.Existe ? 0 : 1;
+}
+
+// Les règles de classification des TVA à 0 %. Aucune API, aucune écriture Sage :
+// ces commandes ne touchent que le registre des règles du middleware.
+if (ligneDeCommande.Verbe == Verbe.ZeroVatRegle)
+{
+    var registreRegles = hote.Services.GetRequiredService<RegistreRegles>();
+    var sujets = ligneDeCommande.Query.Pieces;
+    var action = sujets.Count > 0 ? sujets[0].ToLowerInvariant() : "afficher";
+
+    IReadOnlyList<RegleZeroVat> toutes;
+    try
+    {
+        toutes = await registreRegles.ToutAsync();
+    }
+    catch (RegistreReglesIllisibleException erreur)
+    {
+        Console.Error.WriteLine(erreur.Message);
+        return 1;
+    }
+
+    var courantes = toutes
+        .GroupBy(regle => regle.Identite, StringComparer.OrdinalIgnoreCase)
+        .Select(groupe => groupe.OrderByDescending(regle => regle.Version).First())
+        .OrderBy(regle => regle.Portee).ThenBy(regle => regle.Cle)
+        .ToList();
+
+    if (action is "afficher")
+    {
+        Titre("Règles de TVA à 0 %");
+        Console.WriteLine($"  Registre : {registreRegles.Chemin}");
+
+        if (courantes.Count == 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  Aucune règle. Toute ligne à 0 % reste bloquée, et c'est voulu :");
+            Console.WriteLine("  le code FNE d'une exonération ne se devine pas.");
+            return 0;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  {"Portée",-16} {"Clé",-14} {"Code",-8} {"État",-11} {"Fondement",-28} Preuve");
+        foreach (var regle in courantes)
+        {
+            Console.WriteLine(
+                $"  {regle.Portee,-16} {Tronquer(regle.Cle == "" ? "—" : regle.Cle, 14),-14} " +
+                $"{regle.Code.Libelle(),-8} {regle.Etat,-11} " +
+                $"{Tronquer(regle.Fondement.Libelle(), 28),-28} " +
+                $"{(regle.Reference == "" ? "— aucune —" : Tronquer(regle.Reference, 30))}");
+            Console.WriteLine($"      {regle.Reperage}" +
+                $"{(regle.ValideePar == "" ? "" : $", validée par {regle.ValideePar}")}" +
+                $"{(regle.ValideeLe is { } quand ? $" le {quand:dd/MM/yyyy}" : "")}" +
+                $"{(regle.Motif == "" ? "" : $" — {regle.Motif}")}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"  {toutes.Count} version(s) au total, {courantes.Count} règle(s) courante(s).");
+        Console.WriteLine("  Le registre est en ajout seul : une modification crée une version.");
+        return 0;
+    }
+
+    if (action is "verifier")
+    {
+        Titre("Vérification des règles de TVA à 0 %");
+        var maintenant = DateTimeOffset.Now;
+        var soucis = new List<string>();
+
+        foreach (var regle in courantes)
+        {
+            if (regle.Empechement(maintenant) is { } pourquoi)
+            {
+                soucis.Add($"{regle.Portee} {regle.Cle} ({regle.Reperage}) : {pourquoi}.");
+            }
+            else if (regle.Reference == "")
+            {
+                soucis.Add(
+                    $"{regle.Portee} {regle.Cle} ({regle.Reperage}) : validée sans référence. " +
+                    "Rien ne dira sur quel document elle repose.");
+            }
+        }
+
+        // Le piège que deux dictionnaires indexés par CT_Num tendent à coup sûr.
+        var doubles = courantes
+            .Where(regle => regle.Portee is PorteeRegle.RegimeAcheteur)
+            .Select(regle => regle.Cle)
+            .Intersect(
+                courantes.Where(regle => regle.Portee is PorteeRegle.Client).Select(regle => regle.Cle),
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var compte in doubles)
+        {
+            soucis.Add(
+                $"le compte {compte} porte à la fois un régime d'acheteur et une règle de client. " +
+                "Le régime l'emporte ; la seconde ne servira jamais.");
+        }
+
+        var reglages = hote.Services.GetRequiredService<IOptions<FneOptions>>().Value.ZeroVat;
+        var heritees =
+            reglages.CustomerTaxRegimes.Count + reglages.ByArticle.Count +
+            reglages.ByFamily.Count + reglages.ByCustomer.Count +
+            (reglages.Default is "Unknown" or "" ? 0 : 1);
+
+        if (heritees > 0)
+        {
+            soucis.Add(
+                $"{heritees} déclaration(s) subsistent dans le paramétrage (Fne:ZeroVat). Elles ne " +
+                "certifient rien : promouvez-les en règles validées, ou retirez-les.");
+        }
+
+        Console.WriteLine();
+        if (soucis.Count == 0)
+        {
+            Console.WriteLine($"  {courantes.Count} règle(s), rien à signaler.");
+            return 0;
+        }
+
+        foreach (var souci in soucis) Console.WriteLine($"  [à traiter] {souci}");
+        Console.WriteLine();
+        Console.WriteLine($"  {soucis.Count} point(s) à traiter.");
+        return 1;
+    }
+
+    // --- Écriture ------------------------------------------------------------
+
+    var portee = action switch
+    {
+        "article" => PorteeRegle.Article,
+        "famille" => PorteeRegle.Famille,
+        "client" => ligneDeCommande.Regime is null ? PorteeRegle.Client : PorteeRegle.RegimeAcheteur,
+        "dossier" => PorteeRegle.Dossier,
+        "revoquer" => PorteeRegle.Dossier,
+        _ => (PorteeRegle?)null,
+    };
+
+    if (portee is null)
+    {
+        Console.Error.WriteLine(
+            $"Action inconnue : « {action} ». Attendu : afficher, verifier, article, famille, " +
+            "client, dossier, revoquer.");
+        return 2;
+    }
+
+    var cleRegle = portee is PorteeRegle.Dossier ? "" : sujets.Count > 1 ? sujets[1] : "";
+    if (portee is not PorteeRegle.Dossier && cleRegle == "" && action is not "revoquer")
+    {
+        Console.Error.WriteLine($"« zero-vat-regle {action} » attend une clé, par exemple : {action} 25SN001");
+        return 2;
+    }
+
+    if (action is "revoquer")
+    {
+        var id = sujets.Count > 1 ? sujets[1] : "";
+        var cible = courantes.FirstOrDefault(regle =>
+            string.Equals(regle.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        if (cible is null)
+        {
+            Console.Error.WriteLine($"Aucune règle courante d'identifiant « {id} ».");
+            return 1;
+        }
+
+        if (string.IsNullOrWhiteSpace(ligneDeCommande.Motif))
+        {
+            Console.Error.WriteLine("Révoquer une règle demande un motif : --motif \"…\".");
+            return 2;
+        }
+
+        Titre($"Révocation — {cible.Portee} {cible.Cle}");
+        Console.WriteLine($"  Règle    {cible.Reperage}, code {cible.Code.Libelle()}, état {cible.Etat}");
+        Console.WriteLine($"  Motif    {ligneDeCommande.Motif}");
+
+        if (!ligneDeCommande.Confirme)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  Rien n'a été écrit : ajoutez --confirmer.");
+            Console.WriteLine("  Les factures déjà certifiées sous cette règle ne changent pas.");
+            return 1;
+        }
+
+        var revoquee = await registreRegles.AjouterAsync(cible with
+        {
+            Etat = EtatRegle.Revoquee,
+            Note = ligneDeCommande.Motif!.Trim(),
+        });
+
+        Console.WriteLine();
+        Console.WriteLine($"  Révoquée : {revoquee.Reperage}. Les versions précédentes restent au registre.");
+        return 0;
+    }
+
+    var codeDemande = ConfiguredZeroVatPolicy.Analyser(ligneDeCommande.Code);
+    if (ligneDeCommande.Code is not null && codeDemande is null)
+    {
+        Console.Error.WriteLine(
+            $"--code vaut « {ligneDeCommande.Code} », qui n'est pas un code reconnu. " +
+            "Attendu : Tvac, Tvad ou Unknown.");
+        return 2;
+    }
+
+    if (portee is PorteeRegle.RegimeAcheteur
+        && ConfiguredZeroVatPolicy.AnalyserRegimeAcheteur(ligneDeCommande.Regime) is null)
+    {
+        Console.Error.WriteLine($"--regime vaut « {ligneDeCommande.Regime} ». Attendu : TEE ou RME.");
+        return 2;
+    }
+
+    if (!Enum.TryParse<FondementExoneration>(ligneDeCommande.Fondement, ignoreCase: true, out var fondementDemande))
+    {
+        fondementDemande = portee is PorteeRegle.RegimeAcheteur
+            ? FondementExoneration.RegimeAcheteur
+            : FondementExoneration.NonEtabli;
+    }
+
+    var valider = !ligneDeCommande.Brouillon;
+
+    if (valider && string.IsNullOrWhiteSpace(ligneDeCommande.ValidePar))
+    {
+        Console.Error.WriteLine(
+            "Une règle validée dit qui l'a validée : --valide-par \"…\". " +
+            "Sans cela, écrivez-la en --brouillon : elle ne produira aucun code.");
+        return 2;
+    }
+
+    if (valider && string.IsNullOrWhiteSpace(ligneDeCommande.Reference))
+    {
+        Console.Error.WriteLine(
+            "Une règle validée porte sa preuve : --reference \"…\" — réponse DGI, attestation, " +
+            "numéro de convention. C'est ce qui répondra au contrôle dans six mois.");
+        return 2;
+    }
+
+    var identiteRegle = $"{portee}/{cleRegle}".ToUpperInvariant();
+    var precedente = courantes.FirstOrDefault(regle =>
+        string.Equals(regle.Identite, identiteRegle, StringComparison.OrdinalIgnoreCase));
+
+    var nouvelle = new RegleZeroVat
+    {
+        // Même forme que le regle_id de Supabase, pour que les deux registres se
+        // recoupent sans table de correspondance.
+        Id = precedente?.Id ?? portee.Value.ToString().ToLowerInvariant()
+             + (cleRegle == "" ? "" : $"-{cleRegle.ToLowerInvariant()}"),
+        Portee = portee.Value,
+        Cle = cleRegle,
+        Code = codeDemande ?? precedente?.Code ?? CodeTvaZero.Inconnu,
+        Fondement = fondementDemande,
+        // Le régime ne se porte que sur la portée qui le concerne : ailleurs, il
+        // décrirait un acheteur que la règle ne vise pas.
+        Regime = portee is PorteeRegle.RegimeAcheteur
+            ? ligneDeCommande.Regime?.Trim().ToUpperInvariant() ?? ""
+            : "",
+        Etat = valider ? EtatRegle.Validee : EtatRegle.Brouillon,
+        ValideePar = ligneDeCommande.ValidePar?.Trim() ?? "",
+        ValideeLe = valider ? ligneDeCommande.ValideeLe ?? DateTimeOffset.Now : null,
+        Reference = ligneDeCommande.Reference?.Trim() ?? "",
+        EmpreinteJustificatif = ligneDeCommande.Empreinte?.Trim() ?? "",
+        Motif = ligneDeCommande.Motif?.Trim() ?? "",
+        ValideDu = ligneDeCommande.ValideDu,
+        ValideAu = ligneDeCommande.ValideAu,
+        Note = precedente is null ? "création" : $"remplace la version {precedente.Version}",
+    };
+
+    Titre($"Règle — {Nommer(portee.Value, cleRegle)}");
+    Console.WriteLine($"  Code FNE     {nouvelle.Code.Libelle()}");
+    Console.WriteLine($"  Fondement    {nouvelle.Fondement.Libelle()}");
+    if (nouvelle.Regime != "") Console.WriteLine($"  Régime       {nouvelle.Regime}");
+    Console.WriteLine($"  État         {nouvelle.Etat}");
+    Console.WriteLine($"  Validée par  {(nouvelle.ValideePar == "" ? "—" : nouvelle.ValideePar)}");
+    Console.WriteLine($"  Preuve       {(nouvelle.Reference == "" ? "—" : nouvelle.Reference)}");
+    if (nouvelle.ValideDu is { } d) Console.WriteLine($"  À partir du  {d:dd/MM/yyyy}");
+    if (nouvelle.ValideAu is { } f) Console.WriteLine($"  Jusqu'au     {f:dd/MM/yyyy}");
+    if (precedente is not null)
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  Remplace {precedente.Reperage} (code {precedente.Code.Libelle()}, état {precedente.Etat}).");
+        Console.WriteLine("  Cette version-là reste au registre : des factures en dépendent peut-être.");
+    }
+
+    if (!ligneDeCommande.Confirme)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Rien n'a été écrit : ajoutez --confirmer.");
+        return 1;
+    }
+
+    var inscrite = await registreRegles.AjouterAsync(nouvelle);
+    Console.WriteLine();
+    Console.WriteLine($"  Inscrite : {inscrite.Reperage}.");
+    Console.WriteLine($"  Vérifiez : dotnet run --project src\\SageFne.Reader -- zero-vat-regle verifier");
+    return 0;
+
+    static string Nommer(PorteeRegle portee, string cle) => portee switch
+    {
+        PorteeRegle.RegimeAcheteur => $"régime acheteur du client {cle}",
+        PorteeRegle.Article => $"article {cle}",
+        PorteeRegle.Famille => $"famille {cle}",
+        PorteeRegle.Client => $"client {cle}",
+        _ => "dossier",
+    };
 }
 
 // Inventaire des ventes à 0 % de TVA. Uniquement des SELECT, et surtout :
@@ -1608,7 +1910,7 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
     Console.WriteLine($"  CT_EMail        {Renseigne(piece.Customer?.Email)}");
 
     // Mêmes règles que le lot, pour que le relevé montre ce qui partirait.
-    var politique = new ConfiguredZeroVatPolicy(reglages.ZeroVat);
+    var politique = hote.Services.GetRequiredService<IZeroVatPolicy>();
     var catalogueDuReleve = new TaxCatalogue(await depot.GetTaxesAsync(), reglages.CustomTaxes);
     var famillesDuReleve = await depot.GetArticleFamiliesAsync(
         piece.Lines.Select(ligne => ligne.ArticleReference).Distinct().ToList());
@@ -1669,10 +1971,11 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
         Console.WriteLine();
         Console.WriteLine("""
               Ordre consulté : régime de l'acheteur, puis article, famille, client, dossier.
-              Se déclare dans appsettings.json, section Fne:ZeroVat.
+              Les règles vivent au registre — « zero-vat-regle afficher » les montre.
 
               Le code FNE est ce qui part dans items[].taxes. Le fondement dit pourquoi, et
-              ne s'en déduit pas : seul le régime déclaré de l'acheteur l'établit aujourd'hui.
+              ne s'en déduit pas. Une règle ne produit son code qu'une fois validée sur une
+              preuve : en brouillon, elle bloque, et c'est ce qu'on attend d'elle.
               """);
     }
 

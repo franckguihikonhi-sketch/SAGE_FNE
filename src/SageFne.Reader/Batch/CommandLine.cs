@@ -91,6 +91,11 @@ public enum Verbe
     /// Inventorier les ventes à 0 % de TVA, sans rien en conclure.
     /// </summary>
     AuditTvaZero,
+
+    /// <summary>
+    /// Consulter et écrire les règles de classification des TVA à 0 %.
+    /// </summary>
+    ZeroVatRegle,
 }
 
 /// <summary>
@@ -179,6 +184,28 @@ public sealed record CommandLine
 
     /// <summary>Vrai quand l'affichage de l'audit est restreint.</summary>
     public bool AuditFiltre => Article is not null || Famille is not null || Client is not null;
+
+    /// <summary>Code FNE d'une règle : <c>Tvac</c>, <c>Tvad</c> ou <c>Unknown</c>.</summary>
+    public string? Code { get; init; }
+
+    /// <summary>Régime déclaré de l'acheteur : <c>TEE</c> ou <c>RME</c>.</summary>
+    public string? Regime { get; init; }
+
+    /// <summary>Fondement juridique de la règle.</summary>
+    public string? Fondement { get; init; }
+
+    /// <summary>Qui a validé la règle.</summary>
+    public string? ValidePar { get; init; }
+
+    /// <summary>Empreinte du justificatif conservé.</summary>
+    public string? Empreinte { get; init; }
+
+    public DateTimeOffset? ValideeLe { get; init; }
+    public DateTimeOffset? ValideDu { get; init; }
+    public DateTimeOffset? ValideAu { get; init; }
+
+    /// <summary>Écrire la règle en brouillon plutôt que validée.</summary>
+    public bool Brouillon { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -203,6 +230,15 @@ public sealed record CommandLine
         string? article = null;
         string? famille = null;
         string? client = null;
+        string? code = null;
+        string? regime = null;
+        string? fondement = null;
+        string? validePar = null;
+        string? empreinte = null;
+        DateTimeOffset? valideeLe = null;
+        DateTimeOffset? valideDu = null;
+        DateTimeOffset? valideAu = null;
+        var brouillon = false;
         DateTimeOffset? quand = null;
         int? codeHttp = null;
         var nonCertifiee = false;
@@ -284,6 +320,45 @@ public sealed record CommandLine
                     break;
                 case "journal":
                     verbe = Verbe.Journal;
+                    break;
+                case "zero-vat-regle":
+                case "regle-tva-zero":
+                    verbe = Verbe.ZeroVatRegle;
+                    break;
+                case "--code":
+                    code = Valeur() ?? "";
+                    if (code is "") erreurs.Add("--code attend Tvac, Tvad ou Unknown.");
+                    break;
+                case "--regime":
+                    regime = Valeur() ?? "";
+                    if (regime is "") erreurs.Add("--regime attend TEE ou RME.");
+                    break;
+                case "--fondement":
+                    fondement = Valeur() ?? "";
+                    if (fondement is "") erreurs.Add("--fondement attend un fondement juridique.");
+                    break;
+                case "--valide-par":
+                    validePar = Valeur() ?? "";
+                    if (validePar is "") erreurs.Add("--valide-par attend qui a validé la règle.");
+                    break;
+                case "--valide-le":
+                    if (DateTimeOffset.TryParse(Valeur(), out var le)) valideeLe = le;
+                    else erreurs.Add("--valide-le attend une date, par exemple 2026-09-01.");
+                    break;
+                case "--empreinte":
+                    empreinte = Valeur() ?? "";
+                    if (empreinte is "") erreurs.Add("--empreinte attend l'empreinte du justificatif.");
+                    break;
+                case "--valide-du":
+                    if (DateTimeOffset.TryParse(Valeur(), out var du)) valideDu = du;
+                    else erreurs.Add("--valide-du attend une date.");
+                    break;
+                case "--valide-au":
+                    if (DateTimeOffset.TryParse(Valeur(), out var au)) valideAu = au;
+                    else erreurs.Add("--valide-au attend une date.");
+                    break;
+                case "--brouillon":
+                    brouillon = true;
                     break;
                 case "audit-tva-zero":
                 case "audit-tva-0":
@@ -388,6 +463,15 @@ public sealed record CommandLine
             ReferenceActuelle = referenceActuelle,
             Evenement = evenement,
             Article = article,
+            Code = code,
+            Regime = regime,
+            Fondement = fondement,
+            ValidePar = validePar,
+            Empreinte = empreinte,
+            ValideeLe = valideeLe,
+            ValideDu = valideDu,
+            ValideAu = valideAu,
+            Brouillon = brouillon,
             Famille = famille,
             Client = client,
             Quand = quand,
@@ -423,6 +507,8 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes
           dotnet run --project src/SageFne.Reader -- audit-tva-zero      inventaire des ventes à 0 % de TVA
           dotnet run --project src/SageFne.Reader -- audit-tva-zero --article 25SN001
+          dotnet run --project src/SageFne.Reader -- zero-vat-regle afficher
+          dotnet run --project src/SageFne.Reader -- zero-vat-regle verifier
           dotnet run --project src/SageFne.Reader -- fne-check           vérifie l'accès FNE, sans rien appeler
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
@@ -453,6 +539,23 @@ public sealed record CommandLine
           --sans-reference    le portail n'en publie aucune — exige --motif
           --token JETON       jeton du QR code, s'il figure sur le PDF
           --motif "…"         pourquoi, conservé au registre
+
+        Règles de TVA à 0 % — « zero-vat-regle » suivi de :
+          afficher              les règles du registre, leur état et leur preuve
+          verifier              ce qui bloquerait une certification
+          article REF           déclarer une règle d'article
+          famille CODE          déclarer une règle de famille
+          client COMPTE         déclarer un régime d'acheteur, ou une règle de client
+          dossier               déclarer la règle du dossier
+          revoquer ID           retirer une règle sans effacer son histoire
+        avec :
+          --code Tvac|Tvad|Unknown    le code FNE envoyé — jamais un fondement
+          --regime TEE|RME            pour un régime d'acheteur
+          --fondement …               RegimeAcheteur, ExonerationLegaleProduit, Convention, AutreValide
+          --valide-par "…"            qui a validé, obligatoire hors brouillon
+          --reference "…"             la preuve : réponse DGI, attestation, convention
+          --valide-le, --valide-du, --valide-au, --empreinte, --motif
+          --brouillon                 écrire sans valider : la règle ne produira aucun code
 
         Restreindre l'affichage de l'audit — l'analyse, elle, reste entière :
           --article REF     une référence d'article ; ajoute le relevé de toutes ses ventes

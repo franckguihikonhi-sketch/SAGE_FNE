@@ -13,10 +13,14 @@ namespace SageFne.Reader.Mapping;
 /// Ce qui manque encore dans Sage — le mode de règlement, le point de vente,
 /// l'établissement — vient du paramétrage plutôt que d'être deviné.
 /// </remarks>
-public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoiceMapper
+public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolicy? regimes = null) : IFneInvoiceMapper
 {
     private readonly FneOptions _options = options.Value;
-    private readonly IZeroVatPolicy _regimes = new ConfiguredZeroVatPolicy(options.Value.ZeroVat);
+    /// <remarks>
+    /// Injectée quand le registre des règles la fournit ; sinon, la politique
+    /// adossée au seul paramétrage, qui suffit aux tests et au jeu d'essai.
+    /// </remarks>
+    private readonly IZeroVatPolicy _regimes = regimes ?? new ConfiguredZeroVatPolicy(options.Value.ZeroVat);
 
     /// <param name="famillesParArticle">
     /// FA_CodeFamille par AR_Ref, quand la classification par famille doit
@@ -58,6 +62,17 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
             if (decision.Avertissement is not null)
             {
                 report?.Avertir("ZERO_VAT_VALEUR_HERITEE", $"ligne {ligne.Ligne} : {decision.Avertissement}");
+            }
+
+            // Quelle règle a décidé, pour que la facture certifiée puisse le
+            // dire. Sans cela, modifier une règle rendrait indéchiffrables les
+            // factures parties sous la précédente.
+            if (taxes.Taxes.Contains("TVAC") || taxes.Taxes.Contains("TVAD"))
+            {
+                report?.Avertir(
+                    "ZERO_VAT_REGLE",
+                    $"ligne {ligne.Ligne} : {decision.Code.Libelle()} par « {decision.Origine} » " +
+                    $"— fondement {decision.Fondement.Libelle()}.");
             }
 
             foreach (var prelevement in taxes.PrelevementsSansMapping)

@@ -7,9 +7,12 @@ namespace SageFne.Reader.Mapping;
 public readonly record struct ZeroVatContexte(string ArticleReference, string Famille, string CtNum);
 
 /// <summary>
-/// Le régime retenu, et par quelle règle.
+/// Le code retenu, son fondement, et par quelle règle.
 /// </summary>
-/// <param name="Regime">Le régime, ou <see cref="RegimeTvaZero.Inconnu"/>.</param>
+/// <param name="Code">
+/// Le code FNE, ou <see cref="CodeTvaZero.Inconnu"/> quand rien n'est établi.
+/// Un code ne dit pas pourquoi : voir <paramref name="Fondement"/>.
+/// </param>
 /// <param name="Origine">
 /// La règle qui a décidé, en clair — « article 13415001 », « famille 02 »,
 /// « dossier ». Sert au diagnostic : sans elle, on ne saurait pas pourquoi une

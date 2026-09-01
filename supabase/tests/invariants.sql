@@ -97,18 +97,159 @@ select case when message like 'Portail DGI%' then 'OK     le motif est tracé'
  order by id desc limit 1;
 
 \echo '--- Règles de TVA 0 % ---'
-insert into regles_tva_zero (dossier_id, portee, cle, regime)
-values ('22222222-2222-2222-2222-222222222222', 'dossier', '', 'legal_exemption_tee_rme');
+-- Une règle naît en brouillon, et un brouillon ne produit rien.
+insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle)
+values ('22222222-2222-2222-2222-222222222222', 'article-13415001', 1, 'article', '13415001');
+
+select case when not regle_applicable(r.etat, r.code, r.valide_du, r.valide_au, now()) then 'OK     un brouillon ne produit aucun code'
+            else 'ÉCHEC — un brouillon a été jugé applicable' end
+  from regles_tva_zero r
+ where r.regle_id = 'article-13415001' and r.version = 1;
 
 select attendre_echec($$
-  insert into regles_tva_zero (dossier_id, portee, cle, regime)
-  values ('22222222-2222-2222-2222-222222222222', 'article', '', 'conventional_exemption')$$,
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle)
+  values ('22222222-2222-2222-2222-222222222222', 'article-sans-cle', 1, 'article', '')$$,
   'une règle d''article sans clé');
 
 select attendre_echec($$
-  insert into regles_tva_zero (dossier_id, portee, cle, regime)
-  values ('22222222-2222-2222-2222-222222222222', 'dossier', '13415001', 'conventional_exemption')$$,
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle)
+  values ('22222222-2222-2222-2222-222222222222', 'dossier-avec-cle', 1, 'dossier', '13415001')$$,
   'une règle de dossier avec une clé');
+
+-- Un régime se déclare compte par compte : la règle porte l'acheteur ET son
+-- régime. Il manque l'un ou l'autre, elle est refusée.
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, regime)
+  values ('22222222-2222-2222-2222-222222222222', 'regime-sans-regime', 1,
+          'regime_acheteur', 'CT001', '')$$,
+  'une règle de régime acheteur sans régime');
+
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, regime)
+  values ('22222222-2222-2222-2222-222222222222', 'regime-sans-client', 1,
+          'regime_acheteur', '', 'TEE')$$,
+  'une règle de régime acheteur sans compte client');
+
+\echo '--- Une règle validée porte sa preuve ---'
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, code, fondement, etat)
+  values ('22222222-2222-2222-2222-222222222222', 'article-sans-preuve', 1,
+          'article', '25SN001', 'tvac', 'convention', 'validee')$$,
+  'une validation sans validateur ni référence');
+
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, code, etat,
+                               validee_par, validee_le, reference)
+  values ('22222222-2222-2222-2222-222222222222', 'article-sans-fondement', 1,
+          'article', '25SN001', 'tvac', 'validee', 'Franck', now(), 'Convention 42')$$,
+  'une validation sans fondement juridique');
+
+-- Avec le code, le fondement, le validateur et la preuve, elle passe.
+insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, code, fondement, etat,
+                             validee_par, validee_le, reference)
+values ('22222222-2222-2222-2222-222222222222', 'article-25SN001', 1,
+        'article', '25SN001', 'tvac', 'convention', 'validee',
+        'Franck', now(), 'Convention DGI n° 42 du 12/03/2026');
+
+select case when regle_applicable(r.etat, r.code, r.valide_du, r.valide_au, now()) then 'OK     une règle validée sur preuve produit son code'
+            else 'ÉCHEC — la règle validée a été jugée inapplicable' end
+  from regles_tva_zero r
+ where r.regle_id = 'article-25SN001' and r.version = 1;
+
+\echo '--- Une version qui a servi ne se réécrit pas ---'
+select attendre_echec($$
+  update regles_tva_zero set code = 'tvad'
+   where regle_id = 'article-25SN001' and version = 1$$,
+  'la modification d''une version existante');
+
+select attendre_echec($$
+  delete from regles_tva_zero where regle_id = 'article-25SN001'$$,
+  'la suppression d''une règle');
+
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle)
+  values ('22222222-2222-2222-2222-222222222222', 'article-25SN001', 1, 'article', '25SN001')$$,
+  'une version 1 rejouée');
+
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle)
+  values ('22222222-2222-2222-2222-222222222222', 'article-25SN001', 4, 'article', '25SN001')$$,
+  'une version intercalée hors suite');
+
+\echo '--- Révoquer, c''est ajouter une version ---'
+insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, code, fondement,
+                             etat, note)
+values ('22222222-2222-2222-2222-222222222222', 'article-25SN001', 2,
+        'article', '25SN001', 'tvac', 'convention', 'revoquee',
+        'Convention échue au 31/12/2026, non renouvelée.');
+
+select case when count(*) = 2 then 'OK     la version révoquée s''ajoute, la précédente reste'
+            else format('ÉCHEC — %s version(s) au registre', count(*)) end
+  from regles_tva_zero where regle_id = 'article-25SN001';
+
+select case when version = 2 and etat = 'revoquee'
+            then 'OK     la vue courante montre la dernière version'
+            else format('ÉCHEC — version courante %s en état %s', version, etat) end
+  from regles_tva_zero_courantes where regle_id = 'article-25SN001';
+
+select case when not regle_applicable(r.etat, r.code, r.valide_du, r.valide_au, now())
+            then 'OK     une règle révoquée ne produit plus son code'
+            else 'ÉCHEC — la règle révoquée reste applicable' end
+  from regles_tva_zero_courantes r where r.regle_id = 'article-25SN001';
+
+\echo '--- Les bornes de validité valent ---'
+select attendre_echec($$
+  insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, valide_du, valide_au)
+  values ('22222222-2222-2222-2222-222222222222', 'bornes-inversees', 1, 'article', 'X',
+          now(), now() - interval '1 day')$$,
+  'des bornes de validité inversées');
+
+insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, regime, code,
+                             fondement, etat, validee_par, validee_le, reference, valide_au)
+values ('22222222-2222-2222-2222-222222222222', 'regimeacheteur-ct001', 1,
+        'regime_acheteur', 'CT001', 'TEE', 'tvad', 'regime_acheteur', 'validee',
+        'Franck', now(), 'Attestation TEE du 05/01/2026', now() - interval '1 day');
+
+select case when not regle_applicable(r.etat, r.code, r.valide_du, r.valide_au, now())
+            then 'OK     une règle expirée cesse de produire son code'
+            else 'ÉCHEC — la règle expirée reste applicable' end
+  from regles_tva_zero r where r.regle_id = 'regimeacheteur-ct001';
+
+\echo '--- Les règles douteuses se signalent sans se corriger ---'
+insert into regles_tva_zero (dossier_id, regle_id, version, portee, cle, regime, code,
+                             fondement, etat, validee_par, validee_le, reference)
+values ('22222222-2222-2222-2222-222222222222', 'regimeacheteur-ct002', 1,
+        'regime_acheteur', 'CT002', 'RME', 'tvac', 'regime_acheteur', 'validee',
+        'Franck', now(), 'Attestation RME');
+
+select case when count(*) = 1 then 'OK     un fondement de régime sans TVAD est signalé'
+            else format('ÉCHEC — %s signalement(s)', count(*)) end
+  from regles_tva_zero_a_relire
+ where regle_id = 'regimeacheteur-ct002'
+   and observation like '%TVAD%';
+
+-- Signalée, pas refusée : la vue expose, elle ne tranche pas.
+select case when code = 'tvac' then 'OK     la règle signalée reste telle qu''elle a été écrite'
+            else 'ÉCHEC — la règle a été corrigée d''office' end
+  from regles_tva_zero_courantes where regle_id = 'regimeacheteur-ct002';
+
+\echo '--- Sous quelle version une facture est partie ---'
+insert into certification_regles_appliquees (certification_id, regle, ligne, article)
+select '33333333-3333-3333-3333-333333333333', r.id, 1, '25SN001'
+  from regles_tva_zero r where r.regle_id = 'article-25SN001' and r.version = 1;
+
+-- La règle a été révoquée depuis. Le lien pointe toujours la version 1.
+select case when version = 1 and etat = 'validee'
+            then 'OK     la facture garde la version sous laquelle elle est partie'
+            else format('ÉCHEC — version %s en état %s', version, etat) end
+  from certification_regles_appliquees a
+  join regles_tva_zero r on r.id = a.regle
+ where a.certification_id = '33333333-3333-3333-3333-333333333333';
+
+select attendre_echec($$
+  delete from certification_regles_appliquees
+   where certification_id = '33333333-3333-3333-3333-333333333333'$$,
+  'la suppression du lien entre une facture et sa règle');
 
 \echo '--- RLS ---'
 -- Aucune table sans RLS, plutôt qu'un compte figé : une table ajoutée sans
