@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 422 tests
+dotnet test                                    # 438 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -319,6 +319,31 @@ C'est dans Sage que cela se corrige, pas ici.
 Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocType`,
 `DO_Date`, `DO_Tiers`, `CT_Intitule`, le NCC, le nombre de lignes, les taux rencontrés, les
 `customTaxes`, les totaux HT et TTC recalculés face à `DO_TotalTTC`, l'écart, et le statut.
+
+## Comprendre les ventes à 0 % avant de les paramétrer
+
+```powershell
+dotnet run --project src\SageFne.Reader -- audit-tva-zero
+```
+
+**Cette commande ne classe rien.** Elle ne dit ni `TVAC` ni `TVAD`, et ne le peut pas : les
+deux valent 0 %, et Sage ne porte pas la différence. Un test vérifie qu'aucun de ces codes
+n'apparaît nulle part dans son résultat.
+
+Elle expose des faits. Par article : désignation, famille, lignes à 0 %, factures, clients
+avec leur NCC, quantités et montants cumulés, les codes `DL_CodeTaxe1/2/3` et taux
+`DL_Taxe1/2/3` réellement observés sur les lignes à 0 %, les pièces exemples, et surtout
+**les autres taux auxquels ce même article est vendu ailleurs**.
+
+C'est cette dernière colonne qui informe. Un article jamais vendu autrement qu'à 0 % relève
+d'une règle attachée à l'article ; un client qui n'achète jamais taxé, d'une règle attachée
+au client. Un article panaché — tantôt 0 %, tantôt 18 % — signale que la règle est
+ailleurs : dans l'opération, ou dans une saisie à vérifier. Les tableaux par famille et par
+client donnent la même lecture, en comparant lignes à 0 % et lignes taxées côte à côte.
+
+Le fondement juridique se déclare ensuite dans `Fne:ZeroVat`, par article, famille, client
+ou dossier. Tant qu'il manque, les pièces concernées restent bloquées par
+`ZERO_VAT_CATEGORY_UNKNOWN`, et c'est voulu.
 
 ## L'envoi à la certification
 

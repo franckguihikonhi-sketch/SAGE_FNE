@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using SageFne.Reader.Audit;
 using SageFne.Reader.Batch;
 using SageFne.Reader.Certification;
 using SageFne.Reader.Configuration;
@@ -392,6 +393,142 @@ if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
     Console.WriteLine("Aucune API n'a été contactée, rien n'a été écrit.");
 
     return fichier.Existe ? 0 : 1;
+}
+
+// Inventaire des ventes à 0 % de TVA. Uniquement des SELECT, et surtout :
+// aucune conclusion fiscale. La commande expose des faits, elle ne classe rien.
+if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
+{
+    var depotAudit = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+
+    Titre("Audit des ventes à 0 % de TVA");
+    Console.WriteLine("Source : base Sage (SQL Server), en lecture seule.");
+    Console.WriteLine($"  Lecture de {ligneDeCommande.Query.Describe()}, limite {ligneDeCommande.Query.Limite}.");
+
+    var entetesAudit = await depotAudit.GetInvoicesAsync(ligneDeCommande.Query);
+    if (entetesAudit.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucune facture lue : rien à examiner.");
+        return 1;
+    }
+
+    var lignesAudit = await depotAudit.GetLinesAsync(
+        ligneDeCommande.Query with { Pieces = entetesAudit.Select(entete => entete.Piece).ToList() });
+
+    var clientsAudit = (await depotAudit.GetCustomersAsync(
+            entetesAudit.Select(entete => entete.Tiers).Distinct().ToList()))
+        .ToDictionary(client => client.CtNum, StringComparer.OrdinalIgnoreCase);
+
+    var famillesAudit = await depotAudit.GetArticleFamiliesAsync(
+        lignesAudit.Select(ligne => ligne.ArticleReference).Distinct().ToList());
+
+    var audit = AuditTvaZero.Analyser(entetesAudit, lignesAudit, clientsAudit, famillesAudit);
+
+    Console.WriteLine(
+        $"  {entetesAudit.Count} facture(s), {audit.LignesExaminees} ligne(s) de vente examinées.");
+
+    if (audit.Articles.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucune ligne à 0 % de TVA dans ce périmètre.");
+        return 0;
+    }
+
+    Titre("Résumé");
+    Console.WriteLine($"  Articles vendus à 0 %          {audit.Articles.Count}");
+    Console.WriteLine($"    dont exclusivement à 0 %     {audit.ArticlesExclusivementAZero.Count}");
+    Console.WriteLine($"    dont vendus aussi taxés      {audit.ArticlesAPlusieursTaux.Count}");
+    Console.WriteLine($"  Familles concernées            {audit.Familles.Count}");
+    Console.WriteLine($"  Clients concernés              {audit.Clients.Count}");
+    Console.WriteLine($"  Factures concernées            {audit.NombreFacturesConcernees}");
+    Console.WriteLine($"  Montant HT à 0 %               {audit.MontantHTTotal:N2}");
+
+    Titre("Par article");
+    foreach (var article in audit.Articles)
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  {article.Reference}  {Tronquer(article.Designation, 40)}" +
+            $"{(article.Famille == "" ? "" : $"   famille {article.Famille}")}");
+        Console.WriteLine(
+            $"    {article.LignesAZero} ligne(s) à 0 % sur {article.Factures} facture(s), " +
+            $"{article.NombreClients} client(s) — quantité {article.QuantiteCumulee:N2}, " +
+            $"HT {article.MontantHTCumule:N2}");
+
+        Console.WriteLine(article.ExclusivementAZero
+            ? "    Autres taux observés : AUCUN — cet article n'est jamais vendu taxé."
+            : $"    Autres taux observés : {string.Join(", ", article.AutresTaux.Select(taux => $"{taux:0.##} %"))}" +
+              " — le 0 % ne tient donc pas à l'article seul.");
+
+        Console.WriteLine("    Codes de taxe sur les lignes à 0 % :");
+        if (article.CodesObserves.Count == 0)
+        {
+            Console.WriteLine("      aucun — les trois emplacements sont vides.");
+        }
+        else
+        {
+            foreach (var code in article.CodesObserves)
+            {
+                Console.WriteLine(
+                    $"      DL_CodeTaxe{code.Position} = « {(code.Code == "" ? "—" : code.Code)} », " +
+                    $"DL_Taxe{code.Position} = {code.Taux:0.##}  ({code.Lignes} ligne(s))");
+            }
+        }
+
+        Console.WriteLine("    Clients :");
+        foreach (var client in article.Clients)
+        {
+            Console.WriteLine(
+                $"      {client.Compte,-16} {Tronquer(client.Nom, 28),-28} " +
+                $"NCC {(client.Ncc == "" ? "— absent —" : client.Ncc),-14} " +
+                $"{client.Lignes} ligne(s), HT {client.MontantHT:N2}");
+        }
+
+        Console.WriteLine($"    Pièces : {string.Join(", ", article.ExemplesPieces)}");
+    }
+
+    Titre("Par famille d'article");
+    Console.WriteLine($"  {"Famille",-14} {"à 0 %",7} {"taxées",8}  {"HT à 0 %",16}  Lecture");
+    foreach (var famille in audit.Familles)
+    {
+        Console.WriteLine(
+            $"  {Tronquer(famille.Libelle, 14),-14} {famille.LignesAZero,7} {famille.LignesTaxees,8}  " +
+            $"{famille.MontantHTAZero,16:N2}  " +
+            (famille.ToutesLignesAZero ? "jamais taxée dans ce dossier" : "panachée"));
+    }
+
+    Titre("Par client");
+    Console.WriteLine($"  {"Client",-30} {"à 0 %",7} {"taxées",8}  {"HT à 0 %",16}  Lecture");
+    foreach (var client in audit.Clients)
+    {
+        Console.WriteLine(
+            $"  {Tronquer(client.Libelle, 30),-30} {client.LignesAZero,7} {client.LignesTaxees,8}  " +
+            $"{client.MontantHTAZero,16:N2}  " +
+            (client.ToutesLignesAZero ? "n'achète jamais taxé" : "panaché"));
+    }
+
+    Titre("Ce que ces chiffres ne disent pas");
+    Console.WriteLine("""
+          TVAC (exonération conventionnelle) et TVAD (exonération légale TEE/RME) valent
+          tous deux 0 %. Rien de ce qui précède ne permet de les distinguer : Sage ne porte
+          pas cette information, et aucun comptage ne la fera apparaître.
+
+          Ce tableau sert à poser la bonne question à qui connaît le fondement juridique :
+          un article jamais vendu taxé relève sans doute d'une règle d'article ; un client
+          qui n'achète jamais taxé, d'une règle de client. Un article panaché signale que la
+          règle est ailleurs — dans l'opération, ou dans une saisie à vérifier.
+
+          La réponse se déclare ensuite dans Fne:ZeroVat, par article, famille, client ou
+          dossier. Tant qu'elle manque, les pièces concernées restent bloquées, et c'est
+          voulu.
+          """);
+
+    Console.WriteLine();
+    Console.WriteLine("Lecture seule : uniquement des SELECT. Aucune API contactée, rien d'écrit.");
+    Console.WriteLine("Aucune ligne n'a été classée TVAC ou TVAD.");
+
+    return 0;
 }
 
 // Compléter le journal d'une pièce par un événement que le middleware n'a pas

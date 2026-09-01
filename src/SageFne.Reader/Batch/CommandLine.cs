@@ -86,6 +86,11 @@ public enum Verbe
     /// Compléter le journal d'une pièce par un événement non observé.
     /// </summary>
     Journal,
+
+    /// <summary>
+    /// Inventorier les ventes à 0 % de TVA, sans rien en conclure.
+    /// </summary>
+    AuditTvaZero,
 }
 
 /// <summary>
@@ -258,6 +263,13 @@ public sealed record CommandLine
                 case "journal":
                     verbe = Verbe.Journal;
                     break;
+                case "audit-tva-zero":
+                case "audit-tva-0":
+                    verbe = Verbe.AuditTvaZero;
+                    // Le 0 % se cherche sur tout le dossier : la limite du dry
+                    // run passerait à côté de la moitié des cas.
+                    if (limite == LimiteParDefaut) limite = 2000;
+                    break;
                 case "--ajouter":
                     evenement = Valeur() ?? "";
                     if (evenement is "") erreurs.Add("--ajouter attend la description de l'événement.");
@@ -372,6 +384,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- colonnes            colonnes réelles des tables Sage
           dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
           dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes
+          dotnet run --project src/SageFne.Reader -- audit-tva-zero      inventaire des ventes à 0 % de TVA
           dotnet run --project src/SageFne.Reader -- fne-check           vérifie l'accès FNE, sans rien appeler
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
