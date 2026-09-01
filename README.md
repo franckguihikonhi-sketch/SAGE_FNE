@@ -373,6 +373,76 @@ Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocTy
 `DO_Date`, `DO_Tiers`, `CT_Intitule`, le NCC, le nombre de lignes, les taux rencontrés, les
 `customTaxes`, les totaux HT et TTC recalculés face à `DO_TotalTTC`, l'écart, et le statut.
 
+## La campagne de saisie des NCC
+
+```powershell
+dotnet run --project src\SageFne.Reader -- ncc
+```
+
+Le NCC — `CT_Identifiant` sur la fiche client — est obligatoire en B2B. Sans lui, la facture
+est refusée à la certification, quel que soit son taux de TVA. Sur le dossier réel, **977
+factures sur 1 004** sont dans ce cas, réparties sur 74 comptes.
+
+**Cette commande n'écrit rien.** Le NCC vit dans Sage et s'y corrige, fiche par fiche. Elle
+produit une liste d'appels à passer, dans l'ordre où ils rapportent le plus.
+
+### Par quel appel commencer
+
+Le classement se fait **par montant TTC en jeu**, pas par nombre de factures : dix petites
+factures et une grosse ne se rappellent pas dans le même ordre. Chaque ligne donne le compte,
+l'intitulé, le nombre de factures, le montant, le cumul en pourcentage, la date de la
+dernière facture — un client sans commande depuis deux ans se retrouve mal — et le moyen de
+le joindre tel que Sage le porte.
+
+Deux chiffres closent le tableau : combien de comptes suffisent à couvrir la moitié des
+factures en attente, et combien pour en couvrir les quatre cinquièmes. C'est ce qui décide
+de la manière de mener la campagne — quelques appels, ou toute une tournée.
+
+Deux cas se signalent à part :
+
+- **Un compte facturé sans fiche dans `F_COMPTET`.** Ce n'est pas un NCC qui manque, c'est le
+  client : on ne peut appeler personne.
+- **Un compte sans téléphone ni courriel.** Le NCC devra venir d'ailleurs — d'une facture
+  passée, ou du commercial qui suit le compte.
+
+### La liste à confier
+
+```powershell
+dotnet run --project src\SageFne.Reader -- ncc --export campagne-ncc.csv
+```
+
+Un CSV séparé par `;`, en UTF-8 avec BOM et virgule décimale — Excel français l'ouvre sans
+rien reformater. Tous les comptes y sont, pas seulement les vingt-cinq affichés. La dernière
+colonne, `NCC_a_saisir`, est vide : c'est celle que la campagne remplit.
+
+**Ce fichier ne revient pas tout seul dans Sage.** Ce qui en revient se saisit à la main, et
+se vérifie en relançant `ncc` : les compteurs disent ce que la campagne a gagné.
+
+### Ce que le dossier porte déjà
+
+La commande montre les formes des NCC déjà saisis — chiffres notés `9`, lettres notées `A` —
+avec leur longueur, le nombre de comptes et des exemples.
+
+**Ce n'est pas un format exigé.** Le middleware n'a aucune autorité pour dire à quoi ressemble
+un NCC valide ; il dit à quoi ressemblent ceux de ce dossier. C'est ce qui permet de
+reconnaître une saisie douteuse au retour de campagne, sans refuser une forme légitime qu'on
+n'aurait pas prévue. Beaucoup de formes différentes pour peu de comptes signale des saisies
+successives sans règle commune : à faire trancher avant d'en ajouter.
+
+### Deux vérifications sur ce qui est déjà saisi
+
+**Un même NCC porté par deux comptes** est presque toujours un copier-coller. Les factures des
+deux comptes partiraient alors sous un seul contribuable — celui dont le numéro a été recopié,
+qui verrait apparaître chez lui des ventes qu'il n'a pas faites. C'est le défaut le plus
+coûteux que cette commande cherche.
+
+**Une valeur qui n'a pas l'air d'un NCC** est signalée sur des faits, jamais sur un format :
+un numéro identique au compte Sage (le champ a servi à autre chose), un seul caractère répété,
+ou moins de quatre caractères. Signalée, pas corrigée : c'est dans Sage que cela se tranche.
+
+Un gabarit non remplacé — `A_COMPLETER`, `TODO`, `NEANT`, `-` — compte comme **absent**. Il
+partirait tel quel chez la DGI, et serait certifié tel quel.
+
 ## Comprendre les ventes à 0 % avant de les paramétrer
 
 ```powershell
@@ -1147,7 +1217,8 @@ SageFne.sln
 │   │                                    RegistreZeroVatPolicy — le registre
 │   │                                    versionné des règles de TVA 0 %
 │   ├── Audit/                           AuditTvaZero, ArticleAZero,
-│   │                                    RegroupementAZero, DetailArticle
+│   │                                    RegroupementAZero, DetailArticle,
+│   │                                    CampagneNcc, CompteSansNcc, FormeNcc
 │   └── Validation/                      InvoiceValidator, FinancialChecks,
 │                                        FneCompleteness, CheckReport
 ├── supabase/migrations/                 schéma, règles métier, RLS, vues,

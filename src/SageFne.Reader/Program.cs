@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -701,6 +702,236 @@ if (ligneDeCommande.Verbe == Verbe.ZeroVatRegle)
         PorteeRegle.Client => $"client {cle}",
         _ => "dossier",
     };
+}
+
+// La campagne de saisie des NCC. Lecture seule : le NCC vit dans
+// F_COMPTET.CT_Identifiant, il s'y corrige, et rien ici ne l'écrit. Cette
+// commande dit seulement quels appels passer, et dans quel ordre.
+if (ligneDeCommande.Verbe == Verbe.Ncc)
+{
+    var depotNcc = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+
+    Titre("Campagne NCC");
+    Console.WriteLine("Source : base Sage (SQL Server), en lecture seule.");
+    Console.WriteLine($"  Lecture de {ligneDeCommande.Query.Describe()}, limite {ligneDeCommande.Query.Limite}.");
+
+    var entetesNcc = await depotNcc.GetInvoicesAsync(ligneDeCommande.Query);
+    if (entetesNcc.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucune facture lue : rien à examiner.");
+        return 1;
+    }
+
+    var lignesNcc = await depotNcc.GetLinesAsync(
+        ligneDeCommande.Query with { Pieces = entetesNcc.Select(entete => entete.Piece).ToList() });
+
+    var clientsNcc = (await depotNcc.GetCustomersAsync(
+            entetesNcc.Select(entete => entete.Tiers).Distinct().ToList()))
+        .ToDictionary(client => client.CtNum, StringComparer.OrdinalIgnoreCase);
+
+    var campagne = CampagneNcc.Analyser(entetesNcc, lignesNcc, clientsNcc);
+
+    Titre("Où en est le dossier");
+    Console.WriteLine($"  Factures lues            {campagne.Factures}");
+    Console.WriteLine(
+        $"  Prêtes de ce côté        {campagne.FacturesCouvertes} " +
+        $"({Part(campagne.FacturesCouvertes, campagne.Factures)})");
+    Console.WriteLine(
+        $"  En attente d'un NCC      {campagne.FacturesSansNcc} " +
+        $"({Part(campagne.FacturesSansNcc, campagne.Factures)})");
+    Console.WriteLine($"  Montant TTC en attente   {Somme(campagne.MontantSansNcc)}");
+    Console.WriteLine($"  Comptes à renseigner     {campagne.Comptes.Count}");
+    Console.WriteLine($"  Comptes déjà renseignés  {campagne.ComptesRenseignes}");
+
+    if (campagne.Comptes.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucun NCC ne manque sur ce périmètre.");
+    }
+    else
+    {
+        // Le montant classe la liste : c'est par lui qu'on décide à qui
+        // téléphoner en premier. Le nombre de factures suit.
+        Titre("Par quel appel commencer");
+        Console.WriteLine(
+            "  Classé par montant TTC en jeu. Le NCC se saisit dans Sage,\n" +
+            "  fiche client, champ CT_Identifiant.");
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  {"CT_Num",-16} {"Intitulé",-30} {"Fact.",5} {"Montant TTC",16} " +
+            $"{"Cumul %",8}  {"Dernière",10}  Contact");
+
+        var cumulNcc = 0m;
+        var affiches = ligneDeCommande.Client is null ? 25 : campagne.Comptes.Count;
+        var listeNcc = ligneDeCommande.Client is { } cibleNcc
+            ? campagne.Comptes
+                .Where(compte => compte.CtNum.Contains(cibleNcc, StringComparison.OrdinalIgnoreCase))
+                .ToList()
+            : campagne.Comptes;
+
+        foreach (var compte in listeNcc.Take(affiches))
+        {
+            cumulNcc += compte.MontantTTC;
+            Console.WriteLine(
+                $"  {Tronquer(compte.CtNum, 16),-16} " +
+                $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 30),-30} " +
+                $"{compte.Factures,5} {Somme(compte.MontantTTC),16} " +
+                $"{(campagne.MontantSansNcc == 0 ? "—" : $"{cumulNcc / campagne.MontantSansNcc:P0}"),8}  " +
+                $"{compte.DerniereFacture,10:dd/MM/yyyy}  {Tronquer(compte.MoyenDeContact, 34)}");
+        }
+
+        if (listeNcc.Count > affiches)
+        {
+            Console.WriteLine($"  … et {listeNcc.Count - affiches} autres comptes. --export les donne tous.");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  {campagne.ComptesPour(0.5m)} compte(s) suffisent à couvrir la moitié des factures " +
+            $"en attente,\n  {campagne.ComptesPour(0.8m)} pour en couvrir les quatre cinquièmes.");
+
+        var introuvables = campagne.Comptes.Count(compte => compte.FicheIntrouvable);
+        var sansContact = campagne.Comptes.Count(compte => compte.MoyenDeContact == "— aucun —");
+
+        if (introuvables > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                $"  {introuvables} compte(s) facturés n'ont aucune fiche dans F_COMPTET. " +
+                "Ce n'est\n  pas un NCC qui manque, c'est le client : à voir avant d'appeler.");
+        }
+
+        if (sansContact > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                $"  {sansContact} compte(s) ne portent ni téléphone ni courriel dans Sage. " +
+                "Le NCC\n  devra venir d'ailleurs — d'une facture passée, ou du commercial.");
+        }
+    }
+
+    // Ce que le dossier porte déjà. Aucune règle de format n'est affirmée : la
+    // commande montre les formes observées, et c'est au lecteur de reconnaître
+    // la sienne.
+    if (campagne.Formes.Count > 0)
+    {
+        Titre("Les NCC déjà saisis, tels qu'ils sont");
+        Console.WriteLine(
+            "  Chiffres notés 9, lettres notées A. Ce n'est pas un format exigé :\n" +
+            "  c'est ce que ce dossier porte, de quoi reconnaître une saisie douteuse\n" +
+            "  au retour de campagne.");
+        Console.WriteLine();
+        Console.WriteLine($"  {"Forme",-24} {"Long.",5} {"Comptes",8}  Exemples");
+        foreach (var forme in campagne.Formes.Take(10))
+        {
+            Console.WriteLine(
+                $"  {Tronquer(forme.Gabarit, 24),-24} {forme.Longueur,5} {forme.Comptes,8}  " +
+                $"{Tronquer(string.Join(", ", forme.Exemples), 40)}");
+        }
+
+        if (campagne.Formes.Count > 10)
+        {
+            Console.WriteLine($"  … et {campagne.Formes.Count - 10} autres formes.");
+        }
+
+        if (campagne.Formes.Count > 3)
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                $"  {campagne.Formes.Count} formes différentes pour {campagne.ComptesRenseignes} comptes.\n" +
+                "  Autant de formes que de saisies successives : à faire trancher avant\n" +
+                "  d'en ajouter de nouvelles.");
+        }
+    }
+
+    // Un même NCC sur deux comptes envoie les ventes de l'un sous le nom de
+    // l'autre. C'est le défaut le plus coûteux de cette liste.
+    if (campagne.Partages.Count > 0)
+    {
+        Titre("Un même NCC sur plusieurs comptes");
+        Console.WriteLine(
+            "  Les factures de ces comptes partiraient sous un seul contribuable.\n" +
+            "  Presque toujours un copier-coller : à vérifier avant tout envoi.");
+        Console.WriteLine();
+        foreach (var partage in campagne.Partages.Take(15))
+        {
+            Console.WriteLine(
+                $"  {Tronquer(partage.Ncc, 22),-22} {partage.Factures,5} facture(s)  " +
+                $"{string.Join(", ", partage.Comptes)}");
+        }
+
+        if (campagne.Partages.Count > 15)
+        {
+            Console.WriteLine($"  … et {campagne.Partages.Count - 15} autres.");
+        }
+    }
+
+    if (campagne.Douteux.Count > 0)
+    {
+        Titre("Des valeurs présentes qui n'ont pas l'air d'un NCC");
+        Console.WriteLine("  Signalées, pas corrigées : c'est dans Sage que cela se tranche.");
+        Console.WriteLine();
+        foreach (var douteux in campagne.Douteux.Take(20))
+        {
+            Console.WriteLine(
+                $"  {Tronquer(douteux.CtNum, 16),-16} {Tronquer(douteux.Intitule, 26),-26} " +
+                $"{Tronquer(douteux.Ncc, 18),-18} {douteux.Pourquoi}");
+        }
+
+        if (campagne.Douteux.Count > 20)
+        {
+            Console.WriteLine($"  … et {campagne.Douteux.Count - 20} autres.");
+        }
+    }
+
+    // Le seul fichier écrit, et il est hors de Sage : un tableau à confier, qui
+    // reviendra saisi à la main. Rien n'en revient tout seul.
+    if (ligneDeCommande.Export is { } chemin)
+    {
+        var csv = new StringBuilder();
+        csv.AppendLine("CT_Num;Intitule;Factures;MontantTTC;PremiereFacture;DerniereFacture;" +
+                       "Ville;Telephone;Email;NCC_a_saisir");
+
+        static string Cellule(string valeur) =>
+            valeur.Replace("\"", "\"\"").Replace(';', ',').Replace('\n', ' ').Replace('\r', ' ');
+
+        foreach (var compte in campagne.Comptes)
+        {
+            csv.AppendLine(string.Join(';',
+                Cellule(compte.CtNum),
+                Cellule(compte.Intitule),
+                compte.Factures.ToString(CultureInfo.InvariantCulture),
+                // Virgule décimale : le fichier se sépare par « ; » comme
+                // l'attend un Excel français, et « 50750.00 » y serait lu
+                // comme du texte — une colonne de montants qui ne se trie pas.
+                compte.MontantTTC.ToString("F2", CultureInfo.GetCultureInfo("fr-FR")),
+                compte.PremiereFacture.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+                compte.DerniereFacture.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+                Cellule(compte.Ville),
+                Cellule(compte.Telephone),
+                Cellule(compte.Email),
+                ""));
+        }
+
+        // Avec BOM : Excel lit l'UTF-8 sans, mais rend « SOCIÉTÉ » en « SOCIÃ‰TÃ‰ »,
+        // et une liste d'appels illisible ne sert personne.
+        await File.WriteAllTextAsync(chemin, csv.ToString(), new UTF8Encoding(true));
+
+        Titre("Liste exportée");
+        Console.WriteLine($"  {campagne.Comptes.Count} compte(s) écrits dans {Path.GetFullPath(chemin)}");
+        Console.WriteLine("  La colonne NCC_a_saisir est vide : c'est celle que la campagne remplit.");
+        Console.WriteLine("  Ce fichier ne revient pas tout seul dans Sage — la saisie s'y fait à la main.");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("""
+        Lecture seule. Rien n'a été écrit dans Sage, aucune facture n'a été envoyée.
+
+        Le NCC se saisit dans Sage : fiche client, champ CT_Identifiant. Relancez
+        cette commande ensuite — les compteurs diront ce que la campagne a gagné.
+        """);
+    return campagne.Comptes.Count == 0 ? 0 : 1;
 }
 
 // Inventaire des ventes à 0 % de TVA. Uniquement des SELECT, et surtout :

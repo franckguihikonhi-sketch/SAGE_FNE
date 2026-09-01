@@ -96,6 +96,12 @@ public enum Verbe
     /// Consulter et écrire les règles de classification des TVA à 0 %.
     /// </summary>
     ZeroVatRegle,
+
+    /// <summary>
+    /// L'état de la campagne de saisie des NCC : ce qui manque, et par quel
+    /// compte commencer. Lecture seule, et le NCC se saisit dans Sage.
+    /// </summary>
+    Ncc,
 }
 
 /// <summary>
@@ -206,6 +212,16 @@ public sealed record CommandLine
 
     /// <summary>Écrire la règle en brouillon plutôt que validée.</summary>
     public bool Brouillon { get; init; }
+
+    /// <summary>
+    /// Chemin du fichier CSV à écrire, pour une liste qu'on confie à quelqu'un.
+    /// </summary>
+    /// <remarks>
+    /// La seule écriture de fichier que fasse une commande de lecture, et elle
+    /// est hors de Sage : un tableau à remplir, qui reviendra saisi à la main
+    /// dans Sage. Rien n'en revient automatiquement.
+    /// </remarks>
+    public string? Export { get; init; }
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -235,6 +251,7 @@ public sealed record CommandLine
         string? fondement = null;
         string? validePar = null;
         string? empreinte = null;
+        string? export = null;
         DateTimeOffset? valideeLe = null;
         DateTimeOffset? valideDu = null;
         DateTimeOffset? valideAu = null;
@@ -360,6 +377,17 @@ public sealed record CommandLine
                 case "--brouillon":
                     brouillon = true;
                     break;
+                case "ncc":
+                case "campagne-ncc":
+                    verbe = Verbe.Ncc;
+                    // Un NCC manquant se compte sur tout le dossier, pas sur un
+                    // échantillon : la campagne se chiffre en appels à passer.
+                    if (limite == LimiteParDefaut) limite = 2000;
+                    break;
+                case "--export":
+                    export = Valeur() ?? "";
+                    if (export is "") erreurs.Add("--export attend un chemin de fichier.");
+                    break;
                 case "audit-tva-zero":
                 case "audit-tva-0":
                     verbe = Verbe.AuditTvaZero;
@@ -472,6 +500,7 @@ public sealed record CommandLine
             ValideDu = valideDu,
             ValideAu = valideAu,
             Brouillon = brouillon,
+            Export = export,
             Famille = famille,
             Client = client,
             Quand = quand,
