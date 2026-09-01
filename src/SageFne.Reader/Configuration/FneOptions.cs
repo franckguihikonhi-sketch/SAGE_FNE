@@ -42,11 +42,6 @@ public sealed class FneOptions
         new(StringComparer.OrdinalIgnoreCase) { ["AIRSI"] = "AIRSI" };
 
     /// <summary>
-    /// Fichier du registre des certifications. Vide : « certifications.json »
-    /// à côté de l'exécutable. Ce registre ne peut pas vivre dans Sage, dont
-    /// l'accès est en lecture seule.
-    /// </summary>
-    /// <summary>
     /// Délai minimal, en minutes, entre un envoi d'issue inconnue et le moment
     /// où l'on peut le déclarer « non certifié ».
     /// </summary>
@@ -62,5 +57,15 @@ public sealed class FneOptions
     /// </remarks>
     public int PortalCheckDelayMinutes { get; set; } = 15;
 
+    /// <summary>
+    /// Fichier du registre des certifications. Vide : l'emplacement durable
+    /// par défaut, dans les données d'application de l'utilisateur.
+    /// </summary>
+    /// <remarks>
+    /// Ce registre ne peut pas vivre dans Sage, dont l'accès est en lecture
+    /// seule. Il a d'abord été posé à côté de l'exécutable — une sortie de
+    /// compilation — et une certification réelle y a été perdue. Voir
+    /// <see cref="ServicesMiddleware.CheminDurable"/>.
+    /// </remarks>
     public string CertificationLedgerPath { get; set; } = "";
 }
