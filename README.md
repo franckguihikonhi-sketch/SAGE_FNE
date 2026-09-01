@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 438 tests
+dotnet test                                    # 459 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -340,6 +340,30 @@ d'une règle attachée à l'article ; un client qui n'achète jamais taxé, d'un
 au client. Un article panaché — tantôt 0 %, tantôt 18 % — signale que la règle est
 ailleurs : dans l'opération, ou dans une saisie à vérifier. Les tableaux par famille et par
 client donnent la même lecture, en comparant lignes à 0 % et lignes taxées côte à côte.
+
+### Restreindre l'affichage sans réduire l'analyse
+
+La sortie complète est volumineuse. Trois filtres la resserrent :
+
+```powershell
+dotnet run --project src\SageFne.Reader -- audit-tva-zero --article 25SN001
+dotnet run --project src\SageFne.Reader -- audit-tva-zero --famille 01
+dotnet run --project src\SageFne.Reader -- audit-tva-zero --client 4111SOGEL
+```
+
+**L'analyse reste entière** : elle porte toujours sur tout le périmètre lu, et les totaux
+du résumé restent ceux du dossier. Seul l'affichage est réduit, et la commande le dit en
+tête pour qu'on ne prenne pas un extrait pour un total.
+
+`--article` ajoute le relevé complet de cet article — **ventes taxées comprises**, ce que
+l'inventaire d'ensemble ne montre pas. Ligne par ligne : pièce, date, taux de TVA effectif,
+quantité, HT, client, NCC, et les trois emplacements `DL_CodeTaxe`/`DL_Taxe` tels quels.
+Puis la répartition par taux, et une lecture en un mot : *jamais vendu taxé*, *panaché*, ou
+*jamais vendu à 0 %*.
+
+C'est cette lecture qui répond à la question posée, sans jamais la dépasser : savoir qu'un
+article est panaché dit que le 0 % ne tient pas à l'article — cela ne dit toujours pas s'il
+relève de `TVAC` ou de `TVAD`.
 
 Le fondement juridique se déclare ensuite dans `Fne:ZeroVat`, par article, famille, client
 ou dossier. Tant qu'il manque, les pièces concernées restent bloquées par

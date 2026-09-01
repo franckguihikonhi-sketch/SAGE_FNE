@@ -234,3 +234,109 @@ public sealed record AuditTvaZero
             .OrderByDescending(regroupement => regroupement.MontantHTAZero)
             .ToList();
 }
+
+/// <param name="TauxTva">
+/// Taux effectif de la ligne : la somme des emplacements de taxe qui ne sont
+/// pas des prélèvements. Zéro n'y est pas un cas à part.
+/// </param>
+public sealed record OccurrenceArticle(
+    string Piece,
+    DateTime Date,
+    string Compte,
+    string Client,
+    string Ncc,
+    decimal Quantite,
+    decimal MontantHT,
+    decimal TauxTva,
+    IReadOnlyList<CodeTaxeObserve> Codes);
+
+/// <summary>
+/// Toutes les apparitions d'un article dans le périmètre lu, taxées comprises.
+/// </summary>
+/// <remarks>
+/// L'audit d'ensemble ne retient que les lignes à 0 %, ce qui suffit à
+/// inventorier mais pas à trancher. La question « cet article est-il
+/// exclusivement à 0 % ou panaché ? » demande de voir aussi les ventes taxées,
+/// et de les compter.
+///
+/// Comme l'audit, ce relevé n'énonce que des faits : il ne dit ni
+/// <c>TVAC</c> ni <c>TVAD</c>, et ne le peut pas.
+/// </remarks>
+public sealed record DetailArticle
+{
+    public required string Reference { get; init; }
+    public string Designation { get; init; } = "";
+    public string Famille { get; init; } = "";
+
+    /// <summary>Chaque ligne où l'article apparaît, la plus récente d'abord.</summary>
+    public IReadOnlyList<OccurrenceArticle> Occurrences { get; init; } = [];
+
+    /// <summary>Combien de lignes à chaque taux rencontré, du plus fréquent au moins.</summary>
+    public IReadOnlyList<(decimal Taux, int Lignes, decimal MontantHT)> ParTaux { get; init; } = [];
+
+    public int NombreFactures { get; init; }
+    public int NombreClients { get; init; }
+
+    /// <summary>Vrai quand aucune vente de cet article n'est taxée.</summary>
+    public bool ExclusivementAZero => ParTaux.All(t => t.Taux == 0m);
+
+    /// <summary>Vrai quand l'article est vendu tantôt à 0 %, tantôt taxé.</summary>
+    public bool Panache => ParTaux.Any(t => t.Taux == 0m) && ParTaux.Any(t => t.Taux != 0m);
+
+    public static DetailArticle? Construire(
+        string reference,
+        IReadOnlyCollection<SageDocumentHeader> entetes,
+        IReadOnlyCollection<SageDocumentLine> lignes,
+        IReadOnlyDictionary<string, SageCustomer> clients,
+        IReadOnlyDictionary<string, string> familles)
+    {
+        var concernees = lignes
+            .Where(ligne => string.Equals(ligne.ArticleReference, reference, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (concernees.Count == 0) return null;
+
+        var parPiece = entetes
+            .GroupBy(entete => entete.Piece, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(groupe => groupe.Key, groupe => groupe.First(), StringComparer.OrdinalIgnoreCase);
+
+        var occurrences = concernees
+            .Select(ligne =>
+            {
+                parPiece.TryGetValue(ligne.Piece, out var entete);
+                var compte = entete?.Tiers ?? "";
+                clients.TryGetValue(compte, out var fiche);
+
+                return new OccurrenceArticle(
+                    ligne.Piece,
+                    entete?.Date ?? default,
+                    compte,
+                    fiche?.Intitule ?? compte,
+                    fiche?.Identifiant ?? "",
+                    ligne.Quantite,
+                    ligne.MontantHT,
+                    TaxMapping.TauxTva(ligne),
+                    [.. ligne.Taxes()
+                        .Where(taxe => !string.IsNullOrWhiteSpace(taxe.Code) || taxe.Taux != 0m)
+                        .Select(taxe => new CodeTaxeObserve(taxe.Emplacement, taxe.Code.Trim(), taxe.Taux, 1))]);
+            })
+            .OrderByDescending(occurrence => occurrence.Date)
+            .ThenBy(occurrence => occurrence.Piece, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new DetailArticle
+        {
+            Reference = reference,
+            Designation = concernees[0].Designation,
+            Famille = familles.GetValueOrDefault(reference, ""),
+            Occurrences = occurrences,
+            ParTaux = [.. occurrences
+                .GroupBy(occurrence => occurrence.TauxTva)
+                .Select(groupe => (groupe.Key, groupe.Count(), groupe.Sum(o => o.MontantHT)))
+                .OrderByDescending(t => t.Item2)
+                .ThenBy(t => t.Key)],
+            NombreFactures = occurrences.Select(o => o.Piece).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            NombreClients = occurrences.Select(o => o.Compte).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+        };
+    }
+}

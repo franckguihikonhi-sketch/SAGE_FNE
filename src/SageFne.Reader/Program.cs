@@ -428,6 +428,19 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
     Console.WriteLine(
         $"  {entetesAudit.Count} facture(s), {audit.LignesExaminees} ligne(s) de vente examinées.");
 
+    if (ligneDeCommande.AuditFiltre)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Affichage restreint à " + string.Join(", ", new[]
+        {
+            ligneDeCommande.Article is { } a ? $"l'article {a}" : null,
+            ligneDeCommande.Famille is { } f ? $"la famille {f}" : null,
+            ligneDeCommande.Client is { } c ? $"le client {c}" : null,
+        }.Where(partie => partie is not null)) + ".");
+        Console.WriteLine("  L'analyse porte toujours sur tout le périmètre lu : seul l'affichage");
+        Console.WriteLine("  est réduit, et les totaux ci-dessous restent ceux du dossier entier.");
+    }
+
     if (audit.Articles.Count == 0)
     {
         Console.WriteLine();
@@ -444,8 +457,70 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
     Console.WriteLine($"  Factures concernées            {audit.NombreFacturesConcernees}");
     Console.WriteLine($"  Montant HT à 0 %               {audit.MontantHTTotal:N2}");
 
+    if (ligneDeCommande.Article is { } referenceDemandee)
+    {
+        var detail = DetailArticle.Construire(
+            referenceDemandee, entetesAudit, lignesAudit, clientsAudit, famillesAudit);
+
+        if (detail is null)
+        {
+            Titre($"Article {referenceDemandee}");
+            Console.WriteLine($"  Cet article n'apparaît sur aucune ligne du périmètre lu.");
+            return 1;
+        }
+
+        Titre($"Article {detail.Reference} — toutes ses ventes");
+        Console.WriteLine($"  {detail.Designation}");
+        Console.WriteLine(
+            $"  Famille {(detail.Famille == "" ? "— aucune —" : detail.Famille)}   " +
+            $"{detail.Occurrences.Count} ligne(s), {detail.NombreFactures} facture(s), " +
+            $"{detail.NombreClients} client(s)");
+
+        Console.WriteLine();
+        Console.WriteLine("  Répartition par taux de TVA effectif :");
+        foreach (var (taux, nombre, montant) in detail.ParTaux)
+        {
+            Console.WriteLine($"    {taux,6:0.##} %   {nombre,5} ligne(s)   HT {montant,16:N2}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(detail switch
+        {
+            { ExclusivementAZero: true } =>
+                "  Cet article n'est JAMAIS vendu taxé dans ce périmètre.",
+            { Panache: true } =>
+                "  Cet article est PANACHÉ : vendu tantôt à 0 %, tantôt taxé.",
+            _ => "  Cet article n'est jamais vendu à 0 % dans ce périmètre.",
+        });
+
+        Titre($"Article {detail.Reference} — ligne par ligne");
+        Console.WriteLine(
+            $"  {"Pièce",-10} {"Date",-10} {"TVA",6}  {"Qté",10} {"HT",16}  " +
+            $"{"Client",-24} {"NCC",-12} Codes de taxe");
+
+        foreach (var occurrence in detail.Occurrences)
+        {
+            var codes = occurrence.Codes.Count == 0
+                ? "— aucun —"
+                : string.Join("  ", occurrence.Codes.Select(code =>
+                    $"[{code.Position}] {(code.Code == "" ? "—" : code.Code)} {code.Taux:0.##}"));
+
+            Console.WriteLine(
+                $"  {occurrence.Piece,-10} {occurrence.Date:dd/MM/yyyy} {occurrence.TauxTva,6:0.##}  " +
+                $"{occurrence.Quantite,10:N2} {occurrence.MontantHT,16:N2}  " +
+                $"{Tronquer(occurrence.Client, 24),-24} " +
+                $"{(occurrence.Ncc == "" ? "— absent —" : occurrence.Ncc),-12} {codes}");
+        }
+    }
+
     Titre("Par article");
-    foreach (var article in audit.Articles)
+    foreach (var article in audit.Articles.Where(article =>
+                 (ligneDeCommande.Article is not { } reference
+                  || string.Equals(article.Reference, reference, StringComparison.OrdinalIgnoreCase))
+                 && (ligneDeCommande.Famille is not { } codeFamille
+                     || string.Equals(article.Famille, codeFamille, StringComparison.OrdinalIgnoreCase))
+                 && (ligneDeCommande.Client is not { } compte
+                     || article.Clients.Any(c => string.Equals(c.Compte, compte, StringComparison.OrdinalIgnoreCase)))))
     {
         Console.WriteLine();
         Console.WriteLine(
@@ -490,7 +565,9 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
 
     Titre("Par famille d'article");
     Console.WriteLine($"  {"Famille",-14} {"à 0 %",7} {"taxées",8}  {"HT à 0 %",16}  Lecture");
-    foreach (var famille in audit.Familles)
+    foreach (var famille in audit.Familles.Where(famille =>
+                 ligneDeCommande.Famille is not { } code
+                 || string.Equals(famille.Cle, code, StringComparison.OrdinalIgnoreCase)))
     {
         Console.WriteLine(
             $"  {Tronquer(famille.Libelle, 14),-14} {famille.LignesAZero,7} {famille.LignesTaxees,8}  " +
@@ -500,7 +577,9 @@ if (ligneDeCommande.Verbe == Verbe.AuditTvaZero)
 
     Titre("Par client");
     Console.WriteLine($"  {"Client",-30} {"à 0 %",7} {"taxées",8}  {"HT à 0 %",16}  Lecture");
-    foreach (var client in audit.Clients)
+    foreach (var client in audit.Clients.Where(client =>
+                 ligneDeCommande.Client is not { } compte
+                 || string.Equals(client.Cle, compte, StringComparison.OrdinalIgnoreCase)))
     {
         Console.WriteLine(
             $"  {Tronquer(client.Libelle, 30),-30} {client.LignesAZero,7} {client.LignesTaxees,8}  " +

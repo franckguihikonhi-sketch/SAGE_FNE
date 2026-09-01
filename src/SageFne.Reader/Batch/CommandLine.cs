@@ -160,6 +160,25 @@ public sealed record CommandLine
 
     /// <summary>Code HTTP de l'événement reconstitué, s'il est connu.</summary>
     public int? CodeHttp { get; init; }
+
+    /// <summary>
+    /// Restreindre l'affichage de l'audit à une référence d'article.
+    /// </summary>
+    /// <remarks>
+    /// Ces trois filtres ne touchent pas l'analyse : elle porte toujours sur
+    /// tout le périmètre lu. Ils ne font que réduire ce qui s'imprime — la
+    /// sortie complète étant trop volumineuse pour être lue d'un bloc.
+    /// </remarks>
+    public string? Article { get; init; }
+
+    /// <summary>Restreindre l'affichage à une famille d'article.</summary>
+    public string? Famille { get; init; }
+
+    /// <summary>Restreindre l'affichage à un compte client.</summary>
+    public string? Client { get; init; }
+
+    /// <summary>Vrai quand l'affichage de l'audit est restreint.</summary>
+    public bool AuditFiltre => Article is not null || Famille is not null || Client is not null;
     public IReadOnlyList<string> Erreurs { get; init; } = [];
 
     public const int LimiteParDefaut = 500;
@@ -181,6 +200,9 @@ public sealed record CommandLine
         string? motif = null;
         string? referenceActuelle = null;
         string? evenement = null;
+        string? article = null;
+        string? famille = null;
+        string? client = null;
         DateTimeOffset? quand = null;
         int? codeHttp = null;
         var nonCertifiee = false;
@@ -279,6 +301,18 @@ public sealed record CommandLine
                     if (DateTimeOffset.TryParse(lue, out var date)) quand = date;
                     else erreurs.Add("--quand attend une date et une heure, par exemple 2026-08-31 23:40.");
                     break;
+                case "--article":
+                    article = Valeur() ?? "";
+                    if (article is "") erreurs.Add("--article attend une référence, par exemple 25SN001.");
+                    break;
+                case "--famille":
+                    famille = Valeur() ?? "";
+                    if (famille is "") erreurs.Add("--famille attend un code famille, par exemple 01.");
+                    break;
+                case "--client":
+                    client = Valeur() ?? "";
+                    if (client is "") erreurs.Add("--client attend un compte tiers, par exemple 4111SOGEL.");
+                    break;
                 case "--code-http":
                     if (int.TryParse(Valeur(), out var http) && http is >= 100 and <= 599) codeHttp = http;
                     else erreurs.Add("--code-http attend un code entre 100 et 599.");
@@ -353,6 +387,9 @@ public sealed record CommandLine
             Motif = motif,
             ReferenceActuelle = referenceActuelle,
             Evenement = evenement,
+            Article = article,
+            Famille = famille,
+            Client = client,
             Quand = quand,
             CodeHttp = codeHttp,
             NonCertifiee = nonCertifiee,
@@ -385,6 +422,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- taxes 1219          paramétrage fiscal autour d'une pièce
           dotnet run --project src/SageFne.Reader -- candidats-fne       factures d'essai fiscalement nettes
           dotnet run --project src/SageFne.Reader -- audit-tva-zero      inventaire des ventes à 0 % de TVA
+          dotnet run --project src/SageFne.Reader -- audit-tva-zero --article 25SN001
           dotnet run --project src/SageFne.Reader -- fne-check           vérifie l'accès FNE, sans rien appeler
           dotnet run --project src/SageFne.Reader -- envoyer 1052        montre la requête, n'envoie rien
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
@@ -415,6 +453,11 @@ public sealed record CommandLine
           --sans-reference    le portail n'en publie aucune — exige --motif
           --token JETON       jeton du QR code, s'il figure sur le PDF
           --motif "…"         pourquoi, conservé au registre
+
+        Restreindre l'affichage de l'audit — l'analyse, elle, reste entière :
+          --article REF     une référence d'article ; ajoute le relevé de toutes ses ventes
+          --famille CODE    une famille d'article
+          --client COMPTE   un compte tiers
 
         Compléter le journal d'une pièce par un événement que le middleware n'a pas observé :
           --ajouter "…"     ce qui s'est passé
