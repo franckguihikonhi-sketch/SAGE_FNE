@@ -443,7 +443,7 @@ if (ligneDeCommande.Verbe == Verbe.ZeroVatRegle)
                 $"  {regle.Portee,-16} {Tronquer(regle.Cle == "" ? "—" : regle.Cle, 14),-14} " +
                 $"{regle.Code.Libelle(),-8} {regle.Etat,-11} " +
                 $"{Tronquer(regle.Fondement.Libelle(), 28),-28} " +
-                $"{(regle.Reference == "" ? "— aucune —" : Tronquer(regle.Reference, 30))}");
+                $"{(regle.Preuve == "" ? "— aucune —" : Tronquer(regle.Preuve, 30))}");
             Console.WriteLine($"      {regle.Reperage}" +
                 $"{(regle.ValideePar == "" ? "" : $", validée par {regle.ValideePar}")}" +
                 $"{(regle.ValideeLe is { } quand ? $" le {quand:dd/MM/yyyy}" : "")}" +
@@ -619,11 +619,17 @@ if (ligneDeCommande.Verbe == Verbe.ZeroVatRegle)
         return 2;
     }
 
-    if (valider && string.IsNullOrWhiteSpace(ligneDeCommande.Reference))
+    // L'empreinte d'un justificatif conservé vaut preuve autant qu'une référence :
+    // un arrêté scanné n'a pas toujours de numéro citable. La base pose la même
+    // exigence dans les mêmes termes — l'une ou l'autre, jamais aucune.
+    if (valider
+        && string.IsNullOrWhiteSpace(ligneDeCommande.Reference)
+        && string.IsNullOrWhiteSpace(ligneDeCommande.Empreinte))
     {
         Console.Error.WriteLine(
             "Une règle validée porte sa preuve : --reference \"…\" — réponse DGI, attestation, " +
-            "numéro de convention. C'est ce qui répondra au contrôle dans six mois.");
+            "numéro de convention — ou --empreinte \"…\" pour un justificatif conservé en " +
+            "fichier. C'est ce qui répondra au contrôle dans six mois.");
         return 2;
     }
 
@@ -663,7 +669,7 @@ if (ligneDeCommande.Verbe == Verbe.ZeroVatRegle)
     if (nouvelle.Regime != "") Console.WriteLine($"  Régime       {nouvelle.Regime}");
     Console.WriteLine($"  État         {nouvelle.Etat}");
     Console.WriteLine($"  Validée par  {(nouvelle.ValideePar == "" ? "—" : nouvelle.ValideePar)}");
-    Console.WriteLine($"  Preuve       {(nouvelle.Reference == "" ? "—" : nouvelle.Reference)}");
+    Console.WriteLine($"  Preuve       {(nouvelle.Preuve == "" ? "—" : nouvelle.Preuve)}");
     if (nouvelle.ValideDu is { } d) Console.WriteLine($"  À partir du  {d:dd/MM/yyyy}");
     if (nouvelle.ValideAu is { } f) Console.WriteLine($"  Jusqu'au     {f:dd/MM/yyyy}");
     if (precedente is not null)

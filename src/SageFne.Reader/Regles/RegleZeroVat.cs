@@ -137,6 +137,19 @@ public sealed record RegleZeroVat
     public string Reperage => $"{Id} v{Version}";
 
     /// <summary>
+    /// La preuve, sous la forme qu'elle a. Vide quand il n'y en a pas.
+    /// </summary>
+    /// <remarks>
+    /// Une référence citable ou l'empreinte d'un justificatif conservé : les deux
+    /// valent, et un affichage qui ne lirait que la première dirait « aucune
+    /// preuve » d'une règle qui en porte une.
+    /// </remarks>
+    [JsonIgnore]
+    public string Preuve => Reference != "" ? Reference
+        : EmpreinteJustificatif != "" ? $"justificatif {EmpreinteJustificatif}"
+        : "";
+
+    /// <summary>
     /// Vrai quand la règle peut produire son code à cette date.
     /// </summary>
     /// <remarks>

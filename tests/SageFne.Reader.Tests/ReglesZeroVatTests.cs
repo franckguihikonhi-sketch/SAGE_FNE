@@ -96,6 +96,52 @@ public class RegleZeroVatTests
             Regle().Identite,
             (Regle() with { Cle = "25sn001" }).Identite);
     }
+
+    [Fact]
+    public void L_empreinte_d_un_justificatif_vaut_preuve()
+    {
+        // La base accepte une référence ou une empreinte. Un affichage qui ne
+        // lirait que la référence dirait « aucune preuve » d'une règle qui en
+        // porte une — et rien n'inquiète autant qu'une règle validée sans preuve.
+        var regle = new RegleZeroVat
+        {
+            Id = "article-x1",
+            Portee = PorteeRegle.Article,
+            Cle = "X1",
+            EmpreinteJustificatif = "sha256:ab12",
+        };
+
+        Assert.NotEqual("", regle.Preuve);
+        Assert.Contains("ab12", regle.Preuve);
+    }
+
+    [Fact]
+    public void Sans_reference_ni_empreinte_il_n_y_a_pas_de_preuve()
+    {
+        var regle = new RegleZeroVat
+        {
+            Id = "article-x1",
+            Portee = PorteeRegle.Article,
+            Cle = "X1",
+        };
+
+        Assert.Equal("", regle.Preuve);
+    }
+
+    [Fact]
+    public void Une_reference_prime_sur_l_empreinte_a_l_affichage()
+    {
+        var regle = new RegleZeroVat
+        {
+            Id = "article-x1",
+            Portee = PorteeRegle.Article,
+            Cle = "X1",
+            Reference = "Convention 42",
+            EmpreinteJustificatif = "sha256:ab12",
+        };
+
+        Assert.Equal("Convention 42", regle.Preuve);
+    }
 }
 
 /// <summary>
