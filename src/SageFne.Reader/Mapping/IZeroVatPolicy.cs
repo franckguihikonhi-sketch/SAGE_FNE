@@ -19,7 +19,21 @@ public readonly record struct ZeroVatContexte(string ArticleReference, string Fa
 /// Une valeur de paramétrage refusée. Elle n'est jamais ignorée en silence :
 /// une règle mal écrite doit se voir, pas se contourner.
 /// </param>
-public sealed record ZeroVatDecision(RegimeTvaZero Regime, string Origine, string? Erreur = null);
+/// <param name="Fondement">
+/// Pourquoi la ligne est exonérée, quand la règle le dit. Sert la piste
+/// d'audit, jamais le JSON envoyé — la DGI ne reçoit qu'un code.
+/// </param>
+/// <param name="Avertissement">
+/// Une règle acceptée mais mal formée : une valeur héritée qui nomme un
+/// fondement là où seul un code a sa place, par exemple. Elle décide, et se
+/// signale.
+/// </param>
+public sealed record ZeroVatDecision(
+    CodeTvaZero Code,
+    string Origine,
+    string? Erreur = null,
+    FondementExoneration Fondement = FondementExoneration.NonEtabli,
+    string? Avertissement = null);
 
 /// <summary>
 /// D'où vient la classification des TVA à 0 %.

@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 485 tests
+dotnet test                                    # 504 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -163,14 +163,18 @@ Elles se déclarent donc, du plus précis au plus général :
 ```jsonc
 "Fne": {
   "ZeroVat": {
-    "CustomerTaxRegimes": { "4111SOGEL": "RME" },            // 1. le statut de l'acheteur
-    "ByArticle":  { "13415001": "LegalExemptionTEE_RME" },   // 2. le produit
-    "ByFamily":   { "02": "LegalExemptionTEE_RME" },         // 3. sa famille
-    "ByCustomer": { "4111SITASARL": "ConventionalExemption" },// 4. le client, hors TEE/RME
-    "Default": "Unknown"                                     // 5. le dossier
+    "CustomerTaxRegimes": { "4111SOGEL": "RME" },   // 1. le statut de l'acheteur
+    "ByArticle":  { "13415001": "Tvad" },           // 2. le produit
+    "ByFamily":   { "02": "Tvad" },                 // 3. sa famille
+    "ByCustomer": { "4111SITASARL": "Tvac" },       // 4. le client, hors TEE/RME
+    "Default": "Unknown"                            // 5. le dossier
   }
 }
 ```
+
+**Ces quatre niveaux portent un code FNE, pas une qualification juridique.** `Tvac`,
+`Tvad` ou `Unknown` — la casse est libre, `TVAD` marche aussi, puisque c'est la graphie de
+la documentation DGI.
 
 | Priorité | Clé | D'où elle vient | Valeurs |
 | --- | --- | --- | --- |
@@ -181,14 +185,36 @@ Elles se déclarent donc, du plus précis au plus général :
 | 5 | `Default` | le dossier entier | *idem* |
 | 6 | — | **`ZERO_VAT_CATEGORY_UNKNOWN`**, pièce bloquée | — |
 
-`CustomerTaxRegimes` n'admet que `TEE` et `RME`, qui donnent l'un comme l'autre `TVAD`. Les
-quatre autres niveaux n'admettent que **deux valeurs** : `ConventionalExemption` et
-`LegalExemptionTEE_RME` (plus `Unknown`, qui bloque volontairement).
+`CustomerTaxRegimes` n'admet que `TEE` et `RME`, qui donnent l'un comme l'autre `TVAD`.
 
-Écrire `TVAD`, `legale` ou `TEE/RME` au mauvais endroit n'est pas accepté — et surtout **pas
+Écrire `legale`, `TEE/RME` ou n'importe quoi d'autre n'est pas accepté — et surtout **pas
 ignoré en silence** : la règle est refusée par `ZERO_VAT_CATEGORY_INVALID`, sans passer au
 niveau suivant. Traiter une faute de frappe comme une absence de règle ferait partir la
-facture sous un régime que personne n'a voulu.
+facture sous un code que personne n'a voulu.
+
+### Le code FNE n'est pas le fondement juridique
+
+Les valeurs étaient d'abord nommées `ConventionalExemption` et `LegalExemptionTEE_RME`.
+C'était une faute : elles nommaient un **fondement** dans un emplacement qui ne porte qu'un
+**code**. Déclarer un article de poisson congelé sous `LegalExemptionTEE_RME` — ce que la
+DGI pourrait très bien demander, si `TVAD` est le code attendu — aurait inscrit dans la
+configuration, donc dans la piste d'audit, un régime TEE/RME que ni le produit ni le client
+ne justifient.
+
+Les deux dimensions sont désormais distinctes :
+
+| | Ce que c'est | Où ça se lit |
+|---|---|---|
+| **Code FNE** | `TVAC`, `TVAD` | ce qui part dans `items[].taxes` |
+| **Fondement** | régime de l'acheteur, exonération légale du produit, convention… | l'audit, jamais le JSON |
+
+Le fondement **ne se déduit pas du code**, ni l'inverse. Aujourd'hui, seul le régime déclaré
+de l'acheteur en établit un ; une règle d'article ou de famille dit quel code envoyer, et
+avoue ignorer pourquoi. `apercu` affiche les deux colonnes côte à côte.
+
+Les anciens noms restent acceptés — casser un paramétrage existant serait pire — mais
+chaque usage lève `ZERO_VAT_VALEUR_HERITEE`, qui nomme le code à écrire à la place et
+rappelle que TEE/RME ne se déclare que dans `CustomerTaxRegimes`.
 
 Le relevé montre quelle règle a décidé :
 

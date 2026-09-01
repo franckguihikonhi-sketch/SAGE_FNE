@@ -13,7 +13,7 @@ namespace SageFne.Reader.Mapping;
 /// <item>sa famille — elle tient à toute une gamme ;</item>
 /// <item>le client — elle tient à ce client sans relever de TEE/RME ;</item>
 /// <item>le dossier — elle vaut pour toute l'entreprise ;</item>
-/// <item>rien : <see cref="RegimeTvaZero.Inconnu"/>, et la pièce est bloquée.</item>
+/// <item>rien : <see cref="CodeTvaZero.Inconnu"/>, et la pièce est bloquée.</item>
 /// </list>
 ///
 /// Le régime de l'acheteur passe avant l'article, et ce n'est pas une question
@@ -33,9 +33,22 @@ namespace SageFne.Reader.Mapping;
 /// </remarks>
 public sealed class ConfiguredZeroVatPolicy(ZeroVatOptions options) : IZeroVatPolicy
 {
-    public const string Conventionnelle = "ConventionalExemption";
-    public const string Legale = "LegalExemptionTEE_RME";
+    /// <summary>Les valeurs de paramétrage : des codes FNE, et rien d'autre.</summary>
+    public const string Tvac = "Tvac";
+    public const string Tvad = "Tvad";
     public const string Aucune = "Unknown";
+
+    /// <summary>
+    /// Anciens noms, encore acceptés mais signalés.
+    /// </summary>
+    /// <remarks>
+    /// Ils nommaient un fondement — « exonération conventionnelle », « TEE/RME »
+    /// — là où seul un code avait sa place. Les garder évite de casser une
+    /// configuration existante ; les signaler évite qu'une exonération de
+    /// produit reste inscrite pour toujours sous un régime d'acheteur.
+    /// </remarks>
+    public const string ConventionnelleHeritee = "ConventionalExemption";
+    public const string LegaleHeritee = "LegalExemptionTEE_RME";
 
     /// <summary>Régimes d'acheteur reconnus, tous deux de fondement légal.</summary>
     public const string RegimeTee = "TEE";
@@ -51,7 +64,7 @@ public sealed class ConfiguredZeroVatPolicy(ZeroVatOptions options) : IZeroVatPo
             if (regimeAcheteur is null)
             {
                 return new ZeroVatDecision(
-                    RegimeTvaZero.Inconnu,
+                    CodeTvaZero.Inconnu,
                     $"régime acheteur {contexte.CtNum}",
                     $"le régime déclaré du client {contexte.CtNum} vaut « {declare} », qui n'est " +
                     $"pas un régime reconnu. Seuls {RegimeTee} et {RegimeRme} sont acceptés.");
@@ -59,7 +72,8 @@ public sealed class ConfiguredZeroVatPolicy(ZeroVatOptions options) : IZeroVatPo
 
             return new ZeroVatDecision(
                 regimeAcheteur.Value,
-                $"régime acheteur {declare.Trim().ToUpperInvariant()} du client {contexte.CtNum}");
+                $"régime acheteur {declare.Trim().ToUpperInvariant()} du client {contexte.CtNum}",
+                Fondement: FondementExoneration.RegimeAcheteur);
         }
 
         foreach (var (table, cle, origine) in new[]
@@ -71,34 +85,38 @@ public sealed class ConfiguredZeroVatPolicy(ZeroVatOptions options) : IZeroVatPo
         {
             if (string.IsNullOrWhiteSpace(cle) || !table.TryGetValue(cle.Trim(), out var valeur)) continue;
 
-            var regime = Analyser(valeur);
-            if (regime is null)
+            var code = Analyser(valeur);
+            if (code is null)
             {
                 return new ZeroVatDecision(
-                    RegimeTvaZero.Inconnu,
+                    CodeTvaZero.Inconnu,
                     $"{origine} {cle}",
-                    $"la règle « {origine} {cle} » vaut « {valeur} », qui n'est pas une classification " +
-                    $"reconnue. Seuls {Conventionnelle} et {Legale} sont acceptés.");
+                    $"la règle « {origine} {cle} » vaut « {valeur} », qui n'est pas un code reconnu. " +
+                    $"Seuls {Tvac}, {Tvad} et {Aucune} sont acceptés.");
             }
 
             // Unknown déclaré explicitement : la règle existe et dit « je ne
             // sais pas ». Elle décide quand même, et bloque.
-            return new ZeroVatDecision(regime.Value, $"{origine} {cle}");
+            return new ZeroVatDecision(
+                code.Value,
+                $"{origine} {cle}",
+                Avertissement: Herite(valeur, origine, cle));
         }
 
         var dossier = Analyser(options.Default);
         if (dossier is null)
         {
             return new ZeroVatDecision(
-                RegimeTvaZero.Inconnu,
+                CodeTvaZero.Inconnu,
                 "dossier",
-                $"le réglage du dossier vaut « {options.Default} », qui n'est pas une classification " +
-                $"reconnue. Seuls {Conventionnelle} et {Legale} sont acceptés.");
+                $"le réglage du dossier vaut « {options.Default} », qui n'est pas un code reconnu. " +
+                $"Seuls {Tvac}, {Tvad} et {Aucune} sont acceptés.");
         }
 
         return new ZeroVatDecision(
             dossier.Value,
-            dossier.Value == RegimeTvaZero.Inconnu ? "aucune règle applicable" : "dossier");
+            dossier.Value == CodeTvaZero.Inconnu ? "aucune règle applicable" : "dossier",
+            Avertissement: Herite(options.Default, "dossier", ""));
     }
 
     /// <summary>
@@ -106,13 +124,45 @@ public sealed class ConfiguredZeroVatPolicy(ZeroVatOptions options) : IZeroVatPo
     /// </summary>
     /// <returns>
     /// <c>null</c> quand la valeur n'est reconnue d'aucune façon — à distinguer
-    /// de <see cref="RegimeTvaZero.Inconnu"/>, qui est un choix délibéré.
+    /// de <see cref="CodeTvaZero.Inconnu"/>, qui est un choix délibéré.
     /// </returns>
-    public static RegimeTvaZero? Analyser(string? valeur) => valeur?.Trim() switch
+    /// <remarks>
+    /// La casse est ignorée : le paramétrage porte désormais un code FNE, et
+    /// « TVAD » est la graphie que la documentation de la DGI emploie. Refuser
+    /// ce que tout le monde écrira naturellement serait perverse.
+    /// </remarks>
+    public static CodeTvaZero? Analyser(string? valeur) =>
+        valeur?.Trim().ToUpperInvariant() switch
+        {
+            "TVAC" => CodeTvaZero.Tvac,
+            "TVAD" => CodeTvaZero.Tvad,
+            "CONVENTIONALEXEMPTION" => CodeTvaZero.Tvac,
+            "LEGALEXEMPTIONTEE_RME" => CodeTvaZero.Tvad,
+            "UNKNOWN" or "" or null => CodeTvaZero.Inconnu,
+            _ => null,
+        };
+
+    /// <summary>
+    /// L'avertissement dû à une valeur héritée, ou null.
+    /// </summary>
+    /// <remarks>
+    /// <c>LegalExemptionTEE_RME</c> posé sur un article affirme que ce produit
+    /// relève du régime TEE/RME de l'acheteur. Sur un article de poisson
+    /// congelé, c'est faux, et la configuration est la piste d'audit. La règle
+    /// décide quand même — casser un paramétrage existant serait pire — mais
+    /// elle ne passe plus en silence.
+    /// </remarks>
+    private static string? Herite(string? valeur, string origine, string cle) =>
+        valeur?.Trim().ToUpperInvariant() switch
     {
-        Conventionnelle => RegimeTvaZero.ExonerationConventionnelle,
-        Legale => RegimeTvaZero.ExonerationLegaleTeeRme,
-        Aucune or "" or null => RegimeTvaZero.Inconnu,
+        "CONVENTIONALEXEMPTION" =>
+            $"la règle « {$"{origine} {cle}".Trim()} » vaut « {ConventionnelleHeritee} », un ancien nom qui " +
+            $"décrit un fondement juridique. Écrivez « {Tvac} » : le paramétrage porte un code FNE, " +
+            "pas une qualification fiscale.",
+        "LEGALEXEMPTIONTEE_RME" =>
+            $"la règle « {$"{origine} {cle}".Trim()} » vaut « {LegaleHeritee} », un ancien nom qui affirme " +
+            $"un régime TEE/RME. Écrivez « {Tvad} » si c'est le code voulu : le fondement se " +
+            "documente ailleurs, et TEE/RME ne se déclare que dans CustomerTaxRegimes.",
         _ => null,
     };
 
@@ -131,10 +181,10 @@ public sealed class ConfiguredZeroVatPolicy(ZeroVatOptions options) : IZeroVatPo
     /// l'article suivant.
     /// </remarks>
     /// <returns><c>null</c> quand la valeur n'est pas un régime reconnu.</returns>
-    public static RegimeTvaZero? AnalyserRegimeAcheteur(string? valeur) =>
+    public static CodeTvaZero? AnalyserRegimeAcheteur(string? valeur) =>
         valeur?.Trim().ToUpperInvariant() switch
         {
-            RegimeTee or RegimeRme => RegimeTvaZero.ExonerationLegaleTeeRme,
+            RegimeTee or RegimeRme => CodeTvaZero.Tvad,
             _ => null,
         };
 }

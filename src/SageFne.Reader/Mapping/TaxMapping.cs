@@ -57,9 +57,9 @@ public static class TaxMapping
         public IReadOnlyList<string> PrelevementsSansMapping { get; init; } = PrelevementsSansMapping ?? [];
     }
 
-    /// <param name="regimeZero">
+    /// <param name="codeZero">
     /// Régime qui justifie une TVA à 0 % sur cette ligne. <see
-    /// cref="RegimeTvaZero.Inconnu"/> par défaut : le taux seul ne permet pas de
+    /// cref="CodeTvaZero.Inconnu"/> par défaut : le taux seul ne permet pas de
     /// choisir entre TVAC et TVAD, et deviner reviendrait à déclarer à la DGI un
     /// régime fiscal qu'on ignore.
     /// </param>
@@ -69,7 +69,7 @@ public static class TaxMapping
     /// </param>
     public static Resultat Read(
         SageDocumentLine ligne,
-        RegimeTvaZero regimeZero = RegimeTvaZero.Inconnu,
+        CodeTvaZero codeZero = CodeTvaZero.Inconnu,
         TaxCatalogue? catalogue = null)
     {
         var taxons = catalogue ?? TaxCatalogue.Defaut;
@@ -132,7 +132,7 @@ public static class TaxMapping
         var regimeZeroRequis = false;
         if (taxes.Count == 0 && !tauxInconnu)
         {
-            var code = regimeZero.Code();
+            var code = codeZero.Code();
             if (code is not null)
             {
                 taxes.Add(code);

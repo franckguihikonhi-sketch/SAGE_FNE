@@ -67,7 +67,7 @@ public class ZeroVatTests
     [Fact]
     public void Zero_pour_cent_sans_regime_ne_donne_aucun_code()
     {
-        var resultat = TaxMapping.Read(Ligne(), RegimeTvaZero.Inconnu);
+        var resultat = TaxMapping.Read(Ligne(), CodeTvaZero.Inconnu);
 
         Assert.Empty(resultat.Taxes);
         Assert.True(resultat.RegimeZeroRequis);
@@ -83,9 +83,9 @@ public class ZeroVatTests
     }
 
     [Theory]
-    [InlineData(RegimeTvaZero.ExonerationConventionnelle, "TVAC")]
-    [InlineData(RegimeTvaZero.ExonerationLegaleTeeRme, "TVAD")]
-    public void Un_regime_declare_donne_son_code(RegimeTvaZero regime, string attendu)
+    [InlineData(CodeTvaZero.Tvac, "TVAC")]
+    [InlineData(CodeTvaZero.Tvad, "TVAD")]
+    public void Un_regime_declare_donne_son_code(CodeTvaZero regime, string attendu)
     {
         var resultat = TaxMapping.Read(Ligne(), regime);
 
@@ -98,7 +98,7 @@ public class ZeroVatTests
     {
         // Le prélèvement ne dépend pas du régime de TVA : la pièce est bloquée,
         // mais le customTaxes reste juste.
-        var resultat = TaxMapping.Read(Ligne(taxe2: 1.5m, code2: "AIRSI"), RegimeTvaZero.Inconnu);
+        var resultat = TaxMapping.Read(Ligne(taxe2: 1.5m, code2: "AIRSI"), CodeTvaZero.Inconnu);
 
         Assert.True(resultat.RegimeZeroRequis);
         var prelevement = Assert.Single(resultat.CustomTaxes);
@@ -111,7 +111,7 @@ public class ZeroVatTests
     {
         // 12 % n'est pas 0 % : la ligne ne réclame pas un régime d'exonération,
         // elle porte un taux que la nomenclature ignore.
-        var resultat = TaxMapping.Read(Ligne(taxe1: 12m, code1: "TVA"), RegimeTvaZero.ExonerationLegaleTeeRme);
+        var resultat = TaxMapping.Read(Ligne(taxe1: 12m, code1: "TVA"), CodeTvaZero.Tvad);
 
         Assert.Empty(resultat.Taxes);
         Assert.False(resultat.RegimeZeroRequis);
@@ -143,7 +143,7 @@ public class ZeroVatTests
     {
         var decision = Politique().Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.Equal("aucune règle applicable", decision.Origine);
         Assert.Null(decision.Erreur);
     }
@@ -153,7 +153,7 @@ public class ZeroVatTests
     {
         var decision = Politique(dossier: "LegalExemptionTEE_RME").Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
         Assert.Equal("dossier", decision.Origine);
     }
 
@@ -164,7 +164,7 @@ public class ZeroVatTests
             dossier: "LegalExemptionTEE_RME",
             parClient: Regle("4111SITASARL", "ConventionalExemption")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.ExonerationConventionnelle, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvac, decision.Code);
         Assert.Equal("client 4111SITASARL", decision.Origine);
     }
 
@@ -176,7 +176,7 @@ public class ZeroVatTests
             parFamille: Regle("02", "LegalExemptionTEE_RME"),
             parClient: Regle("4111SITASARL", "ConventionalExemption")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
         Assert.Equal("famille 02", decision.Origine);
     }
 
@@ -189,7 +189,7 @@ public class ZeroVatTests
             parFamille: Regle("02", "ConventionalExemption"),
             parClient: Regle("4111SITASARL", "ConventionalExemption")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
         Assert.Equal("article 13415001", decision.Origine);
     }
 
@@ -228,41 +228,57 @@ public class ZeroVatTests
     // --- Aucune valeur n'est acceptée en silence ---------------------------
 
     [Theory]
-    [InlineData("TVAC")]
-    [InlineData("TVAD")]
     [InlineData("conventionnelle")]
     [InlineData("legale")]
+    [InlineData("TVAE")]
     [InlineData("n'importe quoi")]
     public void Une_valeur_hors_nomenclature_est_refusee_et_non_ignoree(string valeur)
     {
         // Passer au niveau suivant traiterait une faute de frappe comme une
-        // absence de règle : la facture partirait sous un régime non voulu.
+        // absence de règle : la facture partirait sous un code non voulu.
         var decision = Politique(
-            dossier: "LegalExemptionTEE_RME",
+            dossier: "Tvad",
             parArticle: Regle("13415001", valeur)).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.NotNull(decision.Erreur);
         Assert.Contains(valeur, decision.Erreur);
-        Assert.Contains("ConventionalExemption", decision.Erreur);
-        Assert.Contains("LegalExemptionTEE_RME", decision.Erreur);
+        Assert.Contains("Tvac", decision.Erreur);
+        Assert.Contains("Tvad", decision.Erreur);
+    }
+
+    [Theory]
+    [InlineData("Tvad", CodeTvaZero.Tvad)]
+    [InlineData("TVAD", CodeTvaZero.Tvad)]
+    [InlineData("tvad", CodeTvaZero.Tvad)]
+    [InlineData("  Tvac  ", CodeTvaZero.Tvac)]
+    [InlineData("TVAC", CodeTvaZero.Tvac)]
+    public void Le_code_FNE_se_lit_quelle_qu_en_soit_la_graphie(string valeur, CodeTvaZero attendu)
+    {
+        // « TVAD » est la graphie de la documentation DGI : la refuser au motif
+        // qu'on attend « Tvad » serait perverse.
+        var decision = Politique(parArticle: Regle("13415001", valeur)).Decider(Contexte);
+
+        Assert.Equal(attendu, decision.Code);
+        Assert.Null(decision.Erreur);
+        Assert.Null(decision.Avertissement);
     }
 
     [Fact]
     public void Un_reglage_de_dossier_illisible_est_refuse_aussi()
     {
-        var decision = Politique(dossier: "TVAD").Decider(Contexte);
+        var decision = Politique(dossier: "TVAX").Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.NotNull(decision.Erreur);
     }
 
     [Theory]
-    [InlineData("ConventionalExemption", RegimeTvaZero.ExonerationConventionnelle)]
-    [InlineData("LegalExemptionTEE_RME", RegimeTvaZero.ExonerationLegaleTeeRme)]
-    [InlineData("Unknown", RegimeTvaZero.Inconnu)]
-    [InlineData("", RegimeTvaZero.Inconnu)]
-    public void Seules_les_valeurs_de_la_nomenclature_sont_lues(string valeur, RegimeTvaZero attendu)
+    [InlineData("ConventionalExemption", CodeTvaZero.Tvac)]
+    [InlineData("LegalExemptionTEE_RME", CodeTvaZero.Tvad)]
+    [InlineData("Unknown", CodeTvaZero.Inconnu)]
+    [InlineData("", CodeTvaZero.Inconnu)]
+    public void Seules_les_valeurs_de_la_nomenclature_sont_lues(string valeur, CodeTvaZero attendu)
     {
         Assert.Equal(attendu, ConfiguredZeroVatPolicy.Analyser(valeur));
     }
@@ -270,9 +286,12 @@ public class ZeroVatTests
     [Fact]
     public void Une_valeur_inconnue_se_distingue_d_Unknown()
     {
-        // null, et non Inconnu : la valeur est fautive, pas absente.
-        Assert.Null(ConfiguredZeroVatPolicy.Analyser("TVAD"));
-        Assert.Equal(RegimeTvaZero.Inconnu, ConfiguredZeroVatPolicy.Analyser("Unknown"));
+        // null, et non Inconnu : la valeur est fautive, pas absente. « TVAD »
+        // est devenu un code valide ; c'est une graphie fantaisiste qu'il faut
+        // maintenant prendre pour éprouver la distinction.
+        Assert.Null(ConfiguredZeroVatPolicy.Analyser("TVAZ"));
+        Assert.Equal(CodeTvaZero.Inconnu, ConfiguredZeroVatPolicy.Analyser("Unknown"));
+        Assert.Equal(CodeTvaZero.Tvad, ConfiguredZeroVatPolicy.Analyser("TVAD"));
     }
 
     [Fact]
@@ -282,7 +301,7 @@ public class ZeroVatTests
             dossier: "LegalExemptionTEE_RME",
             parArticle: Regle("13415001", "Unknown")).Decider(Contexte);
 
-        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.Equal("article 13415001", decision.Origine);
         Assert.Null(decision.Erreur);
     }
@@ -290,9 +309,9 @@ public class ZeroVatTests
     [Fact]
     public void Les_codes_FNE_correspondent_a_la_nomenclature()
     {
-        Assert.Equal("TVAC", RegimeTvaZero.ExonerationConventionnelle.Code());
-        Assert.Equal("TVAD", RegimeTvaZero.ExonerationLegaleTeeRme.Code());
-        Assert.Null(RegimeTvaZero.Inconnu.Code());
+        Assert.Equal("TVAC", CodeTvaZero.Tvac.Code());
+        Assert.Equal("TVAD", CodeTvaZero.Tvad.Code());
+        Assert.Null(CodeTvaZero.Inconnu.Code());
     }
 }
 
@@ -336,7 +355,7 @@ public class RegimeAcheteurTests
         string client = "4111SOGEL", string famille = "01")
     {
         var decision = politique.Decider(new ZeroVatContexte(ligne.ArticleReference, famille, client));
-        return TaxMapping.Read(ligne, decision.Regime).Taxes;
+        return TaxMapping.Read(ligne, decision.Code).Taxes;
     }
 
     [Theory]
@@ -373,11 +392,11 @@ public class RegimeAcheteurTests
         // l'exonération devant la DGI, pas la nature du produit.
         var politique = Politique(
             regimes: new() { ["4111SOGEL"] = "RME" },
-            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Conventionnelle });
+            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Tvac });
 
         var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
 
-        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
         Assert.Contains("régime acheteur RME", decision.Origine);
     }
 
@@ -386,11 +405,11 @@ public class RegimeAcheteurTests
     {
         var politique = Politique(
             regimes: new() { ["4111SOGEL"] = "TEE" },
-            parFamille: new() { ["01"] = ConfiguredZeroVatPolicy.Conventionnelle });
+            parFamille: new() { ["01"] = ConfiguredZeroVatPolicy.Tvac });
 
         var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
 
-        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
     }
 
     [Fact]
@@ -398,11 +417,11 @@ public class RegimeAcheteurTests
     {
         var politique = Politique(
             regimes: new() { ["4111AUTRE"] = "RME" },
-            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Conventionnelle });
+            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Tvac });
 
         var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
 
-        Assert.Equal(RegimeTvaZero.ExonerationConventionnelle, decision.Regime);
+        Assert.Equal(CodeTvaZero.Tvac, decision.Code);
         Assert.Contains("article", decision.Origine);
     }
 
@@ -413,9 +432,9 @@ public class RegimeAcheteurTests
 
         var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
 
-        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.Empty(Codes(politique, Ligne(0m)));
-        Assert.True(TaxMapping.Read(Ligne(0m), decision.Regime).RegimeZeroRequis);
+        Assert.True(TaxMapping.Read(Ligne(0m), decision.Code).RegimeZeroRequis);
     }
 
     [Theory]
@@ -430,11 +449,11 @@ public class RegimeAcheteurTests
         // absence de règle : la facture partirait sous un régime non voulu.
         var politique = Politique(
             regimes: new() { ["4111SOGEL"] = valeur },
-            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Conventionnelle });
+            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Tvac });
 
         var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
 
-        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.NotNull(decision.Erreur);
         Assert.Contains("TEE", decision.Erreur);
         Assert.Contains("RME", decision.Erreur);
@@ -469,7 +488,175 @@ public class RegimeAcheteurTests
 
         // Et un client sans déclaration reste bloqué, quel que soit son passé.
         Assert.Equal(
-            RegimeTvaZero.Inconnu,
-            Politique().Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL")).Regime);
+            CodeTvaZero.Inconnu,
+            Politique().Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL")).Code);
+    }
+}
+
+/// <summary>
+/// Le code FNE et le fondement juridique sont deux choses.
+/// </summary>
+/// <remarks>
+/// <c>LegalExemptionTEE_RME</c> les confondait : il nommait un fondement dans
+/// un emplacement qui ne porte qu'un code. Posé sur un article de poisson
+/// congelé — ce que la DGI pourrait demander — il aurait inscrit dans la
+/// configuration, donc dans la piste d'audit, un régime TEE/RME que ni le
+/// produit ni le client ne justifient.
+/// </remarks>
+public class CodeEtFondementTests
+{
+    private static ConfiguredZeroVatPolicy Politique(
+        Dictionary<string, string>? parArticle = null,
+        Dictionary<string, string>? regimes = null,
+        string defaut = "Unknown") =>
+        new(new ZeroVatOptions
+        {
+            CustomerTaxRegimes = new(regimes ?? [], StringComparer.OrdinalIgnoreCase),
+            ByArticle = new(parArticle ?? [], StringComparer.OrdinalIgnoreCase),
+            Default = defaut,
+        });
+
+    private static readonly ZeroVatContexte Contexte = new("25SN001", "01", "4111SOGEL");
+
+    [Fact]
+    public void Une_regle_d_article_ne_pretend_a_aucun_fondement()
+    {
+        // Elle dit quel code envoyer. Pourquoi, elle l'ignore — et le dire
+        // serait mentir tant que la DGI n'a pas répondu.
+        var decision = Politique(parArticle: new() { ["25SN001"] = "Tvad" }).Decider(Contexte);
+
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
+        Assert.Equal(FondementExoneration.NonEtabli, decision.Fondement);
+    }
+
+    [Fact]
+    public void Le_regime_de_l_acheteur_est_le_seul_fondement_etabli_aujourd_hui()
+    {
+        var decision = Politique(regimes: new() { ["4111SOGEL"] = "RME" }).Decider(Contexte);
+
+        Assert.Equal(CodeTvaZero.Tvad, decision.Code);
+        Assert.Equal(FondementExoneration.RegimeAcheteur, decision.Fondement);
+    }
+
+    [Fact]
+    public void Le_code_ne_se_deduit_pas_du_fondement_ni_l_inverse()
+    {
+        // Deux règles donnant le même code, deux fondements différents. Les
+        // confondre rendrait l'un des deux faux.
+        var parRegime = Politique(regimes: new() { ["4111SOGEL"] = "TEE" }).Decider(Contexte);
+        var parArticle = Politique(parArticle: new() { ["25SN001"] = "Tvad" }).Decider(Contexte);
+
+        Assert.Equal(parRegime.Code, parArticle.Code);
+        Assert.NotEqual(parRegime.Fondement, parArticle.Fondement);
+    }
+
+    // --- Les anciens noms -----------------------------------------------------
+
+    [Theory]
+    [InlineData("LegalExemptionTEE_RME", CodeTvaZero.Tvad, "Tvad")]
+    [InlineData("ConventionalExemption", CodeTvaZero.Tvac, "Tvac")]
+    public void Un_ancien_nom_decide_encore_mais_se_signale(
+        string ancien, CodeTvaZero attendu, string conseille)
+    {
+        // Casser un paramétrage existant serait pire que le signaler. Mais le
+        // laisser passer en silence perpétuerait l'affirmation fautive.
+        var decision = Politique(parArticle: new() { ["25SN001"] = ancien }).Decider(Contexte);
+
+        Assert.Equal(attendu, decision.Code);
+        Assert.Null(decision.Erreur);
+        Assert.NotNull(decision.Avertissement);
+        Assert.Contains(ancien, decision.Avertissement);
+        Assert.Contains(conseille, decision.Avertissement);
+    }
+
+    [Fact]
+    public void L_avertissement_sur_TEE_RME_rappelle_ou_ce_regime_se_declare()
+    {
+        var decision = Politique(
+            parArticle: new() { ["25SN001"] = "LegalExemptionTEE_RME" }).Decider(Contexte);
+
+        Assert.Contains("CustomerTaxRegimes", decision.Avertissement);
+    }
+
+    [Fact]
+    public void Un_ancien_nom_n_invente_pas_de_fondement()
+    {
+        // Le piège exact : « LegalExemptionTEE_RME » sur un article ne prouve
+        // pas que l'article relève de TEE/RME.
+        var decision = Politique(
+            parArticle: new() { ["25SN001"] = "LegalExemptionTEE_RME" }).Decider(Contexte);
+
+        Assert.Equal(FondementExoneration.NonEtabli, decision.Fondement);
+        Assert.NotEqual(FondementExoneration.RegimeAcheteur, decision.Fondement);
+    }
+
+    [Theory]
+    [InlineData("Tvad")]
+    [InlineData("TVAD")]
+    [InlineData("Unknown")]
+    public void Un_code_ecrit_comme_un_code_ne_declenche_aucun_avertissement(string valeur)
+    {
+        var decision = Politique(parArticle: new() { ["25SN001"] = valeur }).Decider(Contexte);
+
+        Assert.Null(decision.Avertissement);
+    }
+
+    [Fact]
+    public void Le_regime_de_l_acheteur_ne_declenche_aucun_avertissement()
+    {
+        Assert.Null(Politique(regimes: new() { ["4111SOGEL"] = "RME" }).Decider(Contexte).Avertissement);
+    }
+
+    // --- Ce qui part réellement à la DGI --------------------------------------
+
+    [Theory]
+    [InlineData(CodeTvaZero.Tvac, "TVAC")]
+    [InlineData(CodeTvaZero.Tvad, "TVAD")]
+    public void Seul_le_code_atteint_le_JSON(CodeTvaZero code, string attendu)
+    {
+        var ligne = new SageDocumentLine
+        {
+            Piece = "1", Domaine = 0, Type = 6, Ligne = 1000,
+            ArticleReference = "25SN001", Designation = "Sardine",
+            Quantite = 1m, PrixUnitaire = 1000m, MontantHT = 1000m,
+            CodeTaxe1 = "", Taxe1 = 0m,
+        };
+
+        Assert.Equal([attendu], TaxMapping.Read(ligne, code).Taxes);
+    }
+
+    [Fact]
+    public void Un_code_inconnu_ne_produit_aucune_taxe_et_bloque()
+    {
+        var ligne = new SageDocumentLine
+        {
+            Piece = "1", Domaine = 0, Type = 6, Ligne = 1000,
+            ArticleReference = "25SN001", Designation = "Sardine",
+            Quantite = 1m, PrixUnitaire = 1000m, MontantHT = 1000m,
+            CodeTaxe1 = "", Taxe1 = 0m,
+        };
+
+        var resultat = TaxMapping.Read(ligne, CodeTvaZero.Inconnu);
+
+        Assert.Empty(resultat.Taxes);
+        Assert.True(resultat.RegimeZeroRequis);
+    }
+
+    [Fact]
+    public void Le_fondement_ne_figure_jamais_dans_les_taxes_envoyees()
+    {
+        // La DGI ne reçoit qu'un code. Le fondement sert l'audit, pas le JSON.
+        foreach (var fondement in Enum.GetValues<FondementExoneration>())
+        {
+            Assert.DoesNotContain(
+                fondement.ToString(),
+                string.Join(" ", TaxMapping.Read(new SageDocumentLine
+                {
+                    Piece = "1", Domaine = 0, Type = 6, Ligne = 1000,
+                    ArticleReference = "A", Designation = "A",
+                    Quantite = 1m, PrixUnitaire = 1m, MontantHT = 1m,
+                    CodeTaxe1 = "", Taxe1 = 0m,
+                }, CodeTvaZero.Tvad).Taxes));
+        }
     }
 }

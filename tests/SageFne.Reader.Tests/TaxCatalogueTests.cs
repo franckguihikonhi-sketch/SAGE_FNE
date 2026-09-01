@@ -48,7 +48,7 @@ public class TaxCatalogueTests
     {
         var resultat = TaxMapping.Read(
             Ligne(taxe2: 1.5m, code2: "AIRSI"),
-            RegimeTvaZero.ExonerationLegaleTeeRme,
+            CodeTvaZero.Tvad,
             Catalogue(("AIRSI", "AIRSI")));
 
         var prelevement = Assert.Single(resultat.CustomTaxes);
@@ -63,7 +63,7 @@ public class TaxCatalogueTests
         // Un dossier peut nommer sa taxe autrement que la DGI.
         var resultat = TaxMapping.Read(
             Ligne(taxe2: 1.5m, code2: "AIRSI"),
-            RegimeTvaZero.ExonerationLegaleTeeRme,
+            CodeTvaZero.Tvad,
             Catalogue(("AIRSI", "AIRSI-CI")));
 
         Assert.Equal("AIRSI-CI", Assert.Single(resultat.CustomTaxes).Name);
@@ -83,7 +83,7 @@ public class TaxCatalogueTests
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["AIRSI"] = "AIRSI" });
 
         var resultat = TaxMapping.Read(
-            Ligne(taxe2: 2m, code2: "AIB"), RegimeTvaZero.ExonerationLegaleTeeRme, catalogue);
+            Ligne(taxe2: 2m, code2: "AIB"), CodeTvaZero.Tvad, catalogue);
 
         Assert.Empty(resultat.CustomTaxes);
         var constat = Assert.Single(resultat.PrelevementsSansMapping);

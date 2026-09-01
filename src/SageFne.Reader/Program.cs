@@ -1625,7 +1625,7 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
             ligne.ArticleReference,
             famillesDuReleve.GetValueOrDefault(ligne.ArticleReference, ""),
             piece.Customer?.CtNum ?? piece.Header.Tiers));
-        var taxes = TaxMapping.Read(ligne, decision.Regime, catalogueDuReleve);
+        var taxes = TaxMapping.Read(ligne, decision.Code, catalogueDuReleve);
         var tva = TaxMapping.TauxTva(ligne);
         var airsi = TaxMapping.TauxPrelevements(ligne);
 
@@ -1652,20 +1652,27 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
     if (zero.Count > 0)
     {
         Titre("Classification des lignes à 0 % de TVA");
-        Console.WriteLine($"  {"Ligne",5} {"Article",-14} {"Famille",-10} {"Règle appliquée",-28} Régime");
+        Console.WriteLine(
+            $"  {"Ligne",5} {"Article",-14} {"Famille",-10} {"Règle appliquée",-28} " +
+            $"{"Code FNE",-9} Fondement");
         foreach (var (ligne, decision) in zero)
         {
             Console.WriteLine(
                 $"  {ligne.Ligne,5} {Tronquer(ligne.ArticleReference, 14),-14} " +
                 $"{Tronquer(famillesDuReleve.GetValueOrDefault(ligne.ArticleReference, "—"), 10),-10} " +
-                $"{Tronquer(decision.Origine, 28),-28} {decision.Regime.Libelle()}");
+                $"{Tronquer(decision.Origine, 28),-28} {decision.Code.Libelle(),-9} " +
+                $"{decision.Fondement.Libelle()}");
             if (decision.Erreur is not null) Console.WriteLine($"        ERREUR : {decision.Erreur}");
+            if (decision.Avertissement is not null) Console.WriteLine($"        à noter : {decision.Avertissement}");
         }
 
         Console.WriteLine();
         Console.WriteLine("""
-              Ordre consulté : article, puis famille, puis client, puis dossier.
+              Ordre consulté : régime de l'acheteur, puis article, famille, client, dossier.
               Se déclare dans appsettings.json, section Fne:ZeroVat.
+
+              Le code FNE est ce qui part dans items[].taxes. Le fondement dit pourquoi, et
+              ne s'en déduit pas : seul le régime déclaré de l'acheteur l'établit aujourd'hui.
               """);
     }
 

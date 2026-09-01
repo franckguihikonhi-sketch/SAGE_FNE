@@ -44,13 +44,20 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options) : IFneInvoice
             var decision = _regimes.Decider(
                 new ZeroVatContexte(ligne.ArticleReference, famille, customer.CtNum));
 
-            var taxes = TaxMapping.Read(ligne, decision.Regime, catalogue);
+            var taxes = TaxMapping.Read(ligne, decision.Code, catalogue);
 
             // Une règle mal écrite ne se contourne pas en passant au niveau
             // suivant : elle se signale.
             if (decision.Erreur is not null)
             {
                 report?.Erreur("ZERO_VAT_CATEGORY_INVALID", $"ligne {ligne.Ligne} : {decision.Erreur}");
+            }
+
+            // Une règle acceptée mais qui affirme un fondement à la place d'un
+            // code : elle décide, et se signale.
+            if (decision.Avertissement is not null)
+            {
+                report?.Avertir("ZERO_VAT_VALEUR_HERITEE", $"ligne {ligne.Ligne} : {decision.Avertissement}");
             }
 
             foreach (var prelevement in taxes.PrelevementsSansMapping)

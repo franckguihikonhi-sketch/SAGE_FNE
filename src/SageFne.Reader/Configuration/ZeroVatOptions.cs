@@ -27,8 +27,7 @@ public sealed class ZeroVatOptions
     /// <remarks>
     /// Valeurs admises : <c>TEE</c> et <c>RME</c>. Les deux partagent le même
     /// fondement juridique et donnent l'un comme l'autre
-    /// <see cref="Mapping.RegimeTvaZero.ExonerationLegaleTeeRme"/>, code FNE
-    /// <c>TVAD</c>.
+    /// <see cref="Mapping.CodeTvaZero.Tvad"/>, code FNE <c>TVAD</c>.
     ///
     /// Ce régime prime sur les règles d'article et de famille, parce qu'il ne
     /// dit pas la même chose qu'elles : celles-ci expliquent pourquoi un
@@ -44,7 +43,18 @@ public sealed class ZeroVatOptions
     /// </remarks>
     public Dictionary<string, string> CustomerTaxRegimes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Règle du dossier, appliquée à défaut de plus précis.</summary>
+    /// <summary>
+    /// Règle du dossier, appliquée à défaut de plus précis.
+    /// </summary>
+    /// <remarks>
+    /// Comme les trois dictionnaires ci-dessous, elle porte un <b>code FNE</b> —
+    /// <c>Tvac</c>, <c>Tvad</c> ou <c>Unknown</c> — et non une qualification
+    /// juridique. Les anciens noms <c>ConventionalExemption</c> et
+    /// <c>LegalExemptionTEE_RME</c> restent acceptés, mais signalés : ils
+    /// nommaient un fondement là où seul un code a sa place, et l'inscrire sur
+    /// un article de poisson congelé affirmait un régime TEE/RME que rien ne
+    /// justifie.
+    /// </remarks>
     public string Default { get; set; } = "Unknown";
 
     /// <summary>Par référence d'article (AR_Ref). Priorité 2.</summary>
