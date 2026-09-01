@@ -295,3 +295,181 @@ public class ZeroVatTests
         Assert.Null(RegimeTvaZero.Inconnu.Code());
     }
 }
+
+/// <summary>
+/// Le régime fiscal de l'acheteur, et ce qu'il ne peut pas faire.
+/// </summary>
+/// <remarks>
+/// TEE et RME tiennent au statut de l'acheteur, non à la nature du produit :
+/// quand les deux s'appliquent, c'est le statut qui fonde l'exonération devant
+/// la DGI. D'où sa priorité sur les règles d'article et de famille.
+///
+/// Il ne détaxe rien pour autant : une ligne à 9 % ou 18 % ne consulte jamais
+/// ces règles, et un client TEE achetant un produit taxé paie sa TVA.
+/// </remarks>
+public class RegimeAcheteurTests
+{
+    private static SageDocumentLine Ligne(decimal taux, string article = "25SN001") => new()
+    {
+        Piece = "1", Domaine = 0, Type = 6, Ligne = 1000,
+        ArticleReference = article, Designation = "Sardine",
+        Quantite = 1m, PrixUnitaire = 1000m, MontantHT = 1000m,
+        CodeTaxe1 = taux == 0m ? "" : "TVA", Taxe1 = taux,
+    };
+
+    private static ConfiguredZeroVatPolicy Politique(
+        Dictionary<string, string>? regimes = null,
+        Dictionary<string, string>? parArticle = null,
+        Dictionary<string, string>? parFamille = null,
+        string defaut = "Unknown") =>
+        new(new ZeroVatOptions
+        {
+            CustomerTaxRegimes = new(regimes ?? [], StringComparer.OrdinalIgnoreCase),
+            ByArticle = new(parArticle ?? [], StringComparer.OrdinalIgnoreCase),
+            ByFamily = new(parFamille ?? [], StringComparer.OrdinalIgnoreCase),
+            Default = defaut,
+        });
+
+    /// <summary>Le code FNE réellement envoyé, régime compris.</summary>
+    private static IReadOnlyList<string> Codes(
+        ConfiguredZeroVatPolicy politique, SageDocumentLine ligne,
+        string client = "4111SOGEL", string famille = "01")
+    {
+        var decision = politique.Decider(new ZeroVatContexte(ligne.ArticleReference, famille, client));
+        return TaxMapping.Read(ligne, decision.Regime).Taxes;
+    }
+
+    [Theory]
+    [InlineData("RME")]
+    [InlineData("TEE")]
+    [InlineData("rme")]
+    [InlineData("  tee  ")]
+    public void Un_client_au_regime_declare_donne_TVAD_sur_une_ligne_a_zero(string regime)
+    {
+        var politique = Politique(regimes: new() { ["4111SOGEL"] = regime });
+
+        Assert.Equal(["TVAD"], Codes(politique, Ligne(0m)));
+    }
+
+    [Theory]
+    [InlineData(9, "TVAB")]
+    [InlineData(18, "TVA")]
+    public void Un_client_au_regime_declare_paie_sa_TVA_sur_une_ligne_taxee(decimal taux, string attendu)
+    {
+        // Le garde-fou qui compte : le régime ne détaxe pas. Il explique une
+        // exonération constatée, il ne la crée pas.
+        var politique = Politique(regimes: new() { ["4111SOGEL"] = "RME" });
+
+        var codes = Codes(politique, Ligne(taux));
+
+        Assert.Equal([attendu], codes);
+        Assert.DoesNotContain("TVAD", codes);
+    }
+
+    [Fact]
+    public void Le_regime_de_l_acheteur_prime_sur_la_regle_d_article()
+    {
+        // Les deux s'appliquent : c'est le statut de l'acheteur qui fonde
+        // l'exonération devant la DGI, pas la nature du produit.
+        var politique = Politique(
+            regimes: new() { ["4111SOGEL"] = "RME" },
+            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Conventionnelle });
+
+        var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
+
+        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+        Assert.Contains("régime acheteur RME", decision.Origine);
+    }
+
+    [Fact]
+    public void Le_regime_de_l_acheteur_prime_sur_la_regle_de_famille()
+    {
+        var politique = Politique(
+            regimes: new() { ["4111SOGEL"] = "TEE" },
+            parFamille: new() { ["01"] = ConfiguredZeroVatPolicy.Conventionnelle });
+
+        var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
+
+        Assert.Equal(RegimeTvaZero.ExonerationLegaleTeeRme, decision.Regime);
+    }
+
+    [Fact]
+    public void Sans_regime_declare_les_regles_produit_reprennent_la_main()
+    {
+        var politique = Politique(
+            regimes: new() { ["4111AUTRE"] = "RME" },
+            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Conventionnelle });
+
+        var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
+
+        Assert.Equal(RegimeTvaZero.ExonerationConventionnelle, decision.Regime);
+        Assert.Contains("article", decision.Origine);
+    }
+
+    [Fact]
+    public void Un_client_sans_regime_ni_autre_regle_reste_bloque()
+    {
+        var politique = Politique();
+
+        var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
+
+        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.Empty(Codes(politique, Ligne(0m)));
+        Assert.True(TaxMapping.Read(Ligne(0m), decision.Regime).RegimeZeroRequis);
+    }
+
+    [Theory]
+    [InlineData("TEE/RME")]
+    [InlineData("LegalExemptionTEE_RME")]
+    [InlineData("legal")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Un_regime_hors_nomenclature_est_refuse_et_signale(string valeur)
+    {
+        // Passer au niveau suivant traiterait une faute de frappe comme une
+        // absence de règle : la facture partirait sous un régime non voulu.
+        var politique = Politique(
+            regimes: new() { ["4111SOGEL"] = valeur },
+            parArticle: new() { ["25SN001"] = ConfiguredZeroVatPolicy.Conventionnelle });
+
+        var decision = politique.Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
+
+        Assert.Equal(RegimeTvaZero.Inconnu, decision.Regime);
+        Assert.NotNull(decision.Erreur);
+        Assert.Contains("TEE", decision.Erreur);
+        Assert.Contains("RME", decision.Erreur);
+    }
+
+    [Fact]
+    public void L_origine_de_la_decision_nomme_le_regime_et_le_client()
+    {
+        // Ce que « apercu » affichera : un exploitant doit pouvoir vérifier
+        // d'où vient le code envoyé.
+        var decision = Politique(regimes: new() { ["4111SOGEL"] = "rme" })
+            .Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL"));
+
+        Assert.Contains("RME", decision.Origine);
+        Assert.Contains("4111SOGEL", decision.Origine);
+    }
+
+    [Fact]
+    public void Le_regime_ne_se_deduit_d_aucun_historique()
+    {
+        // La garantie structurelle : la décision ne voit que trois clés — un
+        // article, une famille, un compte. Aucune facture, aucun cumul, aucun
+        // historique. Un client dont tout est à 0 % reste un client dont on
+        // ignore le régime.
+        var contexte = typeof(ZeroVatContexte).GetProperties().Select(p => p.Name).ToList();
+
+        Assert.Equal(3, contexte.Count);
+        Assert.DoesNotContain(contexte, nom =>
+            nom.Contains("Historique", StringComparison.OrdinalIgnoreCase)
+            || nom.Contains("Facture", StringComparison.OrdinalIgnoreCase)
+            || nom.Contains("Lignes", StringComparison.OrdinalIgnoreCase));
+
+        // Et un client sans déclaration reste bloqué, quel que soit son passé.
+        Assert.Equal(
+            RegimeTvaZero.Inconnu,
+            Politique().Decider(new ZeroVatContexte("25SN001", "01", "4111SOGEL")).Regime);
+    }
+}

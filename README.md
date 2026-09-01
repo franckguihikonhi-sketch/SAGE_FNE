@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 468 tests
+dotnet test                                    # 485 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -144,32 +144,51 @@ l'époque de saisie.
 Cela ne change rien à la conclusion : aucune de ces formes ne distingue `TVAC` de `TVAD`.
 La distinction reste un fait juridique que Sage n'a jamais eu de raison d'enregistrer.
 
-Elle se déclare donc, du plus précis au plus général :
+**Le régime fiscal de l'acheteur passe avant tout le reste.** TEE et RME tiennent au statut
+de l'acheteur, non à la nature du produit : quand les deux s'appliquent, c'est le statut qui
+fonde l'exonération devant la DGI. Les deux régimes partagent le même fondement juridique et
+donnent l'un comme l'autre `TVAD`.
+
+**Il se déclare, et ne se déduit jamais.** Un client dont toutes les factures sont à 0 %
+n'est pas un client TEE : c'est un client dont on ignore le régime. `audit-tva-zero` expose
+cette régularité, il ne la transforme pas en règle — rien dans le code ne lit l'historique
+pour alimenter ce paramétrage.
+
+**Aucune de ces règles ne détaxe quoi que ce soit.** Elles ne sont consultées que sur une
+ligne déjà constatée à 0 % : une ligne à 9 % ou 18 % ne les lit jamais, et un client TEE
+achetant un produit taxé paie sa TVA.
+
+Elles se déclarent donc, du plus précis au plus général :
 
 ```jsonc
 "Fne": {
   "ZeroVat": {
-    "ByArticle":  { "13415001": "LegalExemptionTEE_RME" },   // 1. le produit
-    "ByFamily":   { "02": "LegalExemptionTEE_RME" },         // 2. sa famille
-    "ByCustomer": { "4111SITASARL": "ConventionalExemption" },// 3. le client
-    "Default": "Unknown"                                     // 4. le dossier
+    "CustomerTaxRegimes": { "4111SOGEL": "RME" },            // 1. le statut de l'acheteur
+    "ByArticle":  { "13415001": "LegalExemptionTEE_RME" },   // 2. le produit
+    "ByFamily":   { "02": "LegalExemptionTEE_RME" },         // 3. sa famille
+    "ByCustomer": { "4111SITASARL": "ConventionalExemption" },// 4. le client, hors TEE/RME
+    "Default": "Unknown"                                     // 5. le dossier
   }
 }
 ```
 
-| Priorité | Clé | D'où elle vient |
-| --- | --- | --- |
-| 1 | `ByArticle` | `AR_Ref` de la ligne |
-| 2 | `ByFamily` | `FA_CodeFamille` de l'article, lu dans `F_ARTICLE` |
-| 3 | `ByCustomer` | `CT_Num` du client de la pièce |
-| 4 | `Default` | le dossier entier |
-| 5 | — | **`ZERO_VAT_CATEGORY_UNKNOWN`**, pièce bloquée |
+| Priorité | Clé | D'où elle vient | Valeurs |
+| --- | --- | --- | --- |
+| 1 | `CustomerTaxRegimes` | `CT_Num` du client de la pièce | `TEE`, `RME` |
+| 2 | `ByArticle` | `AR_Ref` de la ligne | *voir ci-dessous* |
+| 3 | `ByFamily` | `FA_CodeFamille` de l'article, lu dans `F_ARTICLE` | *idem* |
+| 4 | `ByCustomer` | `CT_Num` du client de la pièce | *idem* |
+| 5 | `Default` | le dossier entier | *idem* |
+| 6 | — | **`ZERO_VAT_CATEGORY_UNKNOWN`**, pièce bloquée | — |
 
-**Deux valeurs, et deux seulement** : `ConventionalExemption` et `LegalExemptionTEE_RME`
-(plus `Unknown`, qui bloque volontairement). Écrire `TVAD` ou `legale` n'est pas accepté —
-et surtout **pas ignoré en silence** : la règle est refusée par `ZERO_VAT_CATEGORY_INVALID`,
-sans passer au niveau suivant. Traiter une faute de frappe comme une absence de règle ferait
-partir la facture sous un régime que personne n'a voulu.
+`CustomerTaxRegimes` n'admet que `TEE` et `RME`, qui donnent l'un comme l'autre `TVAD`. Les
+quatre autres niveaux n'admettent que **deux valeurs** : `ConventionalExemption` et
+`LegalExemptionTEE_RME` (plus `Unknown`, qui bloque volontairement).
+
+Écrire `TVAD`, `legale` ou `TEE/RME` au mauvais endroit n'est pas accepté — et surtout **pas
+ignoré en silence** : la règle est refusée par `ZERO_VAT_CATEGORY_INVALID`, sans passer au
+niveau suivant. Traiter une faute de frappe comme une absence de règle ferait partir la
+facture sous un régime que personne n'a voulu.
 
 Le relevé montre quelle règle a décidé :
 
