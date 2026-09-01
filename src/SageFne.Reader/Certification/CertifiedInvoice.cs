@@ -106,6 +106,49 @@ public sealed record CertifiedInvoice
     [JsonPropertyName("motif")]
     public string Motif { get; init; } = "";
 
+    /// <summary>
+    /// Tout ce qui est arrivé à cette pièce, dans l'ordre.
+    /// </summary>
+    /// <remarks>
+    /// En ajout seul, et surtout : reporté d'une écriture à l'autre. La trace
+    /// était auparavant reconstruite à neuf à chaque envoi, si bien qu'un second
+    /// envoi ne savait rien du premier. Un doublon réel en est né.
+    /// </remarks>
+    [JsonPropertyName("tentatives")]
+    public IReadOnlyList<TentativeEnvoi> Tentatives { get; init; } = [];
+
+    /// <summary>Combien de POST sont réellement partis vers la DGI.</summary>
+    /// <remarks>
+    /// Ne redescend jamais : un envoi parti reste parti, quoi qu'on décide
+    /// ensuite de son issue.
+    /// </remarks>
+    [JsonIgnore]
+    public int NombreEnvois => Tentatives.Count(t => t.Genre == GenreTentative.Envoi);
+
+    /// <summary>Le dernier envoi parti, s'il y en a eu un.</summary>
+    [JsonIgnore]
+    public TentativeEnvoi? DernierEnvoi =>
+        Tentatives.LastOrDefault(t => t.Genre == GenreTentative.Envoi);
+
+    /// <summary>La dernière réponse reçue, s'il y en a eu une.</summary>
+    [JsonIgnore]
+    public TentativeEnvoi? DerniereReponse =>
+        Tentatives.LastOrDefault(t => t.Genre == GenreTentative.Reponse);
+
+    /// <summary>Ajoute une ligne au journal, sans jamais en retirer.</summary>
+    public CertifiedInvoice AvecTentative(
+        GenreTentative genre, string detail, int? codeHttp = null) =>
+        this with
+        {
+            Tentatives = [.. Tentatives, new TentativeEnvoi
+            {
+                Quand = DateTimeOffset.Now,
+                Genre = genre,
+                CodeHttp = codeHttp,
+                Detail = detail,
+            }],
+        };
+
     /// <summary>Vrai quand la référence est absente ou vide.</summary>
     /// <remarks>
     /// La plateforme d'essai de la DGI certifie sans toujours publier de

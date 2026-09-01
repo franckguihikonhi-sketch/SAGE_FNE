@@ -600,6 +600,26 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
             Console.WriteLine($"  Motif         {ligne}");
         }
 
+        if (connue.Tentatives.Count > 0)
+        {
+            Titre("Journal de la pièce");
+            foreach (var tentative in connue.Tentatives)
+            {
+                Console.WriteLine($"  {tentative.Decrire()}");
+            }
+
+            // Le compte des envois est ce qui manquait le soir du doublon : rien
+            // ne rappelait qu'un POST était déjà parti.
+            if (connue.NombreEnvois > 1)
+            {
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"  ATTENTION : {connue.NombreEnvois} envois sont partis vers la DGI pour cette");
+                Console.WriteLine(
+                    "  pièce. Comptez les factures au portail, pas seulement leur présence.");
+            }
+        }
+
         // L'égalité des empreintes est ce qui sépare « certifiée et inchangée »
         // de « certifiée puis modifiée dans Sage ».
         if (connue.Empreinte != "" && suivie.Empreinte != "")
@@ -662,7 +682,9 @@ if (ligneDeCommande.Verbe == Verbe.Debloquer)
         numeroDeblocage,
         ligneDeCommande.Reference,
         ligneDeCommande.NonCertifiee,
-        ligneDeCommande.Confirme);
+        ligneDeCommande.Confirme,
+        ligneDeCommande.SansReference,
+        ligneDeCommande.Motif);
 
     Console.WriteLine($"  {deblocage.Message}");
 
@@ -783,6 +805,18 @@ if (ligneDeCommande.Verbe == Verbe.Envoyer)
     }
 
     Titre("Envoi réel");
+
+    if (aEnvoyer.Certification is { NombreEnvois: > 0 } dejaParti)
+    {
+        Console.WriteLine(
+            $"  ATTENTION : {dejaParti.NombreEnvois} envoi(s) sont déjà partis pour cette pièce.");
+        Console.WriteLine(
+            "  Un 5xx ne veut pas dire que la DGI n'a rien enregistré : elle a déjà certifié");
+        Console.WriteLine(
+            "  des factures en répondant 500, sans les publier tout de suite au portail.");
+        Console.WriteLine();
+    }
+
     Console.WriteLine($"  POST vers {reglagesApi.AdresseSignature()}");
 
     var resultat = await expediteur.EnvoyerAsync(numeroEnvoi, confirme: true);

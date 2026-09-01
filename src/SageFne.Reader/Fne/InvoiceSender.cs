@@ -48,8 +48,11 @@ public sealed class InvoiceSender(
     InvoiceBatchReader lecteur,
     ICertificationLedger registre,
     IFneApiClient client,
-    ILogger<InvoiceSender> logger)
+    ILogger<InvoiceSender> logger,
+    Microsoft.Extensions.Options.IOptions<Configuration.FneOptions> options)
 {
+    private readonly Configuration.FneOptions _options = options.Value;
+
     public async Task<EnvoiResultat> EnvoyerAsync(
         string piece,
         bool confirme,
@@ -97,7 +100,10 @@ public sealed class InvoiceSender(
         // Trace avant l'appel : c'est elle qui évitera le doublon si la réponse
         // se perd. Si elle échoue, rien ne part — une facture certifiée dont
         // nous n'aurions aucune trace serait pire que pas de facture du tout.
-        var enCours = Trace(conversion, EtatFne.Sending);
+        var enCours = Trace(conversion, EtatFne.Sending, conversion.Certification)
+            .AvecTentative(
+                GenreTentative.Envoi,
+                $"POST vers la plateforme — envoi n° {(conversion.Certification?.NombreEnvois ?? 0) + 1}.");
         try
         {
             await registre.RecordAsync(enCours, cancellation);
@@ -131,7 +137,13 @@ public sealed class InvoiceSender(
             var etat = douteux ? EtatFne.Sending : EtatFne.Error;
 
             await registre.RecordAsync(
-                enCours with { Etat = etat, Reponse = reponse.CorpsBrut, Erreur = reponse.Erreur ?? "" },
+                (enCours with { Etat = etat, Reponse = reponse.CorpsBrut, Erreur = reponse.Erreur ?? "" })
+                    .AvecTentative(
+                        GenreTentative.Reponse,
+                        douteux
+                            ? $"{reponse.Erreur} Issue INCONNUE : la plateforme a pu enregistrer la facture."
+                            : $"{reponse.Erreur} Refus net : rien n'a été créé.",
+                        reponse.CodeHttp),
                 cancellation);
 
             return new EnvoiResultat(
@@ -145,13 +157,16 @@ public sealed class InvoiceSender(
         }
 
         await registre.RecordAsync(
-            enCours with
+            (enCours with
             {
                 Etat = EtatFne.Certified,
                 ReferenceFne = reponse.ReferenceFne ?? "",
                 Token = reponse.Token ?? "",
                 Reponse = reponse.CorpsBrut,
-            },
+            }).AvecTentative(
+                GenreTentative.Reponse,
+                $"Certifiée sous {reponse.ReferenceFne}.",
+                reponse.CodeHttp),
             cancellation);
 
         return new EnvoiResultat(
@@ -179,15 +194,23 @@ public sealed class InvoiceSender(
         string? reference,
         bool nonCertifiee,
         bool confirme,
+        bool sansReference = false,
+        string? motif = null,
         CancellationToken cancellation = default)
     {
-        if (nonCertifiee == (reference is not null))
+        var avecReference = !string.IsNullOrWhiteSpace(reference);
+        var constats = (avecReference ? 1 : 0) + (nonCertifiee ? 1 : 0) + (sansReference ? 1 : 0);
+
+        if (constats != 1)
         {
             return new DeblocageResultat(
                 false,
-                "Cherchez d'abord la pièce sur le portail de la DGI, puis dites ce que vous y avez " +
-                "vu : --non-certifiee si elle n'y figure pas, --reference REF si elle y figure. " +
-                "L'un ou l'autre, jamais les deux : ce choix ne peut pas être deviné.");
+                "Cherchez d'abord la pièce sur le portail de la DGI, puis dites ce que vous y " +
+                "avez vu, une chose et une seule :\n" +
+                "    --reference REF    elle y figure, sous ce numéro\n" +
+                "    --sans-reference   elle y figure, sans numéro publié\n" +
+                "    --non-certifiee    elle n'y figure pas\n" +
+                "  Ce choix ne peut pas être deviné, et il ne se répare pas.");
         }
 
         var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
@@ -212,7 +235,7 @@ public sealed class InvoiceSender(
             return new DeblocageResultat(
                 false,
                 $"La pièce {piece} est déjà certifiée au registre" +
-                $"{(trace.ReferenceFne == "" ? "" : $" sous {trace.ReferenceFne}")} : " +
+                $"{(trace.SansReference ? "" : $" sous {trace.ReferenceFne}")} : " +
                 "une certification ne se réécrit pas. Si elle est erronée, la correction passe " +
                 "par un avoir.");
         }
@@ -225,32 +248,79 @@ public sealed class InvoiceSender(
                 "elle peut déjà repartir, rien ne la bloque.");
         }
 
-        var partiLe = trace.CertifieeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm");
+        // Déclarer « non certifiée » est la seule décision irréversible d'ici :
+        // elle rouvre l'envoi. Elle exige donc un motif, et d'avoir laissé au
+        // portail le temps de publier ce que la plateforme a enregistré.
+        if (nonCertifiee)
+        {
+            if (string.IsNullOrWhiteSpace(motif))
+            {
+                return new DeblocageResultat(
+                    false,
+                    "Déclarer une pièce non certifiée rouvre son envoi : c'est la seule décision " +
+                    "d'ici qui puisse créer un doublon. Elle demande un motif — --motif \"…\" — " +
+                    "disant ce que vous avez vu au portail, et quand.");
+            }
+
+            var parti = trace.DernierEnvoi?.Quand ?? trace.CertifieeLe;
+            var attendu = TimeSpan.FromMinutes(Math.Max(0, _options.PortalCheckDelayMinutes));
+            var ecoule = DateTimeOffset.Now - parti;
+
+            if (ecoule < attendu)
+            {
+                var reste = attendu - ecoule;
+                return new DeblocageResultat(
+                    false,
+                    $"L'envoi date de {(int)ecoule.TotalMinutes} min. Le portail de la DGI ne " +
+                    "publie pas immédiatement ce que la plateforme enregistre : une facture " +
+                    "absente maintenant peut y apparaître ensuite. C'est exactement ainsi qu'un " +
+                    $"doublon a été créé.\n" +
+                    $"  Attendez encore {Math.Ceiling(reste.TotalMinutes)} min, revérifiez le " +
+                    "portail, puis relancez cette commande.\n" +
+                    "  Si la pièce y figure déjà, n'utilisez pas --non-certifiee : " +
+                    "--reference REF, ou --sans-reference si aucun numéro n'est publié.");
+            }
+        }
+
+        var partiLe = (trace.DernierEnvoi?.Quand ?? trace.CertifieeLe)
+            .ToLocalTime().ToString("dd/MM/yyyy à HH:mm");
+
         var decision = nonCertifiee
-            ? $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy} : la pièce n'y figure pas. " +
-              $"L'envoi du {partiLe} n'a rien certifié."
-            : $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy} : la pièce y figure sous " +
-              $"{reference}. L'envoi du {partiLe} avait abouti.";
+            ? $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} : la pièce n'y " +
+              $"figure pas. L'envoi du {partiLe} n'a rien certifié. Motif : {motif!.Trim()}"
+            : sansReference
+                ? $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} : la pièce y " +
+                  $"figure, sans numéro publié. L'envoi du {partiLe} avait abouti." +
+                  (string.IsNullOrWhiteSpace(motif) ? "" : $" Motif : {motif.Trim()}")
+                : $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} : la pièce y " +
+                  $"figure sous {reference}. L'envoi du {partiLe} avait abouti.";
+
+        var avertissement = trace.NombreEnvois > 1
+            ? $"\n  ATTENTION : {trace.NombreEnvois} envois sont déjà partis pour cette pièce. " +
+              "Comptez les factures au portail, pas seulement leur présence — un doublon s'y " +
+              "verrait."
+            : "";
 
         if (!confirme)
         {
             return new DeblocageResultat(
                 false,
-                $"Rien n'a été inscrit : la confirmation manque. {decision}",
+                $"Rien n'a été inscrit : la confirmation manque. {decision}" + avertissement,
                 ConfirmationManque: true);
         }
 
-        // L'entrée en suspens laisse place à la décision : l'état change, la
-        // réponse d'origine et l'empreinte restent, pour que la trace de la
-        // tentative survive à son classement.
-        var classee = nonCertifiee
-            ? trace with { Etat = EtatFne.Error, Erreur = decision }
-            : trace with
-            {
-                Etat = EtatFne.Certified,
-                ReferenceFne = reference ?? "",
-                Erreur = decision,
-            };
+        // L'entrée en suspens laisse place à la décision : l'état change, le
+        // journal, la réponse d'origine et l'empreinte restent.
+        var classee = (nonCertifiee
+                ? trace with { Etat = EtatFne.Error }
+                : trace with
+                {
+                    Etat = EtatFne.Certified,
+                    ReferenceFne = sansReference ? "" : reference!.Trim(),
+                    Source = SourceCertification.ReconciliationManuelle,
+                })
+            .AvecMotif(decision)
+            .AvecTentative(GenreTentative.Decision, decision);
 
         await registre.RecordAsync(classee, cancellation);
         logger.LogInformation(
@@ -260,8 +330,11 @@ public sealed class InvoiceSender(
             true,
             nonCertifiee
                 ? $"La pièce {piece} redevient à certifier. Relancez « envoyer {piece} » quand elle " +
-                  "sera prête."
-                : $"La pièce {piece} est classée certifiée sous {reference}. Elle ne repartira pas.",
+                  "sera prête." + avertissement
+                : sansReference
+                    ? $"La pièce {piece} est classée certifiée, sans référence publiée. Elle ne " +
+                      "repartira plus."
+                    : $"La pièce {piece} est classée certifiée sous {reference}. Elle ne repartira pas.",
             classee.Etat);
     }
 
@@ -656,7 +729,12 @@ public sealed class InvoiceSender(
     /// défaut d'une énumération pour dire quelque chose de vrai est l'erreur qui
     /// a rendu une réconciliation manuelle indiscernable d'une réponse de la DGI.
     /// </remarks>
-    private static CertifiedInvoice Trace(InvoiceConversion conversion, EtatFne etat) => new()
+    /// <param name="precedente">
+    /// Ce que le registre portait déjà. Son journal est repris : c'est la seule
+    /// chose qui empêche un second envoi de croire qu'il est le premier.
+    /// </param>
+    private static CertifiedInvoice Trace(
+        InvoiceConversion conversion, EtatFne etat, CertifiedInvoice? precedente) => new()
     {
         Identite = conversion.Header.Identite,
         Piece = conversion.Header.Piece,
@@ -664,5 +742,7 @@ public sealed class InvoiceSender(
         Empreinte = conversion.Empreinte,
         Etat = etat,
         Source = SourceCertification.Middleware,
+        Tentatives = precedente?.Tentatives ?? [],
+        Motif = precedente?.Motif ?? "",
     };
 }

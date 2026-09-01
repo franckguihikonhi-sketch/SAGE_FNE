@@ -163,7 +163,7 @@ public class InvoiceSenderTests
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(options), registre, options);
 
-        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance),
+        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
             registre, client);
     }
 
@@ -351,7 +351,7 @@ public class RegistreIndisponibleTests
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(options), registre, options);
         var expediteur = new InvoiceSender(
-            lecteur, registre, client, NullLogger<InvoiceSender>.Instance);
+            lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var resultat = await expediteur.EnvoyerAsync("1221", confirme: true);
 

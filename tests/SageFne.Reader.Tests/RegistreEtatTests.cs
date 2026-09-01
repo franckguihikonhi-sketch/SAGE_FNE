@@ -146,7 +146,7 @@ public class RegistreEtatTests
         var registre = new RegistreSeme(Trace(EtatFne.Sending, await EmpreinteReelle()));
         var client = new ClientTemoin(new FneSignResult(true, 200, "REF"));
         var expediteur = new InvoiceSender(
-            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
 
@@ -168,7 +168,7 @@ public class RegistreEtatTests
         var client = new ClientTemoin(new FneSignResult(
             true, 200, "2304903U26000000930", "QR-TOKEN", """{"reference":"…"}"""));
         var expediteur = new InvoiceSender(
-            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var avant = DateTimeOffset.Now;
         await expediteur.EnvoyerAsync(Piece, confirme: true);
@@ -199,7 +199,7 @@ public class RegistreEtatTests
             Trace(EtatFne.Certified, await EmpreinteReelle(), "2304903U26000000930"));
         var client = new ClientTemoin(new FneSignResult(true, 200, "AUTRE-REF"));
         var expediteur = new InvoiceSender(
-            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
 
@@ -220,7 +220,7 @@ public class RegistreEtatTests
         var registre = new RegistreSeme();
         var client = new ClientTemoin(new FneSignResult(true, 200, "REF-UNIQUE", "QR"));
         var expediteur = new InvoiceSender(
-            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var premier = await expediteur.EnvoyerAsync(Piece, confirme: true);
         var ecrituresApresLePremier = registre.Ecritures.Count;
@@ -238,7 +238,7 @@ public class RegistreEtatTests
         var registre = new RegistreSeme(Trace(EtatFne.Error, await EmpreinteReelle()));
         var client = new ClientTemoin(new FneSignResult(true, 200, "REF-2"));
         var expediteur = new InvoiceSender(
-            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance);
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
 
@@ -291,7 +291,7 @@ public class IssueDouteuseTests
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
         var expediteur = new InvoiceSender(
-            lecteur, registre, new ClientFige(reponse), NullLogger<InvoiceSender>.Instance);
+            lecteur, registre, new ClientFige(reponse), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var resultat = await expediteur.EnvoyerAsync("1221", confirme: true);
 
@@ -391,7 +391,7 @@ public class DeblocageTests
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
-            lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance), registre);
+            lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail), registre);
     }
 
     [Fact]
@@ -423,7 +423,8 @@ public class DeblocageTests
     {
         var (expediteur, registre) = Monter(Trace(EtatFne.Sending));
 
-        var resultat = await expediteur.DebloquerAsync(Piece, null, true, confirme: false);
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, null, true, confirme: false, motif: "Absente du portail à 09h00.");
 
         Assert.False(resultat.Applique);
         Assert.True(resultat.ConfirmationManque);
@@ -435,12 +436,13 @@ public class DeblocageTests
     {
         var (expediteur, registre) = Monter(Trace(EtatFne.Sending));
 
-        var resultat = await expediteur.DebloquerAsync(Piece, null, true, confirme: true);
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, null, true, confirme: true, motif: "Absente du portail, vérifié deux fois.");
 
         Assert.True(resultat.Applique);
         var inscrite = Assert.Single(registre.Ecritures);
         Assert.Equal(EtatFne.Error, inscrite.Etat);
-        Assert.Contains("n'y figure pas", inscrite.Erreur);
+        Assert.Contains("n'y figure pas", inscrite.Motif);
 
         // Et elle repart pour de bon : c'est tout l'objet du déblocage. Le
         // registre porte maintenant l'entrée classée, et une relecture doit la
@@ -807,7 +809,7 @@ public class ReconciliationTests
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
-            lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance), registre);
+            lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail), registre);
     }
 
     [Fact]
@@ -1031,7 +1033,7 @@ public class CertificationSansReferenceTests
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
 
-        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance),
+        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
             registre, client, lecteur);
     }
 
@@ -1360,7 +1362,7 @@ public class SauvegardeDuRegistreTests : IDisposable
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
         var expediteur = new InvoiceSender(
-            lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance);
+            lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         Assert.Empty(Sauvegardes());
 
@@ -1408,7 +1410,7 @@ public class SauvegardeDuRegistreTests : IDisposable
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
 
-        await new InvoiceSender(lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance)
+        await new InvoiceSender(lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail)
             .CorrigerReferenceAsync("1221", "TA_REFERENCE_FNE", "motif", false, confirme: false);
 
         Assert.Empty(Sauvegardes());
@@ -1686,7 +1688,7 @@ public class ReparationSourceTests : IDisposable
         });
 
         var client = new ClientMuet();
-        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance),
+        return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
             registre, client, lecteur, empreinte);
     }
 
@@ -1842,7 +1844,7 @@ public class ReparationSourceTests : IDisposable
         var lecteur = new InvoiceBatchReader(
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
         var expediteur = new InvoiceSender(
-            lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance);
+            lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
         var resultat = await expediteur.ReparerSourceAsync("1221", confirme: true);
 
@@ -1894,7 +1896,7 @@ public class SourceToujoursExpliciteTests
             new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
-            lecteur, registre, new ClientQuiRepond(reponse), NullLogger<InvoiceSender>.Instance),
+            lecteur, registre, new ClientQuiRepond(reponse), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
             registre);
     }
 
@@ -1960,5 +1962,307 @@ public class SourceToujoursExpliciteTests
 
         Assert.All(registre.Ecritures,
             ecriture => Assert.NotEqual(SourceCertification.Inconnue, ecriture.Source));
+    }
+}
+
+/// <summary>Réglages partagés des tests d'envoi.</summary>
+internal static class ReglagesDEssai
+{
+    /// <summary>
+    /// Le délai d'attente avant de pouvoir déclarer « non certifiée », mis à
+    /// zéro. Les tests qui portent sur ce délai le règlent eux-mêmes ; les
+    /// autres n'ont pas à patienter un quart d'heure.
+    /// </summary>
+    public static IOptions<FneOptions> SansDelaiPortail { get; } = Options.Create(new FneOptions
+    {
+        PointOfSale = "FISH-AFRIC",
+        Establishment = "FISH-AFRIC",
+        Template = "B2B",
+        PaymentMethod = "deferred",
+        PortalCheckDelayMinutes = 0,
+    });
+
+    public static IOptions<FneOptions> AvecDelai(int minutes) => Options.Create(new FneOptions
+    {
+        PointOfSale = "FISH-AFRIC",
+        Establishment = "FISH-AFRIC",
+        Template = "B2B",
+        PaymentMethod = "deferred",
+        PortalCheckDelayMinutes = minutes,
+    });
+}
+
+/// <summary>
+/// Le doublon de la pièce 1072, et ce qui devait l'empêcher.
+/// </summary>
+/// <remarks>
+/// Déroulé réel : envoi à 23h40 → HTTP 500 → l'opérateur cherche la facture au
+/// portail, ne l'y voit pas, la déclare non certifiée → renvoi à 23h46 → HTTP
+/// 500 → le portail montre finalement DEUX factures.
+///
+/// Les deux envois avaient abouti. La plateforme d'essai de la DGI certifie en
+/// répondant 500, et son portail ne publie pas immédiatement. Le registre,
+/// lui, reconstruisait sa trace à neuf à chaque envoi : au second, il ne savait
+/// plus rien du premier.
+/// </remarks>
+public class DoublonMilleSoixanteDouzeTests
+{
+    private sealed class Registre : ICertificationLedger
+    {
+        private readonly Dictionary<string, CertifiedInvoice> _entrees = new(StringComparer.OrdinalIgnoreCase);
+
+        public List<CertifiedInvoice> Ecritures { get; } = [];
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                identites.Where(_entrees.ContainsKey)
+                    .ToDictionary(identite => identite, identite => _entrees[identite]));
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            Ecritures.Add(certification);
+            _entrees[certification.Identite] = certification;
+            return Task.CompletedTask;
+        }
+
+        public CertifiedInvoice Actuelle => _entrees["0/6/1221"];
+    }
+
+    private sealed class ClientQuiEchoue(int code) : IFneApiClient
+    {
+        public int Appels { get; private set; }
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default)
+        {
+            Appels++;
+            return Task.FromResult(new FneSignResult(
+                false, code,
+                CorpsBrut: """{"message":"Error signing invoice","error":"invoice_signing_error"}""",
+                Erreur: $"la plateforme a répondu {code}."));
+        }
+    }
+
+    private const string Piece = "1221";
+
+    private static (InvoiceSender Expediteur, Registre Registre, ClientQuiEchoue Client) Monter(
+        int code = 500, int delaiMinutes = 0)
+    {
+        var registre = new Registre();
+        var client = new ClientQuiEchoue(code);
+        var reglages = ReglagesDEssai.AvecDelai(delaiMinutes);
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+
+        return (new InvoiceSender(
+            lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages), registre, client);
+    }
+
+    [Fact]
+    public async Task Un_500_laisse_la_piece_en_suspens_et_jamais_en_echec()
+    {
+        // Point 4 : ne jamais interpréter un 5xx comme « non certifié ».
+        var (expediteur, registre, _) = Monter();
+
+        var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.Equal(EtatFne.Sending, resultat.Etat);
+        Assert.Equal(EtatFne.Sending, registre.Actuelle.Etat);
+    }
+
+    [Fact]
+    public async Task Le_journal_garde_la_trace_du_premier_envoi_apres_un_deblocage()
+    {
+        // Le défaut qui a produit le doublon : au second envoi, le registre ne
+        // savait plus que le premier était parti.
+        var (expediteur, registre, client) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: true, motif: "Absente du portail.");
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.Equal(2, client.Appels);
+
+        var journal = registre.Actuelle;
+        Assert.Equal(2, journal.NombreEnvois);
+
+        // Le déroulé complet, dans l'ordre, comme demandé.
+        Assert.Collection(journal.Tentatives,
+            t => Assert.Equal(GenreTentative.Envoi, t.Genre),
+            t => { Assert.Equal(GenreTentative.Reponse, t.Genre); Assert.Equal(500, t.CodeHttp); },
+            t => { Assert.Equal(GenreTentative.Decision, t.Genre); Assert.Contains("n'y figure pas", t.Detail); },
+            t => Assert.Equal(GenreTentative.Envoi, t.Genre),
+            t => { Assert.Equal(GenreTentative.Reponse, t.Genre); Assert.Equal(500, t.CodeHttp); });
+    }
+
+    [Fact]
+    public async Task Un_second_deblocage_avertit_que_deux_envois_sont_partis()
+    {
+        var (expediteur, _, _) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: true, motif: "Absente du portail.");
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: false, motif: "Toujours absente.");
+
+        Assert.Contains("2 envois sont déjà partis", resultat.Message);
+        Assert.Contains("Comptez les factures", resultat.Message);
+    }
+
+    // --- Le délai avant de pouvoir déclarer « non certifiée » ---------------
+
+    [Fact]
+    public async Task Trop_tot_apres_l_envoi_la_declaration_est_refusee()
+    {
+        // Point 5 et 6 : le portail ne publie pas immédiatement. Vérifier dans
+        // la minute qui suit ne prouve rien.
+        var (expediteur, registre, _) = Monter(delaiMinutes: 15);
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: true, motif: "Rien vu au portail.");
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("Attendez encore", resultat.Message);
+        Assert.Equal(EtatFne.Sending, registre.Actuelle.Etat);
+    }
+
+    [Fact]
+    public async Task Le_delai_ne_bloque_que_la_declaration_de_non_certification()
+    {
+        // Constater la présence au portail n'a pas à attendre : c'est une preuve
+        // positive, et elle protège du doublon au lieu de l'ouvrir.
+        var (expediteur, registre, _) = Monter(delaiMinutes: 15);
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, "REF-PORTAIL", nonCertifiee: false, confirme: true);
+
+        Assert.True(resultat.Applique);
+        Assert.Equal(EtatFne.Certified, registre.Actuelle.Etat);
+    }
+
+    [Fact]
+    public async Task Une_declaration_de_non_certification_exige_un_motif()
+    {
+        var (expediteur, registre, _) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: true, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("--motif", resultat.Message);
+        Assert.Equal(EtatFne.Sending, registre.Actuelle.Etat);
+    }
+
+    // --- Classer certifiée sans référence ------------------------------------
+
+    [Fact]
+    public async Task Une_piece_vue_au_portail_sans_numero_est_classee_certifiee()
+    {
+        // Point 1 et 2 : le cas exact de la 1072.
+        var (expediteur, registre, _) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var avant = registre.Actuelle;
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Deux factures visibles au portail — doublon constaté.");
+
+        Assert.True(resultat.Applique);
+        var apres = registre.Actuelle;
+
+        Assert.Equal(EtatFne.Certified, apres.Etat);
+        Assert.True(apres.SansReference);
+        Assert.Equal(SourceCertification.ReconciliationManuelle, apres.Source);
+        Assert.Equal("0/6/1221", apres.Identite);
+        Assert.Equal(avant.Empreinte, apres.Empreinte);
+
+        // Le 500 d'origine et le journal survivent au classement.
+        Assert.Contains("500", apres.Erreur);
+        Assert.Equal(avant.NombreEnvois, apres.NombreEnvois);
+        Assert.Contains(apres.Tentatives, t => t.CodeHttp == 500);
+        Assert.Contains("doublon constaté", apres.Motif);
+    }
+
+    [Fact]
+    public async Task Classee_sans_reference_la_piece_ne_repart_plus_jamais()
+    {
+        var (expediteur, registre, client) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Constatée au portail.");
+
+        var appelsAvant = client.Appels;
+        var renvoi = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.False(renvoi.Reussi);
+        Assert.Contains("déjà certifiée", renvoi.Message);
+        Assert.Equal(appelsAvant, client.Appels);
+        Assert.Equal(EtatFne.Certified, registre.Actuelle.Etat);
+    }
+
+    [Fact]
+    public async Task Aucune_reference_n_est_inventee()
+    {
+        var (expediteur, registre, _) = Monter();
+
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        await expediteur.DebloquerAsync(
+            Piece, null, nonCertifiee: false, confirme: true,
+            sansReference: true, motif: "Constatée au portail.");
+
+        Assert.Equal("", registre.Actuelle.ReferenceFne);
+        Assert.Equal("", registre.Actuelle.Token);
+    }
+
+    [Fact]
+    public async Task Les_trois_constats_s_excluent()
+    {
+        var (expediteur, registre, _) = Monter();
+        await expediteur.EnvoyerAsync(Piece, confirme: true);
+        var ecrituresAvant = registre.Ecritures.Count;
+
+        foreach (var (reference, non, sans) in new (string?, bool, bool)[]
+                 {
+                     (null, false, false),
+                     ("REF", true, false),
+                     ("REF", false, true),
+                     (null, true, true),
+                     ("REF", true, true),
+                 })
+        {
+            var resultat = await expediteur.DebloquerAsync(
+                Piece, reference, non, confirme: true, sansReference: sans, motif: "m");
+
+            Assert.False(resultat.Applique);
+        }
+
+        Assert.Equal(ecrituresAvant, registre.Ecritures.Count);
+    }
+
+    [Fact]
+    public async Task Un_refus_4xx_reste_un_echec_franc_et_ne_bloque_pas()
+    {
+        // La contrepartie : un 4xx dit que rien n'a été créé. La pièce repart
+        // sans passer par le portail.
+        var (expediteur, registre, _) = Monter(code: 422);
+
+        var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.Equal(EtatFne.Error, resultat.Etat);
+        Assert.Equal(EtatFne.Error, registre.Actuelle.Etat);
+        Assert.Contains(registre.Actuelle.Tentatives,
+            t => t.Genre == GenreTentative.Reponse && t.Detail.Contains("Refus net"));
     }
 }

@@ -46,5 +46,21 @@ public sealed class FneOptions
     /// à côté de l'exécutable. Ce registre ne peut pas vivre dans Sage, dont
     /// l'accès est en lecture seule.
     /// </summary>
+    /// <summary>
+    /// Délai minimal, en minutes, entre un envoi d'issue inconnue et le moment
+    /// où l'on peut le déclarer « non certifié ».
+    /// </summary>
+    /// <remarks>
+    /// La plateforme d'essai de la DGI a répondu 500 sur des factures qu'elle
+    /// avait bel et bien enregistrées, et son portail ne les publiait pas
+    /// encore. Un opérateur qui vérifie trop tôt voit une absence qui n'en est
+    /// pas une : c'est ainsi qu'un doublon a été créé sur la pièce 1072.
+    ///
+    /// Ce délai ne garantit rien — nul ne connaît la latence réelle du portail.
+    /// Il empêche seulement la vérification réflexe, faite dans la minute qui
+    /// suit l'échec, quand le portail n'a encore rien à montrer.
+    /// </remarks>
+    public int PortalCheckDelayMinutes { get; set; } = 15;
+
     public string CertificationLedgerPath { get; set; } = "";
 }

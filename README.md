@@ -16,7 +16,7 @@ distraite échoue avant d'atteindre le serveur.
 ```bash
 dotnet restore
 dotnet build
-dotnet test                                    # 395 tests
+dotnet test                                    # 406 tests
 ```
 
 Le dry run lit **un lot** de factures :
@@ -402,6 +402,50 @@ L'empreinte inscrite est celle du document **tel qu'il est aujourd'hui**, et non
 corps réellement envoyé, qui est perdu avec la trace. Si la pièce a changé dans Sage depuis
 sa certification, la réconciliation grave cette version-là. C'est le prix du rattrapage, et
 la commande le dit.
+
+### Un 5xx ne dit pas que la DGI n'a rien enregistré
+
+**La plateforme d'essai de la DGI certifie des factures en répondant 500**, et son portail
+ne les publie pas immédiatement. Un opérateur qui va vérifier dans la minute qui suit
+l'échec voit une absence qui n'en est pas une.
+
+C'est ainsi qu'un doublon réel a été créé sur la pièce 1072 : envoi → 500 → portail
+consulté, facture introuvable → déclarée non certifiée → renvoi → 500 → le portail montre
+finalement **deux** factures. Les deux envois avaient abouti.
+
+Rien n'a alerté au second envoi, parce que rien n'y survivait du premier : la trace était
+reconstruite à neuf à chaque envoi, et affirmait donc « cette pièce n'est jamais partie ».
+Trois choses en découlent.
+
+**Le registre tient un journal en ajout seul**, reporté d'une écriture à l'autre : chaque
+POST parti, chaque réponse avec son code HTTP, chaque décision d'opérateur. `statut`
+l'affiche, et signale en capitales quand plus d'un envoi est parti. `envoyer` le rappelle
+avant tout renvoi.
+
+**Déclarer une pièce non certifiée exige un motif et du temps.** C'est la seule décision
+qui rouvre un envoi, donc la seule qui puisse créer un doublon. Elle refuse tant que
+`Fne:PortalCheckDelayMinutes` (15 par défaut) ne s'est pas écoulé depuis l'envoi, et
+rappelle alors de revérifier le portail. Ce délai ne garantit rien — nul ne connaît la
+latence réelle du portail — il empêche seulement la vérification réflexe.
+
+**Constater la présence, elle, n'attend pas** : c'est une preuve positive, qui ferme
+l'envoi au lieu de le rouvrir. `debloquer` offre donc trois constats exclusifs :
+
+```powershell
+# elle y figure, sous ce numéro
+dotnet run --project src\SageFne.Reader -- debloquer 1072 --reference "REF" --confirmer
+
+# elle y figure, sans numéro publié — le cas de la plateforme d'essai
+dotnet run --project src\SageFne.Reader -- debloquer 1072 --sans-reference `
+  --motif "Constatee au portail, aucun numero publie" --confirmer
+
+# elle n'y figure pas — exige --motif, et le délai depuis l'envoi
+dotnet run --project src\SageFne.Reader -- debloquer 1072 --non-certifiee `
+  --motif "Absente du portail, verifie a 09h15" --confirmer
+```
+
+Le classement conserve tout : identité, empreinte, réponse HTTP d'origine, journal des
+tentatives. Aucune référence n'est inventée, et la pièce ne repart plus jamais.
 
 ### Une certification peut ne porter aucune référence
 

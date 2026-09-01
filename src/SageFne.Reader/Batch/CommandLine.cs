@@ -356,8 +356,9 @@ public sealed record CommandLine
           --confirmer    autorise l'envoi réel à la DGI ; sans lui, tout est simulé
 
         Débloquer une pièce restée « en suspens » — après l'avoir cherchée sur le portail DGI :
-          --non-certifiee   le portail ne la connaît pas : elle redevient à certifier
-          --reference REF   le portail la porte sous cette référence : elle est classée certifiée
+          --reference REF   elle y figure, sous ce numéro
+          --sans-reference  elle y figure, sans numéro publié
+          --non-certifiee   elle n'y figure pas — exige --motif et un délai depuis l'envoi
 
         Réconcilier une certification dont la trace manque au registre :
           --reference REF     référence FNE relevée sur le portail ou le PDF
