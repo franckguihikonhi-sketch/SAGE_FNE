@@ -1,4 +1,5 @@
 using SageFne.Reader.Models.Sage;
+using SageFne.Reader.Mapping;
 
 namespace SageFne.Reader.Validation;
 
@@ -23,6 +24,18 @@ public static class InvoiceValidator
         if (string.IsNullOrWhiteSpace(entete.Piece))
         {
             rapport.Erreur("PIECE_VIDE", "DO_Piece est vide : la pièce ne peut pas être identifiée.");
+        }
+
+        // Le portail n'offre que quatre types de facturation. Le paramétrage,
+        // lui, accepte n'importe quelle chaîne : « B2B » avec une espace, ou
+        // « BTB », partirait tel quel et serait certifié tel quel — ou refusé
+        // sans qu'on sache pourquoi.
+        if (!GabaritFne.Reconnu(template))
+        {
+            rapport.Erreur(
+                "GABARIT_INCONNU",
+                $"Fne:Template vaut « {template} », qui n'est pas un type de facturation " +
+                $"connu. Attendu : {GabaritFne.Attendus}.");
         }
 
         if (client is null)
@@ -55,7 +68,7 @@ public static class InvoiceValidator
 
             // Le NCC identifie le client auprès de la DGI : une facture B2B
             // sans NCC sera refusée à la certification.
-            if (template.Equals("B2B", StringComparison.OrdinalIgnoreCase)
+            if (GabaritFne.ExigeNcc(template)
                 && string.IsNullOrWhiteSpace(client.Identifiant))
             {
                 rapport.Erreur(

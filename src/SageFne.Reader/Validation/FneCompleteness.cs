@@ -1,3 +1,4 @@
+using SageFne.Reader.Mapping;
 using SageFne.Reader.Models.Fne;
 
 namespace SageFne.Reader.Validation;
@@ -35,7 +36,7 @@ public static class FneCompleteness
         Exiger("clientCompanyName", facture.ClientCompanyName, "CT_Intitule",
             "nom du client sur la facture certifiée.");
 
-        if (template.Equals("B2B", StringComparison.OrdinalIgnoreCase))
+        if (GabaritFne.ExigeNcc(template))
         {
             Exiger("clientNcc", facture.ClientNcc, "CT_Identifiant",
                 "identifiant fiscal du client : obligatoire en B2B, la certification serait refusée.");
