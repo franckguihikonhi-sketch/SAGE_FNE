@@ -231,25 +231,44 @@ function Verifier-Poste {
     $exe = Join-Path $Destination 'SageFne.Agent.exe'
     if (-not (Test-Path $exe)) { throw "$exe introuvable. Lancez d'abord -Preparer." }
 
+    # L'agent doit écrire là où ce script ira lire. Sans ces variables, il
+    # retombe sur son %APPDATA% par défaut, le script cherche ailleurs, ne
+    # trouve rien - et croit que rien n'a été écrit.
+    $env:Agent__CheminJournal = $Journaux
+    $env:Fne__CertificationLedgerPath = $Registre
+    if (-not (Test-Path $Journaux)) {
+        New-Item -ItemType Directory -Path $Journaux -Force | Out-Null
+    }
+
+    $journal = Join-Path $Journaux "agent-$(Get-Date -Format 'yyyy-MM-dd').log"
+    $avant = if (Test-Path $journal) { (Get-Item $journal).Length } else { -1 }
+
     # Start-Process -Wait : le binaire est compilé sans console, PowerShell ne
     # l'attendrait pas et l'on lirait un journal encore vide.
     $processus = Start-Process $exe -ArgumentList '--verifier' -Wait -PassThru -NoNewWindow
 
-    $journal = Join-Path $Journaux "agent-$(Get-Date -Format 'yyyy-MM-dd').log"
+    $apres = if (Test-Path $journal) { (Get-Item $journal).Length } else { -1 }
+
     if (Test-Path $journal) {
         Titre 'Journal'
         Get-Content $journal -Encoding UTF8 | Select-Object -Last 25
     }
-    else {
-        Alerte "Aucun journal dans $Journaux - l'agent n'a rien pu écrire."
+
+    # Un journal absent ou inchangé n'est pas une vérification qui passe : c'est
+    # une vérification dont on ne sait rien. Les confondre serait déclarer bon
+    # ce qu'on n'a pas regardé - la faute que tout ce projet s'emploie à éviter.
+    if ($apres -le $avant) {
+        throw "L'agent n'a rien écrit dans $Journaux. Sans journal, cette vérification " +
+              "ne prouve rien - ne la prenez pas pour un succès. Vérifiez que le dossier " +
+              "est accessible en écriture, puis relancez."
     }
 
     if ($processus.ExitCode -ne 0) {
-        throw "La vérification a échoué (code $($processus.ExitCode)). Le journal ci-dessus dit pourquoi. " +
-              "N'installez pas le service tant que ce n'est pas réglé."
+        throw "La vérification a échoué (code $($processus.ExitCode)). Le journal ci-dessus dit " +
+              "pourquoi. N'installez pas le service tant que ce n'est pas réglé."
     }
 
-    Bien "Vérification passée."
+    Bien "Vérification passée, et le journal le montre."
     return $true
 }
 
