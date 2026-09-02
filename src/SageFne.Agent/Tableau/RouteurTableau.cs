@@ -115,6 +115,27 @@ public sealed class RouteurTableau(
     private static ReponseHttp Erreur(int code, string message) =>
         ReponseHttp.Json(code, JsonSerializer.Serialize(new { message }, Format));
 
+    /// <summary>
+    /// L'identité du dossier auprès de la DGI est-elle renseignée.
+    /// </summary>
+    /// <remarks>
+    /// Elle conditionne <b>tout</b> envoi, sans qu'aucune facture n'y soit pour
+    /// quoi que ce soit. Sans elle, l'expéditeur refuse et la DGI refuserait de
+    /// toute façon — « Establishment is invalid ».
+    /// </remarks>
+    private bool IdentitePosee()
+    {
+        using var portee = fabrique.CreateScope();
+        var fne = portee.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<FneOptions>>().Value;
+
+        return FneCompleteness.IdentiteAControler(new SageFne.Core.Models.Fne.FneInvoice
+        {
+            PointOfSale = fne.PointOfSale,
+            Establishment = fne.Establishment,
+        }).Count == 0;
+    }
+
     private InvoiceQuery Requete() => new()
     {
         Depuis = DateTime.Today.AddDays(-Math.Max(1, _reglages.FenetreJours)),
@@ -134,13 +155,20 @@ public sealed class RouteurTableau(
         // chaque rafraîchissement de la page.
         var moteur = new MoteurSurveillance(lecteur, stabilite, _reglages.Mode, refus);
 
+        // Sans identité DGI, rien ne peut partir — et un bouton actif qui échoue
+        // à tous les coups vaut moins que pas de bouton. L'écran annonçait
+        // « 4 prêtes à certifier » juste au-dessus de « aucune facture ne peut
+        // être certifiée » : deux affirmations contraires, sur le même écran.
+        var identite = IdentitePosee();
+
         return [.. lot.Conversions
-            .Select(conversion => Traduire(conversion, moteur.Decider(conversion)))
+            .Select(conversion => Traduire(conversion, moteur.Decider(conversion), identite))
             .OrderByDescending(ligne => ligne.Date)
             .ThenByDescending(ligne => ligne.Piece)];
     }
 
-    private static LigneTableau Traduire(InvoiceConversion conversion, DecisionAgent decision)
+    private static LigneTableau Traduire(
+        InvoiceConversion conversion, DecisionAgent decision, bool identitePosee)
     {
         var entete = conversion.Header;
 
@@ -161,7 +189,7 @@ public sealed class RouteurTableau(
             // La seule condition du bouton, et c'est celle de l'expéditeur
             // lui-même. Ni la stabilité ni le mode n'entrent ici : le clic est
             // précisément ce qu'ils remplaçaient.
-            Certifiable: conversion.Etat == EtatPiece.ACertifier,
+            Certifiable: conversion.Etat == EtatPiece.ACertifier && identitePosee,
 
             ReferenceFne: conversion.Certification?.ReferenceFne ?? "",
             Constats: [.. conversion.Report.Constats.Select(constat =>
@@ -189,11 +217,7 @@ public sealed class RouteurTableau(
             DemarrageLe: "",
             PointDeVente: fne.PointOfSale,
             Etablissement: fne.Establishment,
-            IdentiteRenseignee: FneCompleteness.IdentiteAControler(new SageFne.Core.Models.Fne.FneInvoice
-            {
-                PointOfSale = fne.PointOfSale,
-                Establishment = fne.Establishment,
-            }).Count == 0,
+            IdentiteRenseignee: IdentitePosee(),
             Total: lignes.Count,
             Certifiables: lignes.Count(ligne => ligne.Certifiable),
             Certifiees: lignes.Count(ligne => ligne.Etat == nameof(EtatPiece.DejaCertifiee)),

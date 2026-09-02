@@ -37,16 +37,26 @@ public class TableauTests
         string mode = "Manual",
         params (string Cle, string Valeur)[] reglages)
     {
-        var toutes = new List<KeyValuePair<string, string?>>
+        // Un dictionnaire, et non une liste : AddInMemoryCollection appelle
+        // Data.Add, qui lève sur une clé en double. Un test qui redéfinit un
+        // réglage tombait donc pour cette raison-là, sans rapport avec ce qu'il
+        // éprouve.
+        var toutes = new Dictionary<string, string?>
         {
-            new("Agent:Mode", mode),
+            ["Agent:Mode"] = mode,
             // Le jeu d'essai est daté de décembre 2025 : sans fenêtre large, le
             // tableau serait vide et les tests ne prouveraient rien.
-            new("Agent:FenetreJours", "5000"),
-            new("Agent:StabiliteMinutes", "5"),
-            new("Fne:BaseUrl", "http://54.247.95.108/ws"),
+            ["Agent:FenetreJours"] = "5000",
+            ["Agent:StabiliteMinutes"] = "5",
+            ["Fne:BaseUrl"] = "http://54.247.95.108/ws",
+
+            // Sans elle, plus rien n'est certifiable — ce que le test dédié
+            // vérifie en l'effaçant.
+            ["Fne:PointOfSale"] = "POINT-ESSAI",
+            ["Fne:Establishment"] = "ETAB-ESSAI",
         };
-        toutes.AddRange(reglages.Select(r => new KeyValuePair<string, string?>(r.Cle, r.Valeur)));
+
+        foreach (var (cle, valeur) in reglages) toutes[cle] = valeur;
 
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(toutes).Build();
 
@@ -231,10 +241,31 @@ public class TableauTests
         // Sage ni dans les contrôles de pièce, ne peut le prévoir : ces deux
         // champs ne viennent pas de la facture. L'écran est le seul endroit où
         // leur absence peut se voir avant le premier refus.
-        using var fournisseur = Cabler();
+        using var fournisseur = Cabler(
+            reglages: [("Fne:PointOfSale", "A_COMPLETER"), ("Fne:Establishment", "A_COMPLETER")]);
         var etat = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/etat"));
 
         Assert.False(etat.GetProperty("identiteRenseignee").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Sans_identite_DGI_aucune_facture_n_est_certifiable()
+    {
+        // L'écran annonçait « 4 prêtes à certifier » juste au-dessus de
+        // « aucune facture ne peut être certifiée » : deux affirmations
+        // contraires, sur le même écran, avec quatre boutons actifs qui
+        // échouaient tous. Un bouton qui ne peut pas aboutir vaut moins que pas
+        // de bouton.
+        using var fournisseur = Cabler(
+            reglages: [("Fne:PointOfSale", "A_COMPLETER"), ("Fne:Establishment", "A_COMPLETER")]);
+
+        var lignes = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/factures"))
+            .EnumerateArray().ToList();
+        var etat = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/etat"));
+
+        Assert.NotEmpty(lignes);
+        Assert.All(lignes, l => Assert.False(l.GetProperty("certifiable").GetBoolean()));
+        Assert.Equal(0, etat.GetProperty("certifiables").GetInt32());
     }
 
     [Fact]
