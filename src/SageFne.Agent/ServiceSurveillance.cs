@@ -130,13 +130,19 @@ public sealed class ServiceSurveillance(
         }
 
         var stabilite = new VerificateurStabilite(_reglages.Stabilite);
+
+        // Créé ici, et non dans le tour : le moteur est reconstruit à chaque
+        // passage, si bien qu'un suivi né avec lui repartirait de zéro toutes
+        // les minutes et l'attente entre deux essais n'avancerait jamais.
+        // Exactement la même raison que pour la stabilité.
+        var refus = new SuiviRefus();
         var prochainBattement = DateTimeOffset.MinValue;
 
         while (!arret.IsCancellationRequested)
         {
             try
             {
-                await UnTourAsync(stabilite, arret);
+                await UnTourAsync(stabilite, refus, arret);
             }
             catch (OperationCanceledException) when (arret.IsCancellationRequested)
             {
@@ -291,7 +297,8 @@ public sealed class ServiceSurveillance(
         return decisions;
     }
 
-    private async Task UnTourAsync(VerificateurStabilite stabilite, CancellationToken arret)
+    private async Task UnTourAsync(
+        VerificateurStabilite stabilite, SuiviRefus refus, CancellationToken arret)
     {
         // Une portée par tour : le registre, le dépôt Sage et le mapping se
         // relisent à chaque passage, et un paramétrage corrigé prend effet sans
@@ -305,7 +312,7 @@ public sealed class ServiceSurveillance(
             Limite = Math.Max(1, _reglages.LimiteParTour),
         };
 
-        var moteur = new MoteurSurveillance(lecteur, stabilite, _reglages.Mode);
+        var moteur = new MoteurSurveillance(lecteur, stabilite, _reglages.Mode, refus);
         var decisions = await moteur.ExaminerAsync(requete, arret);
 
         _sage = EtatLien.Disponible;

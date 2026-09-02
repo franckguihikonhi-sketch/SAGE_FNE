@@ -58,6 +58,9 @@ public class MoteurSurveillanceTests
                     // piece contient aujourd'hui. La donner differente decrit
                     // une piece corrigee depuis la tentative.
                     Empreinte = empreinteAuRegistre ?? empreinte,
+                    // L'heure de l'essai, sur l'horloge des tests : c'est elle
+                    // qui date le refus et fait courir l'attente.
+                    CertifieeLe = Depart,
                 }
                 : null,
         };
@@ -71,7 +74,10 @@ public class MoteurSurveillanceTests
 
         // Le lecteur n'est pas sollicité par Decider() : ces tests portent sur
         // la décision, pas sur la lecture, qui a ses propres tests côté Core.
-        return (new MoteurSurveillance(null!, stabilite, mode), horloge);
+        // Le suivi des refus partage l'horloge : sans cela il lirait l'heure
+        // système face à des horodatages d'essai, et toute attente serait déjà
+        // écoulée.
+        return (new MoteurSurveillance(null!, stabilite, mode, new SuiviRefus(horloge)), horloge);
     }
 
     // --- Détection et stabilité ---------------------------------------------
@@ -284,13 +290,13 @@ public class MoteurSurveillanceTests
     }
 
     [Fact]
-    public void Un_refus_sur_un_contenu_inchange_n_est_pas_retente()
+    public void Un_refus_recent_n_est_pas_retente_au_tour_suivant()
     {
         // Sur le premier poste en Automatic, la pièce 1225 refusée en 400 est
-        // repartie à chaque tour, une fois par minute, indéfiniment. Le lecteur
-        // avait raison de la laisser repartir : un humain qui tape « envoyer »
-        // sait pourquoi il réessaie. Un agent qui relit toutes les minutes ne
-        // le sait pas.
+        // repartie une fois par minute, indéfiniment. Le lecteur avait raison de
+        // la laisser repartir : un humain qui tape « envoyer » sait pourquoi il
+        // réessaie. Un agent qui relit toutes les minutes ne le sait pas — il
+        // attend, et l'attente grandit.
         var (moteur, _) = Moteur(ModeAgent.Automatic);
         var refusee = Piece(EtatPiece.ACertifier, empreinte: "corps-refuse",
             auRegistre: EtatFne.Error);
@@ -300,7 +306,25 @@ public class MoteurSurveillanceTests
 
         Assert.Equal(MotifAttente.RefusInchange, decision.Motif);
         Assert.False(decision.Envoyable);
-        Assert.Contains("n'a pas changé depuis", decision.Explication);
+        Assert.Contains("prochain essai dans", decision.Explication);
+    }
+
+    [Fact]
+    public void Un_refus_passager_se_rattrape_sans_intervention()
+    {
+        // La 1225 : refusée cinq fois entre 13:28 et 13:32, passée en 201 à
+        // 13:42, corps identique. Ne jamais réessayer l'aurait laissée bloquée
+        // alors qu'elle serait passée seule.
+        var (moteur, horloge) = Moteur(ModeAgent.Automatic, stabiliteMinutes: 0);
+        var refusee = Piece(EtatPiece.ACertifier, empreinte: "corps-refuse",
+            auRegistre: EtatFne.Error);
+
+        moteur.Decider(refusee);
+        horloge.Avancer(TimeSpan.FromMinutes(6));
+        moteur.Decider(refusee);
+        var decision = moteur.Decider(refusee);
+
+        Assert.True(decision.Envoyable);
     }
 
     [Fact]

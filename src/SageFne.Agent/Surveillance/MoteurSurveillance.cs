@@ -21,8 +21,11 @@ namespace SageFne.Agent.Surveillance;
 public sealed class MoteurSurveillance(
     InvoiceBatchReader lecteur,
     VerificateurStabilite stabilite,
-    ModeAgent mode)
+    ModeAgent mode,
+    SuiviRefus? refus = null)
 {
+    private readonly SuiviRefus _refus = refus ?? new SuiviRefus();
+
     /// <summary>
     /// Examine les pièces d'une requête et dit ce qu'il advient de chacune.
     /// </summary>
@@ -63,6 +66,7 @@ public sealed class MoteurSurveillance(
         if (conversion.Etat is EtatPiece.DejaCertifiee or EtatPiece.Transmise or EtatPiece.EnSuspens)
         {
             stabilite.Oublier(identite);
+            _refus.Oublier(identite);
             return Retenir(MotifAttente.DejaTraitee,
                 $"Pièce {piece} : {conversion.LibelleEtat}. Rien ne repart automatiquement.");
         }
@@ -86,12 +90,22 @@ public sealed class MoteurSurveillance(
             && conversion.Empreinte != ""
             && string.Equals(trace.Empreinte, conversion.Empreinte, StringComparison.Ordinal))
         {
-            stabilite.Oublier(identite);
-            return Retenir(MotifAttente.RefusInchange,
-                $"Pièce {piece} : refusée par la plateforme" +
-                $"{(trace.Erreur == "" ? "" : $" — {trace.Erreur}")}, et son contenu n'a pas " +
-                "changé depuis. Le même envoi donnerait le même refus : rien n'est retenté. " +
-                "Corrigez la pièce dans Sage, elle repartira d'elle-même.");
+            var suite = _refus.Constater(identite, conversion.Empreinte, trace.CertifieeLe);
+
+            if (!suite.PeutRepartir)
+            {
+                stabilite.Oublier(identite);
+                var motifPlateforme = trace.Erreur == "" ? "" : $" — {trace.Erreur}";
+
+                return Retenir(MotifAttente.RefusInchange, suite.Reste is { } reste
+                    ? $"Pièce {piece} : refusée{motifPlateforme}. " +
+                      $"{suite.Tentatives} refus sur ce contenu ; prochain essai dans " +
+                      $"{reste.TotalMinutes:0} min. Corrigez-la dans Sage et elle repartira aussitôt."
+                    : $"Pièce {piece} : refusée{motifPlateforme}. " +
+                      $"{suite.Tentatives} refus sur ce contenu exact — l'agent cesse de " +
+                      "réessayer. Le refus n'est pas passager : corrigez la pièce dans Sage, " +
+                      "ou envoyez-la à la main pour lire la réponse de la plateforme.");
+            }
         }
 
         // 4. Le périmètre. Avant les contrôles métier : une facture de 2024
