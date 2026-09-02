@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Installe l'agent FNE comme service Windows, en s'arrêtant à la moindre
