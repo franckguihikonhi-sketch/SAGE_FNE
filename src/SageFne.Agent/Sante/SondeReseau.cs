@@ -22,6 +22,33 @@ namespace SageFne.Agent.Sante;
 public interface ISondeReseau
 {
     Task<bool> JoignableAsync(CancellationToken cancellation = default);
+
+    /// <summary>Le même essai, mais qui dit ce qu'il a éprouvé et ce qu'il a obtenu.</summary>
+    Task<ResultatSonde> EprouverAsync(CancellationToken cancellation = default);
+}
+
+/// <summary>Ce qu'un essai de joignabilité a réellement établi.</summary>
+/// <remarks>
+/// « INJOIGNABLE » tout court a été lu, sur le premier poste, comme « la
+/// plateforme de la DGI est en panne ». Ce n'est pas ce que la sonde sait : elle
+/// sait qu'une connexion TCP vers un hôte et un port n'a pas abouti. Un
+/// pare-feu, un proxy d'entreprise ou une règle sortante produisent le même
+/// refus alors que la plateforme répond parfaitement par ailleurs — le CLI, lui,
+/// passe par HttpClient, qui suit le proxy du système.
+///
+/// La distinction n'est pas académique : elle décide si l'on appelle la DGI ou
+/// l'administrateur réseau.
+/// </remarks>
+/// <param name="Joignable">Vrai si la connexion s'est ouverte.</param>
+/// <param name="Cible">Ce qui a été éprouvé, hôte et port.</param>
+/// <param name="Detail">Pourquoi, dans les termes du système.</param>
+public readonly record struct ResultatSonde(bool Joignable, string Cible, string Detail)
+{
+    /// <summary>Une phrase pour le journal, qui ne dit que ce qui a été établi.</summary>
+    public string Explication => Joignable
+        ? $"connexion ouverte vers {Cible}"
+        : $"connexion TCP vers {Cible} refusée ({Detail}). Cela ne prouve pas que la " +
+          "plateforme est en panne : un pare-feu ou un proxy sortant donne le même refus.";
 }
 
 /// <summary>
@@ -29,7 +56,19 @@ public interface ISondeReseau
 /// </summary>
 public sealed class SondeTcp(Uri adresse, TimeSpan delai) : ISondeReseau
 {
-    public async Task<bool> JoignableAsync(CancellationToken cancellation = default)
+    private string Cible
+    {
+        get
+        {
+            var port = adresse.Port > 0 ? adresse.Port : adresse.Scheme == "https" ? 443 : 80;
+            return $"{adresse.Host}:{port}";
+        }
+    }
+
+    public async Task<bool> JoignableAsync(CancellationToken cancellation = default) =>
+        (await EprouverAsync(cancellation)).Joignable;
+
+    public async Task<ResultatSonde> EprouverAsync(CancellationToken cancellation = default)
     {
         try
         {
@@ -39,18 +78,27 @@ public sealed class SondeTcp(Uri adresse, TimeSpan delai) : ISondeReseau
 
             var port = adresse.Port > 0 ? adresse.Port : adresse.Scheme == "https" ? 443 : 80;
             await client.ConnectAsync(adresse.Host, port, limite.Token);
-            return client.Connected;
+            return new ResultatSonde(client.Connected, Cible, "connexion ouverte");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             // L'agent s'arrête : ce n'est pas un diagnostic réseau.
             throw;
         }
-        catch (Exception)
+        catch (OperationCanceledException)
         {
-            // Toute autre issue — DNS, refus, délai — se lit de la même façon :
-            // on ne sait pas joindre, donc on n'envoie pas.
-            return false;
+            // Le délai de la sonde, pas l'arrêt du service. Un délai qui expire
+            // sans refus explicite ressemble à un filtrage silencieux ; un refus
+            // immédiat ressemble à un port fermé. Les deux se soignent
+            // différemment, donc ils se disent différemment.
+            return new ResultatSonde(false, Cible, $"aucune réponse en {delai.TotalSeconds:0.#} s");
+        }
+        catch (Exception erreur)
+        {
+            // Toute autre issue — DNS, refus — se lit de la même façon pour la
+            // décision d'envoi : on ne sait pas joindre, donc on n'envoie pas.
+            // Mais pas pour le diagnostic, d'où le détail conservé.
+            return new ResultatSonde(false, Cible, erreur.GetType().Name + " : " + erreur.Message.Trim());
         }
     }
 }
@@ -60,4 +108,7 @@ public sealed class SondeFigee(bool joignable) : ISondeReseau
 {
     public Task<bool> JoignableAsync(CancellationToken cancellation = default) =>
         Task.FromResult(joignable);
+
+    public Task<ResultatSonde> EprouverAsync(CancellationToken cancellation = default) =>
+        Task.FromResult(new ResultatSonde(joignable, "sonde figée", "valeur d'essai"));
 }

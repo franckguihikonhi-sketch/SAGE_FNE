@@ -53,6 +53,17 @@ public sealed record Heartbeat(
     /// <summary>Vrai quand tout ce dont l'agent dépend répond.</summary>
     public bool EnBonneSante => Sage == EtatLien.Disponible;
 
+    /// <summary>
+    /// Ce qui n'est pas renseigné se dit, au lieu de laisser un champ vide.
+    /// </summary>
+    /// <remarks>
+    /// « dossier= » suivi de rien se lit comme un dossier nommé par la chaîne
+    /// vide, et deux agents non paramétrés s'y confondraient dans un tableau de
+    /// bord. Le champ absent doit se voir comme absent.
+    /// </remarks>
+    private static string Renseigne(string valeur) =>
+        string.IsNullOrWhiteSpace(valeur) ? "(non renseigné)" : valeur;
+
     /// <summary>Une ligne de journal, sans rien d'exploitable pour un tiers.</summary>
     /// <remarks>
     /// Ni clé, ni adresse, ni nom de client : ce battement finira dans un
@@ -60,7 +71,7 @@ public sealed record Heartbeat(
     /// n'en fuitera pas.
     /// </remarks>
     public override string ToString() =>
-        $"agent={AgentId} dossier={CompanyId} v={Version} mode={Mode} env={Environnement} " +
+        $"agent={AgentId} dossier={Renseigne(CompanyId)} v={Version} mode={Mode} env={Environnement} " +
         $"sage={Sage} reseau={Reseau} examinees={PiecesExaminees} envoyees={PiecesEnvoyees} " +
         $"attente={EnAttente}";
 }

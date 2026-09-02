@@ -70,4 +70,36 @@ public class ReseauTests
         // le chemin d'envoi avec une configuration vide.
         Assert.False(Uri.TryCreate("", UriKind.Absolute, out _));
     }
+
+    [Fact]
+    public async Task Un_refus_dit_ce_qui_a_ete_eprouve_et_ce_qu_il_ne_prouve_pas()
+    {
+        // « INJOIGNABLE » tout court s'est lu, sur le premier poste, comme « la
+        // DGI est en panne ». La sonde n'établit rien de tel : elle sait qu'un
+        // socket vers un hôte et un port ne s'est pas ouvert. Un proxy sortant
+        // produit exactement le même refus pendant que la plateforme répond.
+        var sonde = new SondeTcp(new Uri("http://127.0.0.1:9/"), TimeSpan.FromSeconds(2));
+
+        var essai = await sonde.EprouverAsync();
+
+        Assert.False(essai.Joignable);
+        Assert.Equal("127.0.0.1:9", essai.Cible);
+        Assert.Contains("127.0.0.1:9", essai.Explication);
+        Assert.Contains("ne prouve pas que la plateforme est en panne", essai.Explication);
+    }
+
+    [Fact]
+    public async Task Le_port_par_defaut_du_schema_apparait_dans_la_cible()
+    {
+        // L'adresse de la DGI n'écrit pas son port. Le journal doit dire lequel
+        // a été éprouvé, sans quoi on ne sait pas quelle règle de pare-feu
+        // regarder.
+        var sonde = new SondeTcp(
+            new Uri("http://hote-qui-n-existe-pas.invalid/ws"), TimeSpan.FromSeconds(2));
+
+        var essai = await sonde.EprouverAsync();
+
+        Assert.False(essai.Joignable);
+        Assert.Equal("hote-qui-n-existe-pas.invalid:80", essai.Cible);
+    }
 }

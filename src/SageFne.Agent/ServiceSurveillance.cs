@@ -167,17 +167,29 @@ public sealed class ServiceSurveillance(
             logger.LogInformation("{Explication}", decision.Explication);
         }
 
-        var joignable = await sonde.JoignableAsync(arret);
+        var essai = await sonde.EprouverAsync(arret);
         _sage = EtatLien.Disponible;
-        _reseau = joignable ? EtatLien.Disponible : EtatLien.Indisponible;
+        _reseau = essai.Joignable ? EtatLien.Disponible : EtatLien.Indisponible;
 
         logger.LogInformation(
             "Source {Source} : {Total} pièce(s) lues sur la fenêtre, dont {Prets} que seul le " +
-            "mode retient — en Automatic, elles partiraient. Plateforme FNE : {Reseau}.",
+            "mode retient — en Automatic, elles partiraient.",
             surDonneesReelles ? "SAGE" : "jeu d'essai",
             decisions.Count,
-            decisions.Count(decision => decision.Motif == MotifAttente.ModeNonAutomatique),
-            joignable ? "joignable" : "INJOIGNABLE");
+            decisions.Count(decision => decision.Motif == MotifAttente.ModeNonAutomatique));
+
+        // Sur sa propre ligne, et en disant ce qui a été éprouvé. « Plateforme
+        // FNE : INJOIGNABLE » collé en fin de phrase s'est lu comme « la DGI est
+        // en panne » alors que la sonde n'avait établi qu'une chose : un socket
+        // vers un hôte et un port ne s'est pas ouvert.
+        if (essai.Joignable)
+        {
+            logger.LogInformation("Plateforme FNE joignable : {Explication}.", essai.Explication);
+        }
+        else
+        {
+            logger.LogWarning("Plateforme FNE : {Explication}", essai.Explication);
+        }
 
         if (decisions.Count == 0)
         {
