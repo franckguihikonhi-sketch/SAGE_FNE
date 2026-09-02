@@ -23,6 +23,8 @@ public sealed class JournalFichier : ILoggerProvider
     private readonly string _dossier;
     private readonly int _retentionJours;
     private readonly object _verrou = new();
+
+    private static readonly System.Text.UTF8Encoding Utf8AvecBom = new(encoderShouldEmitUTF8Identifier: true);
     private DateOnly _jourCourant;
 
     public JournalFichier(string dossier, int retentionJours = 30)
@@ -56,7 +58,11 @@ public sealed class JournalFichier : ILoggerProvider
 
             try
             {
-                File.AppendAllText(FichierDuJour, ligne + Environment.NewLine);
+                // Avec BOM : Windows PowerShell lit un fichier sans BOM en ANSI
+                // et rend « Vérification » en « VÃ©rification ». Un journal
+                // illisible ne se lit pas, et c'est le seul endroit où l'agent
+                // parle.
+                File.AppendAllText(FichierDuJour, ligne + Environment.NewLine, Utf8AvecBom);
             }
             catch (IOException)
             {

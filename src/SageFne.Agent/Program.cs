@@ -22,7 +22,16 @@ using SageFne.Core.Configuration;
 // mêmes règles, parce qu'elles vivent toutes dans SageFne.Core.
 // ---------------------------------------------------------------------------
 
-var constructeur = Host.CreateApplicationBuilder(args);
+// ContentRootPath explicite, et c'est indispensable : par défaut l'hôte prend le
+// répertoire courant. Un service lancé par Windows démarre dans
+// C:\Windows\System32 — il n'y trouverait jamais son appsettings.json et
+// tournerait sur les valeurs par défaut, sans rien dire. Le CLI pose déjà la
+// même précaution.
+var constructeur = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 // Fait de l'hôte un vrai service Windows : démarrage automatique confié au SCM,
 // survie à la déconnexion de l'utilisateur, arrêt propre à l'extinction. Sans

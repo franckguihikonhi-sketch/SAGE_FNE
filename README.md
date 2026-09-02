@@ -1376,9 +1376,19 @@ dotnet publish src\SageFne.Agent -c Release -o C:\SageFne\agent
 C:\SageFne\agent\SageFne.Agent.exe --verifier
 ```
 
-`--verifier` fait un tour, écrit ce qu'il a vu au journal, et s'arrête. C'est le seul moyen
-d'éprouver la configuration : le binaire est compilé sans console, lancé à la main il ne dirait
-rien à l'écran. Lisez `%APPDATA%\SageFne\journaux` — ou le chemin que vous avez configuré.
+`--verifier` lit, décide, et n'envoie rien. C'est le seul moyen d'éprouver la configuration :
+le binaire est compilé sans console, lancé à la main il ne dit rien à l'écran — **et PowerShell
+ne l'attend même pas**, il rend la main aussitôt. Le résultat est dans le journal :
+
+```powershell
+Get-Content "$env:APPDATA\SageFne\journaux\agent-$(Get-Date -Format 'yyyy-MM-dd').log"
+```
+
+Le journal dit d'abord **sur quoi il a lu** — votre dossier Sage ou le jeu d'essai. « 0 pièce
+lue » ne veut pas dire la même chose dans les deux cas, et sans cette ligne on chercherait une
+panne là où il n'y a qu'une chaîne de connexion absente. Il dit aussi la fenêtre de lecture :
+une fenêtre de 7 jours sur un dossier dont la dernière facture date de trois mois ne remonte
+rien, et ce n'est pas un défaut.
 
 Quand le journal est propre :
 
