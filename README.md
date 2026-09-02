@@ -1347,6 +1347,29 @@ Event Log, puis une télémétrie SaaS, et ce qui n'y entre pas n'en fuitera pas
 la place zéro des états de lien, pour la même raison que dans le registre — un champ absent ne
 doit pas se relire comme « tout va bien ».
 
+### Un seul registre pour le CLI et le service
+
+C'est le point qui décide de tout le reste, et il tient à une variable.
+
+`Fne__CertificationLedgerPath` posée en portée **Machine** est lue par les deux programmes,
+parce que les deux la cherchent au même endroit :
+
+- le double tiret bas `__` remplace le `:` des clés de configuration .NET, donc cette variable
+  vaut la clé `Fne:CertificationLedgerPath` ;
+- le CLI et l'agent construisent tous deux leur hôte avec `Host.CreateApplicationBuilder`, qui
+  lit les variables d'environnement ;
+- tous deux consultent cette clé pour savoir où vit le registre ;
+- la portée **Machine** vaut pour tous les comptes du poste — le vôtre et celui du service.
+
+Sans elle, chacun retombe sur son propre `%APPDATA%` : `C:\Users\Samuel\…` pour le CLI,
+`C:\Windows\System32\config\systemprofile\…` pour un service sous `LocalSystem`. **Deux
+registres pour une seule vérité** — le CLI dirait « jamais envoyée » d'une facture que l'agent
+vient d'envoyer, et la seconde partirait.
+
+Deux réserves : une variable d'environnement est lue **au démarrage du processus**, donc une
+console déjà ouverte ne la voit pas — il faut la rouvrir. Et l'option `--registre` du CLI
+l'emporte toujours sur elle, ce qui reste utile pour inspecter un ancien fichier.
+
 ### Installer le service
 
 **Avant tout, deux pièges dus au compte sous lequel un service tourne.** L'agent refuse de
@@ -1369,7 +1392,20 @@ l'autre a envoyé — et le doublon suivrait. Donnez un chemin absolu, hors de t
 { "Fne": { "CertificationLedgerPath": "C:\\ProgramData\\SageFne\\certifications.json" } }
 ```
 
-Puis éprouvez le paramétrage **sans rien installer** :
+Un script fait tout cela et s'arrête à la moindre incertitude :
+
+```powershell
+.\deploiement\installer-agent.ps1 -Preparer   # variables machine, registre partagé
+.\deploiement\installer-agent.ps1 -Verifier   # un passage de lecture, rien n'est créé
+.\deploiement\installer-agent.ps1 -Installer  # crée et démarre le service, en Manual
+```
+
+Il **copie** le registre depuis votre profil, il ne le déplace pas : l'ancien reste intact tant
+que vous n'avez pas vérifié le nouveau. Les secrets sont repris de `dotnet user-secrets` sans
+jamais être affichés. Les trois étapes se jouent séparément, et `-Preparer` comme `-Installer`
+demandent une console administrateur.
+
+Ou, à la main, en éprouvant le paramétrage **sans rien installer** :
 
 ```powershell
 dotnet publish src\SageFne.Agent -c Release -o C:\SageFne\agent
