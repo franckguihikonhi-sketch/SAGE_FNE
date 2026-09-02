@@ -1452,6 +1452,22 @@ finit en `Sending`, sans renvoi automatique, et demande une vérification au por
 Le journal l'écrit en toutes lettres à chaque démarrage. Un service qui certifie sans qu'on le
 lui demande ne doit jamais pouvoir être découvert après coup.
 
+#### Ce que `-Installer` exige avant de dire que ça marche
+
+`Status = Running` ne prouve qu'une chose : un processus existe. Il ne dit ni que la
+configuration lui est parvenue, ni sur quelles données il travaille. `-Installer` attend donc
+le journal du premier tour, l'affiche, et refuse de conclure sans lui.
+
+Il refuse en particulier quand le journal annonce le **jeu d'essai**. Un service ne démarre pas
+sous le compte qui l'installe, et le gestionnaire de services garde en cache l'environnement
+machine tel qu'il était à l'amorçage de Windows : une variable posée cinq minutes plus tôt peut
+lui rester invisible. L'agent tourne alors parfaitement — sur des données fictives, sans rien
+certifier de réel. Le remède est un redémarrage du poste, puis `-Installer` à nouveau.
+
+Et si la variable `Agent__Mode` et le mode annoncé par le service divergent, c'est **le service
+qui fait foi** : le script le dit, et n'affirme pas la variable pendant que le journal dit le
+contraire.
+
 ### Le périmètre : à partir de quand
 
 `Fne:DemarrageLe` fixe le jour où le middleware commence à se sentir concerné.

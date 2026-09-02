@@ -398,36 +398,147 @@ function Installer-Service {
     $exe = Join-Path $Destination 'SageFne.Agent.exe'
     if (-not (Test-Path $exe)) { throw "$exe introuvable. Lancez d'abord -Preparer." }
 
+    # Le mode reel, lu la ou l'agent le lira. Le script annoncait « en mode
+    # Manual » en dur : il aurait dit « il n'enverra rien » a un operateur qui
+    # venait de poser Automatic, et l'aurait dit pendant que les factures
+    # partaient. C'est le pire mensonge que ce projet puisse produire.
+    $modeReel = [Environment]::GetEnvironmentVariable('Agent__Mode', 'Machine')
+    if (-not $modeReel) { $modeReel = 'Manual' }
+
+    if ($modeReel -eq 'Automatic') {
+        Alerte "MODE AUTOMATIC. Des le premier tour - une minute apres le demarrage - les"
+        Alerte "factures conformes et stables partiront d'elles-memes vers la DGI, sans"
+        Alerte "confirmation, au plus dix par tour."
+        Alerte "Pour arreter : sc.exe stop $NomService"
+        Note ""
+    }
+
     if (Get-Service $NomService -ErrorAction SilentlyContinue) {
         Alerte "Le service $NomService existe déjà. Arrêt et suppression avant recréation."
-        & sc.exe stop $NomService | Out-Null
-        Start-Sleep -Seconds 2
-        & sc.exe delete $NomService | Out-Null
-        Start-Sleep -Seconds 2
+        & sc.exe stop $NomService 2>&1 | Out-Null
+        & sc.exe delete $NomService 2>&1 | Out-Null
+
+        # Une suppression peut rester « pending » tant qu'un handle traine. La
+        # creation echouerait alors avec un message obscur : mieux vaut attendre
+        # que le service ait vraiment disparu, et le dire s'il s'attarde.
+        $attendu = 0
+        while ((Get-Service $NomService -ErrorAction SilentlyContinue) -and $attendu -lt 30) {
+            Start-Sleep -Seconds 1
+            $attendu++
+        }
+
+        if (Get-Service $NomService -ErrorAction SilentlyContinue) {
+            throw "Le service $NomService existe toujours apres $attendu s. Fermez la console " +
+                  "de gestion des services si elle est ouverte, puis relancez."
+        }
     }
 
     & sc.exe create $NomService binPath= "`"$exe`"" start= auto DisplayName= "SageFne Agent" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "La création du service a échoué." }
 
-    & sc.exe description $NomService "Certification FNE des factures Sage. Mode Manual : observe sans envoyer." | Out-Null
+    & sc.exe description $NomService "Certification FNE des factures Sage. Mode $modeReel." | Out-Null
 
     # Redémarrage automatique après incident, mais pas en boucle : un agent qui
     # redémarre toutes les secondes noie son journal et n'avance à rien.
     & sc.exe failure $NomService reset= 86400 actions= restart/60000/restart/300000/restart/900000 | Out-Null
 
+    $journal = Join-Path $Journaux "agent-$(Get-Date -Format 'yyyy-MM-dd').log"
+    $avant = Taille-Journal $journal
+
     & sc.exe start $NomService | Out-Null
-    Start-Sleep -Seconds 3
 
     $service = Get-Service $NomService
+    if ($service.Status -ne 'Running') {
+        Start-Sleep -Seconds 3
+        $service = Get-Service $NomService
+    }
+
     if ($service.Status -ne 'Running') {
         throw "Le service ne tourne pas (état : $($service.Status)). Lisez $Journaux."
     }
 
-    Bien "Service $NomService démarré, en mode Manual."
-    Note "Il observe et journalise. Il n'enverra rien tant que Agent__Mode vaut Manual."
+    # « Running » ne prouve que l'existence d'un processus. Il ne dit ni que la
+    # configuration est arrivee, ni sur quelles donnees l'agent travaille, ni
+    # meme qu'il sait ecrire. C'est exactement le feu vert sans preuve que ce
+    # projet a deja produit trois fois. On attend donc le journal.
+    Titre 'Premier tour'
+    Note "Le service tourne. Reste a savoir ce qu'il fait : on attend son journal."
+
+    $attendu = 0
+    while ((Taille-Journal $journal) -le $avant -and $attendu -lt 90) {
+        Start-Sleep -Seconds 2
+        $attendu += 2
+    }
+
+    $lignes = @()
+    if (Test-Path $journal) {
+        $lignes = @(Get-Content $journal -Encoding UTF8 | Where-Object { $_.Trim() -ne '' })
+    }
+
+    if ((Taille-Journal $journal) -le $avant) {
+        throw "Le service tourne mais n'a rien ecrit dans $journal en $attendu s. On ne sait " +
+              "donc pas ce qu'il fait, et « demarre » ne vaut pas « fonctionne ». Arretez-le " +
+              "(sc.exe stop $NomService), verifiez que le dossier est accessible en ecriture, " +
+              "et relisez l'Observateur d'evenements."
+    }
+
+    Note ""
+    foreach ($ligne in ($lignes | Select-Object -Last 25)) { Note $ligne }
+    Note ""
+
+    $recentes = $lignes | Select-Object -Last 25
+
+    # Un service ne demarre pas sous le compte qui l'installe, et le
+    # gestionnaire de services garde en cache l'environnement machine tel qu'il
+    # etait a l'amorcage. Une variable posee il y a cinq minutes peut donc lui
+    # rester invisible : l'agent retombe alors sur le jeu d'essai, tourne
+    # parfaitement, et ne certifie rien de reel. Le journal est le seul endroit
+    # ou cela se voit.
+    if ($recentes -match "JEU D'ESSAI") {
+        throw "Le service tourne mais lit le JEU D'ESSAI, pas votre dossier Sage. Les " +
+              "variables machine posees par -Preparer ne lui sont pas parvenues : le " +
+              "gestionnaire de services garde en cache l'environnement tel qu'il etait au " +
+              "demarrage de Windows. Redemarrez le poste, puis relancez -Installer. Rien " +
+              "n'a ete certifie : le jeu d'essai ne parle a aucune plateforme."
+    }
+
+    # Le mode qui compte est celui que le service annonce, pas celui que porte
+    # la variable. Les deux peuvent differer - c'est meme le symptome d'une
+    # variable machine invisible au service - et affirmer la variable pendant
+    # que le journal dit le contraire serait poser deux verites pour un fait.
+    $modeJournal = $null
+    if ($recentes -match 'Mode AUTOMATIC')          { $modeJournal = 'Automatic' }
+    elseif ($recentes -match 'Mode Manual')         { $modeJournal = 'Manual' }
+    elseif ($recentes -match 'Mode SemiAutomatic')  { $modeJournal = 'SemiAutomatic' }
+
+    if (-not $modeJournal) {
+        Alerte "Le journal n'annonce aucun mode. La variable machine porte « $modeReel », mais"
+        Alerte "rien ne prouve que le service la voit. Lisez les lignes ci-dessus avant de"
+        Alerte "compter sur son comportement."
+        Bien "Service $NomService demarre, et le journal le montre."
+    }
+    elseif ($modeJournal -ne $modeReel) {
+        Alerte "DESACCORD. La variable machine porte « $modeReel », le service annonce"
+        Alerte "« $modeJournal ». C'est le service qui fait foi : c'est en $modeJournal qu'il"
+        Alerte "tourne. La cause la plus frequente est une variable posee apres l'amorçage de"
+        Alerte "Windows, que le gestionnaire de services ne voit pas. Redemarrez le poste,"
+        Alerte "puis relancez -Installer."
+        Bien "Service $NomService demarre, et il tourne en $modeJournal."
+    }
+    else {
+        Bien "Service $NomService demarre en mode $modeJournal, et le journal le montre."
+    }
+
+    if ($modeJournal -eq 'Automatic') {
+        Note "Les factures conformes et stables partent d'elles-memes, au plus dix par tour."
+    }
+    elseif ($modeJournal) {
+        Note "Il observe et journalise. Il n'enverra rien tant qu'il tourne en $modeJournal."
+    }
+
     Note ""
     Note "Pour le suivre :"
-    Note "  Get-Content '$Journaux\agent-$(Get-Date -Format 'yyyy-MM-dd').log' -Wait -Encoding UTF8"
+    Note "  Get-Content '$journal' -Wait -Encoding UTF8"
     Note ""
     Note "Pour l'arrêter :"
     Note "  sc.exe stop $NomService"

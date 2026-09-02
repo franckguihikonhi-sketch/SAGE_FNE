@@ -79,6 +79,33 @@ public sealed class ServiceSurveillance(
                 "pour l'autoriser.", _reglages.Mode);
         }
 
+        // Sur quelles données il travaille, dit une fois au démarrage. Sans
+        // cette ligne, un service qui tourne sur le jeu d'essai est
+        // indiscernable d'un service qui certifie pour de vrai : même journal,
+        // mêmes décisions, et pas une facture qui parte réellement.
+        //
+        // Le cas n'est pas théorique. Un service ne démarre pas sous le compte
+        // qui l'installe, et le gestionnaire de services garde en cache
+        // l'environnement machine tel qu'il était à l'amorçage de Windows : une
+        // variable posée cinq minutes plus tôt peut lui rester invisible.
+        using (var portee = fabrique.CreateScope())
+        {
+            var depot = portee.ServiceProvider.GetRequiredService<ISageInvoiceRepository>();
+            if (depot is SageInvoiceRepository)
+            {
+                logger.LogInformation("Source des données : dossier SAGE (SQL Server), en lecture seule.");
+            }
+            else
+            {
+                logger.LogCritical(
+                    "Aucune chaîne de connexion Sage : la lecture porte sur le JEU D'ESSAI, pas " +
+                    "sur votre dossier. Rien de réel ne sera certifié. Posez " +
+                    "ConnectionStrings__Sage en variable d'environnement MACHINE — et si elle " +
+                    "y est déjà, redémarrez le poste : le gestionnaire de services ne voit pas " +
+                    "les variables posées après l'amorçage.");
+            }
+        }
+
         var stabilite = new VerificateurStabilite(_reglages.Stabilite);
         var prochainBattement = DateTimeOffset.MinValue;
 
