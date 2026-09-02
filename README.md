@@ -1392,9 +1392,13 @@ l'autre a envoyé — et le doublon suivrait. Donnez un chemin absolu, hors de t
 { "Fne": { "CertificationLedgerPath": "C:\\ProgramData\\SageFne\\certifications.json" } }
 ```
 
-Un script fait tout cela et s'arrête à la moindre incertitude :
+Un script fait tout cela et s'arrête à la moindre incertitude. Windows refuse par défaut
+d'exécuter le moindre script : autorisez-le **pour cette fenêtre seulement**, ce qui n'écrit
+rien dans le registre Windows et disparaît à la fermeture.
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
 .\deploiement\installer-agent.ps1 -Preparer   # variables machine, registre partagé
 .\deploiement\installer-agent.ps1 -Verifier   # un passage de lecture, rien n'est créé
 .\deploiement\installer-agent.ps1 -Installer  # crée et démarre le service, en Manual

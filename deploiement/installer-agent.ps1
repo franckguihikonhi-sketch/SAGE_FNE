@@ -28,6 +28,13 @@
     Le service démarre en mode Manual : il observe et journalise, il n'envoie
     rien. C'est délibéré, et cela doit le rester plusieurs jours.
 
+.NOTES
+    Windows refuse par défaut d'exécuter le moindre script. Autorisez-le pour
+    cette fenêtre seulement — rien n'est écrit dans le registre Windows, et tout
+    revient à la normale à la fermeture :
+
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
 .EXAMPLE
     .\installer-agent.ps1 -Preparer
     .\installer-agent.ps1 -Verifier
@@ -63,9 +70,22 @@ function Bien($texte) { Write-Host "  $texte" -ForegroundColor Green }
 function Alerte($texte) { Write-Host "  $texte" -ForegroundColor Yellow }
 
 function EstAdministrateur {
-    $identite = [Security.Principal.WindowsIdentity]::GetCurrent()
-    (New-Object Security.Principal.WindowsPrincipal $identite).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    # Hors de Windows, la question n'a pas de sens et l'appel lève une exception
+    # dont le message n'aide personne. Ce script installe un service Windows :
+    # le dire est plus utile que de laisser fuir « Windows Principal
+    # functionality is not supported on this platform ».
+    if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
+        throw "Ce script installe un service Windows. Il ne peut rien faire ici."
+    }
+
+    try {
+        $identite = [Security.Principal.WindowsIdentity]::GetCurrent()
+        (New-Object Security.Principal.WindowsPrincipal $identite).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch {
+        throw "Impossible de savoir si cette console est administrateur : $_"
+    }
 }
 
 function RacineDuDepot {
