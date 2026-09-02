@@ -1384,6 +1384,10 @@ ne l'attend même pas**, il rend la main aussitôt. Le résultat est dans le jou
 Get-Content "$env:APPDATA\SageFne\journaux\agent-$(Get-Date -Format 'yyyy-MM-dd').log"
 ```
 
+`--verifier` n'exige pas la clé d'API : il ne contacte jamais la plateforme. Il exige en
+revanche le chemin de registre, car lire le mauvais registre lui ferait dire « à certifier »
+d'une facture déjà partie.
+
 Le journal dit d'abord **sur quoi il a lu** — votre dossier Sage ou le jeu d'essai. « 0 pièce
 lue » ne veut pas dire la même chose dans les deux cas, et sans cette ligne on chercherait une
 panne là où il n'y a qu'une chaîne de connexion absente. Il dit aussi la fenêtre de lecture :

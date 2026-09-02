@@ -82,6 +82,28 @@ public class GardeInstallationTests
     }
 
     [Fact]
+    public void Une_verification_n_exige_pas_de_cle()
+    {
+        // « --verifier » lit, décide et s'arrête. Réclamer une clé pour
+        // éprouver une lecture Sage découragerait l'épreuve qu'on veut voir
+        // faite avant toute installation.
+        Assert.Empty(GardeInstallation.Empechements(
+            Chaine, RegistrePartage, null, pourEnvoyer: false));
+    }
+
+    [Fact]
+    public void Une_verification_exige_quand_meme_le_bon_registre()
+    {
+        // Lire le mauvais registre ferait dire « à certifier » d'une facture
+        // déjà partie : la vérification mentirait sur le point qui compte.
+        var empechements = GardeInstallation.Empechements(
+            Chaine, null, null, pourEnvoyer: false);
+
+        Assert.Single(empechements);
+        Assert.Contains("CertificationLedgerPath", empechements[0]);
+    }
+
+    [Fact]
     public void Les_empechements_se_cumulent()
     {
         // Les annoncer un par un ferait recommencer l'installation trois fois.

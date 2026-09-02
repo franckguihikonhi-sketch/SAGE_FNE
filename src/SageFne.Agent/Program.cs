@@ -119,10 +119,16 @@ var journalDemarrage = hote.Services
     .GetRequiredService<ILoggerFactory>()
     .CreateLogger("Installation");
 
+// La vérification ne contacte jamais la plateforme : elle n'a pas besoin de
+// clé. L'exiger d'elle découragerait l'épreuve qu'on veut voir faite avant
+// toute installation.
+var verification = args.Contains("--verifier");
+
 var empechements = GardeInstallation.Empechements(
     chaineSage,
     constructeur.Configuration["Fne:CertificationLedgerPath"],
-    constructeur.Configuration["Fne:ApiKey"]);
+    constructeur.Configuration["Fne:ApiKey"],
+    pourEnvoyer: !verification);
 
 foreach (var empechement in empechements)
 {
@@ -141,7 +147,7 @@ if (empechements.Count > 0)
 // « --verifier » fait un tour, écrit ce qu'il a vu au journal, et s'arrête.
 // Sans lui, il n'y aurait aucun moyen d'éprouver le paramétrage : sous Windows
 // le binaire est compilé sans console, et lancé à la main il ne dirait rien.
-if (args.Contains("--verifier"))
+if (verification)
 {
     journalDemarrage.LogInformation("Vérification. Aucun service n'est installé, rien n'est envoyé.");
 

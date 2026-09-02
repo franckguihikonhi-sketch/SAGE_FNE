@@ -33,8 +33,21 @@ public static class GardeInstallation
     /// configuration — et non le chemin par défaut, qui est justement le piège.
     /// </param>
     /// <param name="cleApi">La clé, dont seule la présence est regardée.</param>
+    /// <param name="pourEnvoyer">
+    /// Faux pour une simple vérification, qui ne contacte jamais la plateforme.
+    /// </param>
+    /// <remarks>
+    /// La clé n'est exigée que d'un agent qui peut envoyer. « --verifier » lit,
+    /// décide et s'arrête : réclamer une clé pour éprouver une lecture Sage
+    /// serait de la friction sans contrepartie, et découragerait justement la
+    /// vérification qu'on veut voir faite avant toute installation.
+    ///
+    /// Le registre, lui, reste exigé des deux : une vérification qui lirait le
+    /// mauvais registre dirait « à certifier » d'une facture déjà partie.
+    /// </remarks>
     public static IReadOnlyList<string> Empechements(
-        string chaineSage, string? cheminRegistreConfigure, string? cleApi)
+        string chaineSage, string? cheminRegistreConfigure, string? cleApi,
+        bool pourEnvoyer = true)
     {
         var empechements = new List<string>();
         var sageConfigure = !string.IsNullOrWhiteSpace(chaineSage);
@@ -71,7 +84,7 @@ public static class GardeInstallation
                 "sous C:\\ProgramData.");
         }
 
-        if (string.IsNullOrWhiteSpace(cleApi))
+        if (pourEnvoyer && string.IsNullOrWhiteSpace(cleApi))
         {
             empechements.Add(
                 "Fne:ApiKey est absente. Les secrets utilisateur (dotnet user-secrets) sont liés " +
