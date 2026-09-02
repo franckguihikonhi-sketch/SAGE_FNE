@@ -1,3 +1,4 @@
+using System.Text;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SageFne.Agent.Journalisation;
@@ -67,6 +68,64 @@ public class DemarrageTests
             Assert.True(octets.Length >= 3);
             Assert.Equal([0xEF, 0xBB, 0xBF], octets.Take(3));
             Assert.Contains("Vérification terminée — accentué", File.ReadAllText(journal.FichierDuJour));
+        }
+        finally
+        {
+            if (Directory.Exists(dossier)) Directory.Delete(dossier, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Un_journal_du_jour_sans_BOM_est_ecarte()
+    {
+        // Le cas manqué la première fois. AppendAllText n'écrit le préambule
+        // qu'à la création : un fichier laissé par une version antérieure
+        // restait illisible pour toujours, et chaque ligne ajoutée avec lui.
+        var dossier = Path.Combine(Path.GetTempPath(), $"journal-legacy-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(dossier);
+            var duJour = Path.Combine(dossier, $"agent-{DateTime.Now:yyyy-MM-dd}.log");
+            File.WriteAllText(duJour, "ancienne ligne accentuée\n", new UTF8Encoding(false));
+
+            using var journal = new JournalFichier(dossier);
+            journal.CreateLogger("Essai").LogInformation("nouvelle ligne accentuée");
+
+            var octets = File.ReadAllBytes(journal.FichierDuJour);
+            Assert.Equal([0xEF, 0xBB, 0xBF], octets.Take(3));
+
+            // L'ancien est mis de côté, pas jeté : un journal ne se perd pas.
+            var ecarte = Path.Combine(dossier, $"agent-{DateTime.Now:yyyy-MM-dd}-avant-bom.log");
+            Assert.True(File.Exists(ecarte));
+            Assert.Contains("ancienne ligne", File.ReadAllText(ecarte));
+        }
+        finally
+        {
+            if (Directory.Exists(dossier)) Directory.Delete(dossier, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Un_journal_du_jour_avec_BOM_est_conserve()
+    {
+        // Redémarrer l'agent deux fois dans la journée ne doit pas fragmenter
+        // son journal en une série de fichiers écartés.
+        var dossier = Path.Combine(Path.GetTempPath(), $"journal-suite-{Guid.NewGuid():N}");
+        try
+        {
+            using (var premier = new JournalFichier(dossier))
+            {
+                premier.CreateLogger("Essai").LogInformation("premier démarrage");
+            }
+
+            using var second = new JournalFichier(dossier);
+            second.CreateLogger("Essai").LogInformation("second démarrage");
+
+            var contenu = File.ReadAllText(second.FichierDuJour);
+
+            Assert.Contains("premier démarrage", contenu);
+            Assert.Contains("second démarrage", contenu);
+            Assert.Empty(Directory.GetFiles(dossier, "*-avant-bom.log"));
         }
         finally
         {

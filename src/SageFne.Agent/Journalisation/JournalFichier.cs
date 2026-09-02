@@ -33,6 +33,46 @@ public sealed class JournalFichier : ILoggerProvider
         _retentionJours = Math.Max(1, retentionJours);
         Directory.CreateDirectory(_dossier);
         Purger();
+        EcarterUnFichierSansBom();
+    }
+
+    /// <summary>
+    /// Met de côté un fichier du jour écrit sans BOM, pour repartir sur un
+    /// lisible.
+    /// </summary>
+    /// <remarks>
+    /// <c>File.AppendAllText</c> n'écrit le préambule qu'à la création. Un
+    /// fichier laissé par une version antérieure resterait donc illisible pour
+    /// toujours, et chaque ligne ajoutée avec lui — c'est exactement ce qui est
+    /// arrivé sur le premier poste où l'agent a tourné.
+    ///
+    /// L'ancien n'est pas effacé : il est renommé. Un journal se met de côté, il
+    /// ne se jette pas.
+    /// </remarks>
+    private void EcarterUnFichierSansBom()
+    {
+        try
+        {
+            var fichier = FichierDuJour;
+            if (!File.Exists(fichier)) return;
+
+            using (var flux = File.OpenRead(fichier))
+            {
+                Span<byte> tete = stackalloc byte[3];
+                if (flux.Read(tete) == 3 && tete[0] == 0xEF && tete[1] == 0xBB && tete[2] == 0xBF)
+                {
+                    return;
+                }
+            }
+
+            var ecarte = Path.ChangeExtension(fichier, null) + "-avant-bom.log";
+            if (File.Exists(ecarte)) File.Delete(ecarte);
+            File.Move(fichier, ecarte);
+        }
+        catch (Exception)
+        {
+            // Un journal qui ne peut pas se ranger ne doit pas arrêter l'agent.
+        }
     }
 
     public ILogger CreateLogger(string categorie) => new Ecrivain(this, categorie);
