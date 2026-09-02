@@ -142,6 +142,48 @@ function RacineDuDepot {
 
 # --- Préparation ------------------------------------------------------------
 
+function Fixer-Propriete($objet, [string]$nom, $valeur) {
+    # ConvertFrom-Json rend un PSCustomObject : y poser une propriete absente
+    # leve une exception. C'est ainsi que -Preparer s'est interrompu apres avoir
+    # efface les variables machine, laissant le poste sans reglage d'aucun cote.
+    #
+    # Un objet nul - une section entiere manquante - fait echouer Add-Member sur
+    # un InputObject vide, et le script s'arrete avant d'ecrire quoi que ce soit.
+    # Le dire clairement vaut mieux qu'une trace de liaison de parametre.
+    if ($null -eq $objet) {
+        throw "La section attendue est absente d'appsettings.json : impossible d'y poser " +
+              "« $nom ». Le fichier publie est incomplet - republiez, ou restaurez-le depuis " +
+              "src\SageFne.Agent\appsettings.json."
+    }
+
+    if ($objet.PSObject.Properties.Name -contains $nom) { $objet.$nom = $valeur }
+    else { $objet | Add-Member -NotePropertyName $nom -NotePropertyValue $valeur }
+}
+
+function Redemarrer-Service {
+    & sc.exe start $NomService 2>&1 | Out-Null
+
+    # Un service qui lit Sage au demarrage met plus de deux secondes a passer
+    # Running. Attendre un temps fixe faisait annoncer un echec sur un service
+    # qui demarrait tres bien.
+    $attendu = 0
+    while ($attendu -lt 60) {
+        $etat = (Get-Service $NomService -ErrorAction SilentlyContinue).Status
+        if ($etat -eq 'Running') {
+            Note "Service redemarre apres $attendu s."
+            return $true
+        }
+        if ($etat -eq 'Stopped' -and $attendu -ge 5) { break }
+        Start-Sleep -Seconds 1
+        $attendu++
+    }
+
+    Alerte "ATTENTION : le service ne redemarre pas apres $attendu s. Relancez-le a la main :"
+    Alerte "  sc.exe start $NomService"
+    Alerte "puis lisez le journal - le garde-fou d'installation y dit ce qu'il refuse."
+    return $false
+}
+
 function Preparer-Poste {
     Titre 'Préparation'
 
@@ -181,35 +223,7 @@ function Preparer-Poste {
         New-Item -ItemType Directory -Path $Journaux -Force | Out-Null
     }
 
-    # 2. Les variables MACHINE. Elles servent le CLI comme le service : un seul
-    #    registre pour les deux, ce qui est exactement le but.
-    Titre 'Variables machine'
-
-    # Les reglages non secrets ne passent plus par des variables machine. Le
-    # gestionnaire de services garde en cache l'environnement tel qu'il etait a
-    # l'amorcage de Windows : une variable posee cinq minutes plus tot peut
-    # rester invisible au service, qui tourne alors sur d'autres reglages que
-    # ceux qu'on croit avoir poses - et l'on attend un delai de 2 minutes qui en
-    # vaut 5 sans comprendre.
-    #
-    # Ils vont dans l'appsettings.json publie, que le service lit a coup sur.
-    # C'est deja par la que passe la date de demarrage, et elle a toujours
-    # fonctionne. Les variables machine qui les doublaient sont effacees : une
-    # seule source par reglage, sinon on ne sait plus laquelle s'applique.
-    $anciennes = @(
-        'Fne__CertificationLedgerPath', 'Agent__CheminJournal',
-        'Agent__FenetreJours', 'Agent__StabiliteMinutes', 'Agent__Mode')
-
-    foreach ($nom in $anciennes) {
-        if ([Environment]::GetEnvironmentVariable($nom, 'Machine')) {
-            [Environment]::SetEnvironmentVariable($nom, $null, 'Machine')
-            Remove-Item "env:$nom" -ErrorAction SilentlyContinue
-            Note "$nom : variable machine retiree, le reglage vit dans appsettings.json."
-        }
-    }
-
-
-    # 3. Les secrets. Repris des secrets utilisateur du CLI s'ils s'y trouvent,
+    # 2. Les secrets. Repris des secrets utilisateur du CLI s'ils s'y trouvent,
     #    sans jamais être affichés.
     Titre 'Secrets'
 
@@ -258,7 +272,7 @@ function Preparer-Poste {
         }
     }
 
-    # 4. Le binaire.
+    # 3. Le binaire.
     Titre 'Publication'
 
     # Le service verrouille ses propres DLL. Sans cet arret, dotnet publish
@@ -308,25 +322,14 @@ function Preparer-Poste {
     & dotnet publish (Join-Path $depot 'src\SageFne.Agent') -c Release -o $Destination
     $publication = $LASTEXITCODE
 
-    # Le redemarrage d'abord, meme si la publication a echoue : un service arrete
-    # par ce script ne doit pas le rester parce que la compilation s'est mal
-    # passee. Ne rien envoyer est sur ; ne plus rien examiner sans le savoir ne
-    # l'est pas.
-    if ($tournait) {
-        & sc.exe start $NomService 2>&1 | Out-Null
-        Start-Sleep -Seconds 2
-
-        if ((Get-Service $NomService -ErrorAction SilentlyContinue).Status -eq 'Running') {
-            Note "Service redemarre."
-        }
-        else {
-            Alerte "ATTENTION : le service ne redemarre pas. Relancez-le a la main :"
-            Alerte "  sc.exe start $NomService"
-            Alerte "puis lisez $Journaux."
-        }
+    if ($publication -ne 0) {
+        # Le service reprend avant qu'on ne s'arrete : arrete par ce script, il
+        # ne doit pas le rester parce que la compilation s'est mal passee.
+        # L'ancien binaire est intact, ses reglages aussi.
+        if ($tournait) { Redemarrer-Service }
+        throw "La publication a échoué. L'ancien binaire reste en place."
     }
 
-    if ($publication -ne 0) { throw "La publication a échoué." }
     Bien "Publié dans $Destination"
 
     # Les reglages non secrets vont dans l'appsettings.json publie, apres la
@@ -344,16 +347,21 @@ function Preparer-Poste {
 
     $config = Get-Content $fichier -Raw -Encoding UTF8 | ConvertFrom-Json
 
-    $config.Agent.CheminJournal = $Journaux
-    $config.Fne.CertificationLedgerPath = $Registre
+    # Poser une propriete que l'objet ne porte pas encore leve une exception :
+    # l'appsettings de l'agent n'avait pas de CertificationLedgerPath, et le
+    # script s'est interrompu APRES avoir efface les variables machine. Le poste
+    # s'est retrouve sans reglage d'aucun cote. Fixer-Propriete l'ajoute au lieu
+    # d'echouer.
+    Fixer-Propriete $config.Agent 'CheminJournal' $Journaux
+    Fixer-Propriete $config.Fne 'CertificationLedgerPath' $Registre
 
     # Le parametre passe devant ; a defaut, ce que le poste appliquait deja ;
     # a defaut encore, la valeur versionnee, qui est Manual.
-    if ($Mode) { $config.Agent.Mode = $Mode }
-    elseif ($modeEnPlace) { $config.Agent.Mode = $modeEnPlace }
+    if ($Mode) { Fixer-Propriete $config.Agent 'Mode' $Mode }
+    elseif ($modeEnPlace) { Fixer-Propriete $config.Agent 'Mode' $modeEnPlace }
 
-    if ($Stabilite -gt 0) { $config.Agent.StabiliteMinutes = $Stabilite }
-    elseif ($null -ne $stabiliteEnPlace) { $config.Agent.StabiliteMinutes = $stabiliteEnPlace }
+    if ($Stabilite -gt 0) { Fixer-Propriete $config.Agent 'StabiliteMinutes' $Stabilite }
+    elseif ($null -ne $stabiliteEnPlace) { Fixer-Propriete $config.Agent 'StabiliteMinutes' $stabiliteEnPlace }
 
     $config | ConvertTo-Json -Depth 10 | Set-Content $fichier -Encoding UTF8
 
@@ -369,6 +377,29 @@ function Preparer-Poste {
     Note ""
     Note "Lu dans $fichier. Ces reglages prennent effet au prochain demarrage"
     Note "du service, sans redemarrage de Windows."
+
+    # Les variables machine qui doublaient ces reglages ne sont retirees
+    # qu'ICI : le fichier est ecrit, relu, et porte bien les valeurs. Les
+    # effacer avant aurait laisse - et a laisse une fois - le poste sans
+    # reglage d'aucun cote quand l'ecriture echouait.
+    #
+    # Une seule source par reglage, sinon on ne sait plus laquelle s'applique.
+    # Les secrets ne sont pas concernes : ils restent en variables machine, hors
+    # de tout fichier.
+    if ($relu.Agent.Mode -and $relu.Fne.CertificationLedgerPath -and $relu.Agent.CheminJournal) {
+        foreach ($nom in @('Fne__CertificationLedgerPath', 'Agent__CheminJournal',
+                           'Agent__FenetreJours', 'Agent__StabiliteMinutes', 'Agent__Mode')) {
+            if ([Environment]::GetEnvironmentVariable($nom, 'Machine')) {
+                [Environment]::SetEnvironmentVariable($nom, $null, 'Machine')
+                Remove-Item "env:$nom" -ErrorAction SilentlyContinue
+                Note "$nom : variable machine retiree, le fichier fait foi."
+            }
+        }
+    }
+    else {
+        Alerte "Le fichier relu ne porte pas tous les reglages attendus : les variables"
+        Alerte "machine sont conservees. Ne les effacez pas tant que ce n'est pas regle."
+    }
 
     if ($relu.Agent.Mode -eq 'Automatic') {
         Alerte "Mode Automatic : les factures conformes et stables partiront"
@@ -417,6 +448,15 @@ function Preparer-Poste {
             Alerte "perimetre. Posez Fne:DemarrageLe dans appsettings.json, ou relancez"
             Alerte "avec -DemarrageLe AAAA-MM-JJ pour deroger sur ce poste."
         }
+    }
+
+    # Le service reprend en DERNIER, une fois les reglages ecrits dans le
+    # fichier qu'il va lire. Le redemarrer juste apres la publication le faisait
+    # partir sur l'appsettings fraichement republie - donc sur les valeurs
+    # versionnees, Manual et sans chemin de registre.
+    if ($tournait) {
+        Titre 'Redemarrage'
+        Redemarrer-Service | Out-Null
     }
 }
 
