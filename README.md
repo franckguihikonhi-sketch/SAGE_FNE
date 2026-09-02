@@ -1418,6 +1418,40 @@ l'autre a envoyé — et le doublon suivrait. Donnez un chemin absolu, hors de t
 { "Fne": { "CertificationLedgerPath": "C:\\ProgramData\\SageFne\\certifications.json" } }
 ```
 
+### Passer l'agent en Automatic
+
+Tant que `Agent__Mode` vaut `Manual`, l'agent lit, contrôle, décide — et n'envoie rien. Le
+passage en `Automatic` autorise les factures conformes et stables à partir d'elles-mêmes :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Preparer -Mode Automatic
+powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Installer
+```
+
+Sans service installé, changer le mode ne change rien : `--verifier` force `Manual` par
+construction, et rien d'autre ne tourne. Le mode ne prend effet qu'une fois le service créé.
+
+Trois choses à savoir avant de basculer.
+
+**Le mode n'est pas dans `appsettings.json`.** Le fichier versionné reste à `Manual` pour
+toujours : autoriser l'envoi automatique est un acte d'exploitation, posé sur le poste
+concerné, jamais un défaut qui voyage avec le dépôt. `-Preparer` ne réécrit pas un mode déjà
+posé — sans quoi une mise à jour de routine ramènerait un poste d'`Automatic` à `Manual`, et
+l'on chercherait longtemps pourquoi plus rien ne part.
+
+**Au plus dix envois par tour** (`Agent:LimiteEnvoisParTour`). Lire deux cents pièces est sans
+conséquence ; en certifier deux cents en une minute ne se défait pas. Le jour où les NCC et
+téléphones manquants sont saisis dans Sage, un lot entier devient conforme d'un coup : le
+plafond borne ce qui peut partir avant qu'un humain ne regarde le journal. Ce qui dépasse
+n'est pas perdu, seulement remis au tour suivant.
+
+**Automatic n'enlève pas le travail manuel, tant que la plateforme répond 500.** Chaque envoi
+finit en `Sending`, sans renvoi automatique, et demande une vérification au portail puis un
+`debloquer`. Ce que le mode change, c'est qui lance le POST — pas ce qui suit.
+
+Le journal l'écrit en toutes lettres à chaque démarrage. Un service qui certifie sans qu'on le
+lui demande ne doit jamais pouvoir être découvert après coup.
+
 ### Le périmètre : à partir de quand
 
 `Fne:DemarrageLe` fixe le jour où le middleware commence à se sentir concerné.

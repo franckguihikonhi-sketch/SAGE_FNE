@@ -60,11 +60,23 @@ public sealed class ServiceSurveillance(
             "Agent démarré — mode {Mode}, tour toutes les {Intervalle}, stabilité {Stabilite}.",
             _reglages.Mode, _reglages.Intervalle, _reglages.Stabilite);
 
-        if (_reglages.Mode != ModeAgent.Automatic)
+        if (_reglages.Mode == ModeAgent.Automatic)
+        {
+            // Le passage en Automatic doit se voir dans le journal, en toutes
+            // lettres et à chaque démarrage. Un service qui certifie sans qu'on
+            // le lui demande ne doit jamais pouvoir être découvert après coup.
+            logger.LogWarning(
+                "Mode AUTOMATIC : les factures conformes et stables partiront d'elles-mêmes, " +
+                "au plus {Plafond} par tour. Aucune confirmation ne sera demandée. " +
+                "Pour revenir en arrière : variable machine Agent__Mode = Manual, " +
+                "puis redémarrage du service.",
+                Math.Max(1, _reglages.LimiteEnvoisParTour));
+        }
+        else
         {
             logger.LogInformation(
                 "Mode {Mode} : aucune facture ne partira d'elle-même. Passez en Automatic " +
-                "dans appsettings pour l'autoriser.", _reglages.Mode);
+                "pour l'autoriser.", _reglages.Mode);
         }
 
         var stabilite = new VerificateurStabilite(_reglages.Stabilite);
@@ -256,8 +268,24 @@ public sealed class ServiceSurveillance(
             logger.LogInformation("{Explication}", decision.Explication);
         }
 
-        var aEnvoyer = decisions.Where(decision => decision.Envoyable).ToList();
-        if (aEnvoyer.Count == 0) return;
+        var pretes = decisions.Where(decision => decision.Envoyable).ToList();
+        if (pretes.Count == 0) return;
+
+        // Le plafond d'envois, distinct de celui de lecture. Ce qui dépasse
+        // n'est pas perdu : il repassera au tour suivant, une minute plus tard,
+        // le temps de voir au journal ce qui part.
+        var plafond = Math.Max(1, _reglages.LimiteEnvoisParTour);
+        var aEnvoyer = pretes.Take(plafond).ToList();
+
+        if (pretes.Count > aEnvoyer.Count)
+        {
+            logger.LogWarning(
+                "{Pretes} pièce(s) sont prêtes, {Plafond} partiront ce tour-ci : " +
+                "Agent:LimiteEnvoisParTour borne ce qui peut être certifié d'un coup. " +
+                "Les autres suivront aux tours suivants. Si ce nombre vous surprend, " +
+                "arrêtez le service avant le prochain tour.",
+                pretes.Count, aEnvoyer.Count);
+        }
 
         // La joignabilité se vérifie AVANT d'entrer dans le chemin d'envoi.
         // Après le POST, plus rien ne distingue une coupure survenue avant de
@@ -268,7 +296,7 @@ public sealed class ServiceSurveillance(
             _reseau = EtatLien.Indisponible;
             logger.LogWarning(
                 "Plateforme injoignable : {Nombre} pièce(s) restent en file, rien n'est parti.",
-                aEnvoyer.Count);
+                pretes.Count);
             return;
         }
 

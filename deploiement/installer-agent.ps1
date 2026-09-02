@@ -65,7 +65,16 @@ param(
     # l'on aurait deux dates pour une seule frontiere sans savoir laquelle
     # s'applique. Ne renseignez ce parametre que pour deroger sciemment sur ce
     # poste.
-    [string]$DemarrageLe = ''
+    [string]$DemarrageLe = '',
+
+    # Manual : l'agent observe et journalise, il n'envoie rien.
+    # Automatic : les factures conformes et stables partent d'elles-mêmes.
+    #
+    # Vide par defaut : -Preparer ne touche pas au mode deja pose. Sans cela,
+    # une preparation de routine ramenerait silencieusement un poste d'Automatic
+    # a Manual, et l'on chercherait longtemps pourquoi plus rien ne part.
+    [ValidateSet('', 'Manual', 'Automatic')]
+    [string]$Mode = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -171,13 +180,37 @@ function Preparer-Poste {
         'Fne__CertificationLedgerPath' = $Registre
         'Agent__CheminJournal'         = $Journaux
         'Agent__FenetreJours'          = '30'
-        'Agent__Mode'                  = 'Manual'
     }
 
     foreach ($nom in $aPoser.Keys) {
         [Environment]::SetEnvironmentVariable($nom, $aPoser[$nom], 'Machine')
         Set-Item "env:$nom" $aPoser[$nom]
         Note "$nom = $($aPoser[$nom])"
+    }
+
+    # Le mode a part. Il ne se reecrit pas a chaque preparation : c'est un
+    # interrupteur d'exploitation, qu'on bascule sciemment et qu'une mise a jour
+    # de routine ne doit pas ramener en arriere.
+    $modeExistant = [Environment]::GetEnvironmentVariable('Agent__Mode', 'Machine')
+    if ($Mode) {
+        [Environment]::SetEnvironmentVariable('Agent__Mode', $Mode, 'Machine')
+        Set-Item 'env:Agent__Mode' $Mode
+        if ($Mode -eq 'Automatic') {
+            Alerte "Agent__Mode = Automatic. Les factures conformes et stables partiront"
+            Alerte "d'elles-memes, sans confirmation. Retour en arriere :"
+            Alerte "  -Preparer -Mode Manual, puis redemarrage du service."
+        }
+        else {
+            Note "Agent__Mode = $Mode."
+        }
+    }
+    elseif ($modeExistant) {
+        Note "Agent__Mode = $modeExistant (inchange). Pour le changer : -Mode Manual|Automatic."
+    }
+    else {
+        [Environment]::SetEnvironmentVariable('Agent__Mode', 'Manual', 'Machine')
+        Set-Item 'env:Agent__Mode' 'Manual'
+        Note "Agent__Mode = Manual (defaut). L'agent observe sans rien envoyer."
     }
 
     # 3. Les secrets. Repris des secrets utilisateur du CLI s'ils s'y trouvent,

@@ -47,6 +47,24 @@ public sealed class AgentOptions
     /// <summary>Plafond de pièces examinées par tour.</summary>
     public int LimiteParTour { get; set; } = 200;
 
+    /// <summary>Plafond de pièces réellement <b>envoyées</b> par tour.</summary>
+    /// <remarks>
+    /// Lire deux cents pièces est sans conséquence ; en certifier deux cents en
+    /// une minute ne se défait pas. Ces deux plafonds n'ont donc rien à voir, et
+    /// confondre le second avec le premier reviendrait à n'en avoir aucun.
+    ///
+    /// Le risque n'est pas théorique. Le dossier porte mille quatre pièces dont
+    /// la plupart ne sont bloquées que par un NCC ou un téléphone absent. Le
+    /// jour où ces fiches clients sont complétées dans Sage — ce qui est
+    /// précisément le travail en cours — un lot entier devient conforme d'un
+    /// coup. Sans plafond, le premier tour qui suit part avec.
+    ///
+    /// Dix par tour, une minute entre les tours : de quoi voir au journal ce qui
+    /// se passe et arrêter le service avant que cela ne devienne irréversible.
+    /// Ce qui dépasse n'est pas perdu, seulement remis au tour suivant.
+    /// </remarks>
+    public int LimiteEnvoisParTour { get; set; } = 10;
+
     /// <summary>Où l'agent écrit son journal.</summary>
     /// <remarks>
     /// Vide : le dossier de données de l'application. Jamais à côté du binaire —
