@@ -665,6 +665,28 @@ Seul `--confirmer` déclenche l'appel.
 Trois refus avant même la requête : le jeu d'essai (une facture inventée ne s'envoie pas à
 la DGI), un accès non configuré, une pièce qui n'est pas « à certifier ».
 
+### Ce refus-là n'existait pas où cette page le disait
+
+Il vivait dans la commande `envoyer` du CLI — **chez l'appelant**, et non dans le composant
+qui envoie. L'agent, deuxième appelant, ne l'a jamais eu ; le tableau de bord, troisième,
+non plus.
+
+Le défaut s'est constaté **en cliquant** : sur le jeu d'essai, « Certifier » a réellement
+envoyé un POST à la plateforme de la DGI avec une facture fabriquée. Seule une clé d'API
+invalide l'a arrêté — un `401`. Avec une clé valide, la pièce « DEMO SA (jeu d'essai) »
+aurait été certifiée, et n'aurait pu être défaite que par un avoir.
+
+Ce n'est pas un cas de laboratoire. La lecture retombe sur le jeu d'essai dès que
+`ConnectionStrings__Sage` n'atteint pas le service — ce qui **est arrivé** sur le premier
+poste réel, le gestionnaire de services ne voyant pas les variables machine posées après
+l'amorçage de Windows. Un agent en `Automatic` dans cet état aurait certifié à la DGI les
+quatre factures inventées du jeu d'essai.
+
+`ISageInvoiceRepository` porte donc `EstReel`, et `InvoiceSender` refuse avant même de lire
+le registre — inscrire `Sending` sur un envoi qui n'a jamais eu lieu bloquerait la pièce pour
+toujours. Le compilateur oblige chaque implémentation à se déclarer, et un test vérifie que
+le câblage de production ne déclare jamais le jeu d'essai réel.
+
 ### Un POST réussi certifie ; un POST en échec dépose parfois
 
 Cette section a d'abord affirmé le contraire, sur la foi de trois envois qui avaient tous
@@ -1353,6 +1375,44 @@ Windows, les avertissements et au-delà vont aussi à l'Event Log.
 
 Le service démarre avec Windows, survit à la déconnexion de l'utilisateur, et s'arrête
 proprement à l'extinction.
+
+### Le tableau de bord : voir les factures, et certifier d'un clic
+
+`http://localhost:5080` — l'agent sert une page qui liste les factures de la fenêtre, chacune
+avec son état, ce qui la bloque, et un bouton **Certifier** sur celles qui sont prêtes.
+
+**Aucune fenêtre ne s'ouvre pour autant.** L'agent écoute un port ; c'est l'exploitant qui
+décide d'ouvrir son navigateur. L'exigence porte sur les fenêtres que le programme ferait
+apparaître, et il n'en apparaît aucune.
+
+**L'écoute est bornée à la boucle locale dans le code, pas dans le paramétrage.** La page ne
+demande aucun mot de passe et porte le bouton qui certifie : un réglage capable de l'exposer
+au réseau serait un réglage qu'on finirait par mettre. Une requête venue d'ailleurs est
+refusée une seconde fois à l'entrée.
+
+**Le tableau ne juge rien par lui-même.** La liste vient du `MoteurSurveillance` du service,
+avec le **même** vérificateur de stabilité et le **même** suivi des refus — deux singletons
+partagés. Un écran qui referait ses propres calculs afficherait tôt ou tard autre chose que
+ce que l'agent fait, et c'est l'écran qu'on croirait.
+
+Le bouton, lui, **passe outre la stabilité et le mode**, et c'est tout son objet : un humain
+qui clique déclare que la saisie est finie — le délai de stabilité remplaçait ce jugement, il
+ne s'y ajoute pas. Il ne passe jamais outre les contrôles métier ni le registre.
+
+Deux protections lui sont propres :
+
+- **Un `GET` ne certifie pas.** Une adresse qui certifierait à la simple visite partirait au
+  premier préchargement du navigateur, au premier historique rouvert.
+- **La joignabilité s'éprouve avant d'entrer dans le chemin d'envoi**, comme dans le tour du
+  service. Une fois le POST parti, plus rien ne distingue une coupure survenue avant de celle
+  survenue après : la pièce resterait en `Sending` et ne repartirait jamais seule.
+
+Un double-clic est écarté par un verrou par pièce : deux appels concurrents liraient tous
+deux le registre avant que le premier n'y inscrive `Sending`, et feraient deux factures chez
+la DGI. C'est déjà arrivé par une autre voie, sur la 1072.
+
+Le réglage `Agent:TableauActif` l'éteint ; `Agent:TableauPort` change le port. Une panne
+d'écoute n'arrête jamais l'agent : le tableau est un confort, la certification est le métier.
 
 ### Ce que l'agent ajoute, et que le CLI n'avait pas besoin d'avoir
 

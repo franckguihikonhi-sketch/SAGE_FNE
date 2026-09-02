@@ -396,6 +396,18 @@ function Preparer-Poste {
     Note "Envois par tour   $($relu.Agent.LimiteEnvoisParTour) au plus"
     Note "Journal           $($relu.Agent.CheminJournal)"
     Note "Registre          $($relu.Fne.CertificationLedgerPath)"
+
+    # L'adresse du tableau de bord, en toutes lettres. Un ecran que personne ne
+    # sait ou trouver ne sert a rien, et le journal est le seul endroit ou l'on
+    # regarde quand quelque chose ne va pas.
+    if ($relu.Agent.TableauActif -ne $false) {
+        $portTableau = if ($relu.Agent.TableauPort) { $relu.Agent.TableauPort } else { 5080 }
+        Note ""
+        Note "Tableau de bord   http://localhost:$portTableau"
+        Note "                  La liste des factures et le bouton « Certifier »."
+        Note "                  Depuis ce poste uniquement : aucune machine du"
+        Note "                  reseau ne peut l'atteindre."
+    }
     Note ""
     Note "Lu dans $fichier. Ces reglages prennent effet au prochain demarrage"
     Note "du service, sans redemarrage de Windows."

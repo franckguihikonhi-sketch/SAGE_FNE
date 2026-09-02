@@ -90,6 +90,22 @@ public sealed class AgentOptions
     /// <summary>Intervalle du battement de cœur, en secondes.</summary>
     public int HeartbeatSecondes { get; set; } = 300;
 
+    /// <summary>
+    /// Sert le tableau de bord dans un navigateur, sur ce poste uniquement.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ce n'est pas une fenêtre.</b> Aucune console ne s'ouvre : l'agent
+    /// écoute un port et c'est l'exploitant qui décide d'ouvrir son navigateur.
+    ///
+    /// L'écoute est <b>bornée à la boucle locale</b>, dans le code et non dans
+    /// le paramétrage : le tableau ne demande aucun mot de passe, et un poste
+    /// qui l'exposerait au réseau offrirait à quiconque le bouton qui certifie.
+    /// </remarks>
+    public bool TableauActif { get; set; } = true;
+
+    /// <summary>Le port du tableau de bord, sur 127.0.0.1.</summary>
+    public int TableauPort { get; set; } = 5080;
+
     public TimeSpan Intervalle => TimeSpan.FromSeconds(Math.Max(5, IntervalleSecondes));
     public TimeSpan Stabilite => TimeSpan.FromMinutes(Math.Max(0, StabiliteMinutes));
     public TimeSpan Heartbeat => TimeSpan.FromSeconds(Math.Max(30, HeartbeatSecondes));

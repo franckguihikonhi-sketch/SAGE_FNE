@@ -39,6 +39,11 @@ public sealed class ServiceSurveillance(
     FneApiOptions api,
     ISondeReseau sonde,
     IPublicationHeartbeat battements,
+    // Les deux mémoires du jugement, désormais partagées avec le tableau de
+    // bord. Créées ici, elles auraient donné à l'écran un compte à rebours et
+    // une attente après refus différents de ceux que l'agent applique.
+    VerificateurStabilite stabilite,
+    SuiviRefus refus,
     ILogger<ServiceSurveillance> logger) : BackgroundService
 {
     private readonly AgentOptions _reglages = reglages.Value;
@@ -129,20 +134,13 @@ public sealed class ServiceSurveillance(
             }
         }
 
-        var stabilite = new VerificateurStabilite(_reglages.Stabilite);
-
-        // Créé ici, et non dans le tour : le moteur est reconstruit à chaque
-        // passage, si bien qu'un suivi né avec lui repartirait de zéro toutes
-        // les minutes et l'attente entre deux essais n'avancerait jamais.
-        // Exactement la même raison que pour la stabilité.
-        var refus = new SuiviRefus();
         var prochainBattement = DateTimeOffset.MinValue;
 
         while (!arret.IsCancellationRequested)
         {
             try
             {
-                await UnTourAsync(stabilite, refus, arret);
+                await UnTourAsync(arret);
             }
             catch (OperationCanceledException) when (arret.IsCancellationRequested)
             {
@@ -297,8 +295,7 @@ public sealed class ServiceSurveillance(
         return decisions;
     }
 
-    private async Task UnTourAsync(
-        VerificateurStabilite stabilite, SuiviRefus refus, CancellationToken arret)
+    private async Task UnTourAsync(CancellationToken arret)
     {
         // Une portée par tour : le registre, le dépôt Sage et le mapping se
         // relisent à chaque passage, et un paramétrage corrigé prend effet sans

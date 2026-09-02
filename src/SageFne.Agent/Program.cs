@@ -7,6 +7,7 @@ using SageFne.Agent;
 using SageFne.Agent.Configuration;
 using SageFne.Agent.Journalisation;
 using SageFne.Agent.Sante;
+using SageFne.Agent.Tableau;
 using SageFne.Core.Configuration;
 
 // ---------------------------------------------------------------------------
@@ -90,9 +91,19 @@ if (OperatingSystem.IsWindows()) constructeur.Logging.AjouterEventLog();
 // Dans une méthode éprouvable, et non dans une lambda d'ici : c'est ce câblage
 // qui a annoncé « INJOIGNABLE » sur le premier poste réel alors que
 // Test-NetConnection ouvrait la connexion sans peine.
-constructeur.Services.AjouterSante(TimeSpan.FromSeconds(5));
+// Un seul appel : sonde, battement, les deux mémoires du jugement — stabilité et
+// refus, partagées entre le tour de garde et le tableau de bord — et le tableau
+// lui-même. C'est la méthode que les tests appellent aussi, si bien que ce
+// qu'ils construisent est ce qui tourne ici.
+constructeur.Services.AjouterAgent(TimeSpan.FromSeconds(5));
 
 constructeur.Services.AddHostedService<ServiceSurveillance>();
+
+// Le tableau de bord, servi sur la boucle locale. Il n'ouvre aucune fenêtre :
+// il écoute un port, et c'est l'exploitant qui décide d'ouvrir son navigateur.
+// Une panne d'écoute n'arrête jamais l'agent — la certification ne dépend pas
+// de l'écran.
+constructeur.Services.AddHostedService<ServiceTableau>();
 
 var hote = constructeur.Build();
 

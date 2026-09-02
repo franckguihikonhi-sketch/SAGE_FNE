@@ -39,7 +39,7 @@ public class CablageOptionsTests
         services.AddLogging();
         services.Configure<AgentOptions>(configuration.GetSection(AgentOptions.Section));
         services.AjouterMiddlewareFne(configuration, chaineSage: "", cheminRegistre: null);
-        services.AjouterSante(TimeSpan.FromMilliseconds(50));
+        services.AjouterAgent(TimeSpan.FromMilliseconds(50));
         services.AddSingleton<ServiceSurveillance>();
         return services.BuildServiceProvider();
     }
@@ -153,7 +153,7 @@ public class CablageOptionsTests
         services.AddLogging();
         services.Configure<AgentOptions>(configuration.GetSection(AgentOptions.Section));
         services.AjouterMiddlewareFne(configuration, chaineSage: "", cheminRegistre: null);
-        services.AjouterSante(TimeSpan.FromMilliseconds(50));
+        services.AjouterAgent(TimeSpan.FromMilliseconds(50));
         services.AddSingleton<IPublicationHeartbeat>(recueil);
         services.AddSingleton<ServiceSurveillance>();
 
