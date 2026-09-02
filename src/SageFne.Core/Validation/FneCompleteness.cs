@@ -16,8 +16,6 @@ namespace SageFne.Core.Validation;
 /// </remarks>
 public static class FneCompleteness
 {
-    private static readonly string[] Gabarits = ["A_COMPLETER", "A_RENSEIGNER", "TODO", "XXX"];
-
     public sealed record Manque(string Champ, string Origine, string Consequence);
 
     /// <summary>
@@ -119,7 +117,7 @@ public static class FneCompleteness
             "Sage ne le porte pas : vérifiez qu'il correspond à votre situation."),
     ];
 
-    private static bool Absent(string valeur) =>
-        string.IsNullOrWhiteSpace(valeur)
-        || Gabarits.Any(gabarit => valeur.Trim().Equals(gabarit, StringComparison.OrdinalIgnoreCase));
+    // La reconnaissance des gabarits vit dans MarqueurGabarit, partagée avec le
+    // CLI. Deux listes séparées avaient divergé, et « VOTRE_ETAB » est passé.
+    private static bool Absent(string valeur) => MarqueurGabarit.Absent(valeur);
 }

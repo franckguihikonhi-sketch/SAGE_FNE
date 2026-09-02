@@ -1411,6 +1411,23 @@ Seuls ces deux champs bloquent dans l'expéditeur, et c'est délibéré : le res
 `FneCompleteness` porte sur la pièce, que les contrôles de pièce couvrent déjà. Deux règles
 pour un même fait finissent par diverger.
 
+### Quatre fois un exemple a été pris pour une valeur
+
+`LA_REFERENCE` inscrite au registre, `dry-run` pris pour un numéro de pièce, puis
+`VOTRE_POINT` et `VOTRE_ETAB` installés dans l'identité du dossier auprès de la DGI — celle-là
+faisait refuser **toutes** les factures, sans plus aucun avertissement : la valeur n'était
+reconnue comme un trou par aucune des deux listes, qui vivaient en double et avaient divergé.
+Celle du CLI connaissait `VOTRE_REFERENCE` ; celle des contrôles d'envoi ne connaissait aucun
+`VOTRE_…`.
+
+`MarqueurGabarit` est désormais le seul endroit, et reconnaît de trois façons : un **mot**
+connu ne couvre que ce qu'on a déjà vu passer, un **préfixe** (`VOTRE_`, `MON_`, `YOUR_`…)
+attrape ce qu'un exemple futur inventera, et les **signes typographiques** (`< > … « »`)
+attrapent ce qui vient d'un copier-coller. L'installeur applique le même motif.
+
+Le défaut n'est pas chez qui colle : c'est d'écrire des exemples qui ressemblent à des
+valeurs.
+
 ### Le tableau de bord : voir les factures, et certifier d'un clic
 
 `http://localhost:5080` — l'agent sert une page qui liste les factures de la fenêtre, chacune

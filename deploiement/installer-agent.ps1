@@ -151,6 +151,17 @@ function RacineDuDepot {
 
 # --- Préparation ------------------------------------------------------------
 
+# Le meme motif que SageFne.Core.Validation.MarqueurGabarit. Un exemple de la
+# documentation recopie tel quel dans une commande est arrive quatre fois ; la
+# derniere, « VOTRE_ETAB » s'est installe dans l'identite du dossier aupres de la
+# DGI, qui refusait alors toutes les factures sans que rien n'avertisse - la
+# valeur n'etait reconnue comme un trou par aucune des listes.
+$script:MotifGabarit =
+    '^(A_COMPLETER|A_RENSEIGNER|A_DEFINIR|TODO|XXXX?|EXEMPLE|PLACEHOLDER|CHANGEME' +
+    '|LA_REFERENCE|TA_REFERENCE_FNE|REFERENCE|REF|LE_NUMERO|NUMERO|MOT_DE_PASSE)$' +
+    '|^(VOTRE_|VOS_|MON_|MA_|MES_|TON_|TES_|YOUR_|MY_|EXEMPLE_|SAMPLE_)' +
+    '|[<>\u2026\u00AB\u00BB]'
+
 function Fixer-Propriete($objet, [string]$nom, $valeur) {
     # ConvertFrom-Json rend un PSCustomObject : y poser une propriete absente
     # leve une exception. C'est ainsi que -Preparer s'est interrompu apres avoir
@@ -307,7 +318,7 @@ function Preparer-Poste {
                 Select-String "^$([regex]::Escape($cle)) = " |
                 ForEach-Object { $_.Line -replace "^$([regex]::Escape($cle)) = " }
 
-            if ($valeur -and $valeur -notmatch '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$') {
+            if ($valeur -and $valeur -notmatch $MotifGabarit) {
                 $identiteReprise[$cle.Split(':')[1]] = $valeur
             }
         }
@@ -437,7 +448,7 @@ function Preparer-Poste {
             if ($null -eq $valeur) { continue }
             if ($valeur -is [string]) {
                 if ([string]::IsNullOrWhiteSpace($valeur)) { continue }
-                if ($valeur -match '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$') { continue }
+                if ($valeur -match $MotifGabarit) { continue }
             }
 
             Fixer-Propriete $config.Fne $champ.Name $valeur
@@ -449,7 +460,7 @@ function Preparer-Poste {
     foreach ($nom in $identiteReprise.Keys) {
         $dejaBonne = $config.Fne.PSObject.Properties.Name -contains $nom -and
                      $config.Fne.$nom -and
-                     $config.Fne.$nom -notmatch '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$'
+                     $config.Fne.$nom -notmatch $MotifGabarit
 
         if (-not $dejaBonne) {
             Fixer-Propriete $config.Fne $nom $identiteReprise[$nom]
@@ -484,7 +495,7 @@ function Preparer-Poste {
         @{ Nom = 'Fne:Establishment'; Valeur = $relu.Fne.Establishment })) {
 
         if ([string]::IsNullOrWhiteSpace($paire.Valeur) -or
-            $paire.Valeur -match '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$') {
+            $paire.Valeur -match $MotifGabarit) {
             $identiteAFaire += $paire.Nom
         }
     }

@@ -619,12 +619,6 @@ public sealed record CommandLine
         "article", "famille", "client", "dossier",
     ];
 
-    private static readonly string[] MarqueursDeDocumentation =
-    [
-        "LA_REFERENCE", "TA_REFERENCE_FNE", "VOTRE_REFERENCE", "REFERENCE", "REF",
-        "A_COMPLETER", "A_RENSEIGNER", "LE_NUMERO", "NUMERO", "XXX", "MOT_DE_PASSE",
-    ];
-
     /// <summary>
     /// Refuse une valeur qui n'en est visiblement pas une.
     /// </summary>
@@ -644,7 +638,12 @@ public sealed record CommandLine
                    "par ce que vous avez réellement lu.";
         }
 
-        if (MarqueursDeDocumentation.Contains(nu, StringComparer.OrdinalIgnoreCase))
+        // La liste vit dans SageFne.Core.Validation.MarqueurGabarit, partagée
+        // avec les contrôles d'envoi. Elle était ici en double, et les deux
+        // exemplaires ont divergé : celui-ci connaissait « VOTRE_REFERENCE »,
+        // l'autre aucun « VOTRE_… », si bien que « VOTRE_ETAB » est passé dans
+        // l'identité du dossier auprès de la DGI.
+        if (SageFne.Core.Validation.MarqueurGabarit.Est(nu))
         {
             return $"{option} a reçu « {nu} », qui est un mot employé dans la documentation " +
                    "pour marquer un trou à remplir, pas une valeur. Rien n'a été écrit. " +
