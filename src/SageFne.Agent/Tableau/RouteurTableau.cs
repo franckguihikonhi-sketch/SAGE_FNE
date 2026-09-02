@@ -10,6 +10,7 @@ using SageFne.Core.Configuration;
 using SageFne.Core.Data;
 using SageFne.Core.Fne;
 using SageFne.Core.Validation;
+using FneOptions = SageFne.Core.Configuration.FneOptions;
 
 namespace SageFne.Agent.Tableau;
 
@@ -172,6 +173,8 @@ public sealed class RouteurTableau(
     {
         using var portee = fabrique.CreateScope();
         var depot = portee.ServiceProvider.GetRequiredService<ISageInvoiceRepository>();
+        var fne = portee.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<FneOptions>>().Value;
         var lignes = await FacturesAsync(arret);
         var essai = await sonde.EprouverAsync(arret);
 
@@ -184,6 +187,13 @@ public sealed class RouteurTableau(
             PlateformeExplication: essai.Explication,
             FenetreJours: _reglages.FenetreJours,
             DemarrageLe: "",
+            PointDeVente: fne.PointOfSale,
+            Etablissement: fne.Establishment,
+            IdentiteRenseignee: FneCompleteness.IdentiteAControler(new SageFne.Core.Models.Fne.FneInvoice
+            {
+                PointOfSale = fne.PointOfSale,
+                Establishment = fne.Establishment,
+            }).Count == 0,
             Total: lignes.Count,
             Certifiables: lignes.Count(ligne => ligne.Certifiable),
             Certifiees: lignes.Count(ligne => ligne.Etat == nameof(EtatPiece.DejaCertifiee)),

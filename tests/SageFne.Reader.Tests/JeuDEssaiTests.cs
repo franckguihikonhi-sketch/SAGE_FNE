@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using SageFne.Core.Batch;
 using SageFne.Core.Certification;
 using SageFne.Core.Configuration;
@@ -120,6 +121,69 @@ public class JeuDEssaiTests
         var (expediteur, client, _) = Monter(estReel: true);
 
         var resultat = await expediteur.EnvoyerAsync("1220", confirme: true);
+
+        Assert.Equal(1, client.Appels);
+        Assert.True(resultat.Reussi);
+    }
+
+    /// <summary>Le paramétrage livré, dont l'identité reste à remplir.</summary>
+    private static IOptions<FneOptions> Gabarit(string pointOfSale, string establishment) =>
+        Options.Create(new FneOptions
+        {
+            PointOfSale = pointOfSale,
+            Establishment = establishment,
+            Template = "B2B",
+            PaymentMethod = "deferred",
+            PortalCheckDelayMinutes = 0,
+        });
+
+    [Theory]
+    [InlineData("A_COMPLETER", "A_COMPLETER")]
+    [InlineData("FISH-AFRIC", "A_COMPLETER")]
+    [InlineData("A_COMPLETER", "FISH-AFRIC")]
+    [InlineData("", "")]
+    public async Task Une_identite_non_renseignee_arrete_l_envoi(string pos, string etab)
+    {
+        // La DGI a répondu « Establishment is invalid » sur quatre pièces
+        // d'affilée, et rien ne pouvait le prévoir : le point de vente et
+        // l'établissement viennent du paramétrage, pas de Sage, donc aucun
+        // contrôle de pièce ne les regarde. Une facture irréprochable partait
+        // avec « A_COMPLETER ».
+        //
+        // FneCompleteness voyait le cas, mais n'était appelé que par la commande
+        // « apercu » du CLI — chez l'appelant, une fois de plus.
+        var reglages = Gabarit(pos, etab);
+        var registre = new RegistreCompteur();
+        var client = new ClientCompteur();
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(estReel: true),
+            new FneInvoiceMapper(reglages), registre, reglages);
+
+        var resultat = await new InvoiceSender(
+                lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages)
+            .EnvoyerAsync("1220", confirme: true);
+
+        Assert.False(resultat.Reussi);
+        Assert.Equal(0, client.Appels);
+
+        // Et surtout : rien en Sending. Un envoi impossible ne doit pas laisser
+        // une pièce en suspens, qui ne repartirait plus jamais toute seule.
+        Assert.Empty(registre.Ecritures);
+    }
+
+    [Fact]
+    public async Task Une_identite_renseignee_laisse_partir()
+    {
+        var reglages = Gabarit("FISH-AFRIC", "FISH-AFRIC");
+        var registre = new RegistreCompteur();
+        var client = new ClientCompteur();
+        var lecteur = new InvoiceBatchReader(
+            new DemoSageInvoiceRepository(estReel: true),
+            new FneInvoiceMapper(reglages), registre, reglages);
+
+        var resultat = await new InvoiceSender(
+                lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages)
+            .EnvoyerAsync("1220", confirme: true);
 
         Assert.Equal(1, client.Appels);
         Assert.True(resultat.Reussi);

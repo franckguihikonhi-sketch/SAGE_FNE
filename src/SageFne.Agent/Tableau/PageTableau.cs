@@ -201,6 +201,8 @@ function dessinerEtat(e) {
   if (!e.surDonneesReelles) {
     j.push('<span class="jeton alerte">JEU D\'ESSAI — factures inventées</span>');
   }
+  j.push(`<span class="jeton ${e.identiteRenseignee ? '' : 'alerte'}">`
+       + `Etab. <b>${html(e.etablissement || '—')}</b></span>`);
   j.push(`<span class="jeton">Fenêtre <b>${e.fenetreJours} j</b></span>`);
   j.push(`<span class="jeton">Lu à ${html(e.lu)}</span>`);
   $('bandeau').innerHTML = j.join('');
@@ -215,6 +217,16 @@ function dessinerEtat(e) {
   }
   if (!e.plateformeJoignable) {
     avis.push('La plateforme DGI ne répond pas : ' + html(e.plateformeExplication));
+  }
+  if (!e.identiteRenseignee) {
+    // Sans eux, la DGI refuse TOUTES les factures — « Establishment is
+    // invalid ». Ils ne viennent pas de Sage : aucun contrôle de pièce ne peut
+    // les voir, et une facture irréprochable part quand même se faire refuser.
+    avis.push('<b>Aucune facture ne peut être certifiée.</b> L\'identité du dossier '
+      + 'auprès de la DGI n\'est pas renseignée — point de vente « '
+      + html(e.pointDeVente) + ' », établissement « ' + html(e.etablissement) + ' ». '
+      + 'Ces valeurs vous sont données par la DGI avec votre accès à la plateforme ; '
+      + 'elles ne viennent pas de Sage.');
   }
   $('avis').innerHTML = avis.map((a) => `<div class="avis">${a}</div>`).join('');
 

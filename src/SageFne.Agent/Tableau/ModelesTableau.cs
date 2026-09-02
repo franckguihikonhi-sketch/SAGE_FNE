@@ -58,6 +58,13 @@ public sealed record EtatTableau(
     string PlateformeExplication,
     int FenetreJours,
     string DemarrageLe,
+
+    // Affichés parce que leur absence est invisible partout ailleurs : ils ne
+    // viennent pas de Sage, aucun contrôle de pièce ne les regarde, et la DGI
+    // refuse toutes les factures quand ils manquent.
+    string PointDeVente,
+    string Etablissement,
+    bool IdentiteRenseignee,
     int Total,
     int Certifiables,
     int Certifiees,

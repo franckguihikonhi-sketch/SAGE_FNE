@@ -76,6 +76,11 @@ param(
     [ValidateSet('', 'Manual', 'Automatic')]
     [string]$Mode = '',
 
+    # L'identite du contribuable aupres de la DGI. Elle ne vient pas de Sage :
+    # la DGI la donne avec l'acces a la plateforme.
+    [string]$PointDeVente = '',
+    [string]$Etablissement = '',
+
     # Minutes pendant lesquelles une piece doit rester inchangee avant de
     # partir. Le compteur repart de zero a chaque modification : le delai ne
     # couvre donc pas la duree de la saisie, mais la pause qui la suit.
@@ -286,6 +291,32 @@ function Preparer-Poste {
         }
     }
 
+    # L'identite du dossier aupres de la DGI. Elle vit dans les secrets du CLI
+    # - c'est la que la documentation dit de la poser - et le service, qui ne
+    # tourne pas sous ce compte, ne l'y voit pas. Il retombait donc sur
+    # « A_COMPLETER » d'appsettings.json et la DGI refusait TOUTES les factures :
+    # « Establishment is invalid ». Le CLI certifiait au meme moment, avec la
+    # bonne valeur, depuis le meme depot.
+    #
+    # Ces deux-la ne sont pas des secrets : ils figurent sur chaque facture
+    # certifiee. Ils vont donc dans appsettings.json, et non en variable machine.
+    $identiteReprise = @{}
+    foreach ($cle in @('Fne:PointOfSale', 'Fne:Establishment')) {
+        try {
+            $valeur = & dotnet user-secrets list --project (Join-Path $depot 'src\SageFne.Reader') 2>$null |
+                Select-String "^$([regex]::Escape($cle)) = " |
+                ForEach-Object { $_.Line -replace "^$([regex]::Escape($cle)) = " }
+
+            if ($valeur -and $valeur -notmatch '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$') {
+                $identiteReprise[$cle.Split(':')[1]] = $valeur
+            }
+        }
+        catch {
+            # dotnet hors du PATH administrateur : on le dira plus bas, quand
+            # les reglages seront relus et l'identite affichee.
+        }
+    }
+
     # 3. Le binaire.
     Titre 'Publication'
 
@@ -300,15 +331,24 @@ function Preparer-Poste {
     # a sa valeur d'origine : une mise a jour desactiverait l'automatisme sans
     # que personne ne l'ait demande. Le meme piege que les variables machine
     # reecrites a chaque preparation, deplace dans le fichier.
+    #
+    # La section Fne est reprise en entier, et non champ par champ : c'est la
+    # troisieme fois qu'un reglage disparait parce qu'il n'etait pas dans la
+    # liste de ceux qu'on pense a porter. PointOfSale et Establishment
+    # identifient le contribuable aupres de la DGI ; remis a « A_COMPLETER » par
+    # une republication, ils font refuser toutes les factures avec
+    # « Establishment is invalid » - et rien, dans Sage, ne peut le prevoir.
     $fichierAvant = Join-Path $Destination 'appsettings.json'
     $modeEnPlace = $null
     $stabiliteEnPlace = $null
     $fenetreEnPlace = $null
+    $fneEnPlace = $null
     if (Test-Path $fichierAvant) {
         $ancien = Get-Content $fichierAvant -Raw -Encoding UTF8 | ConvertFrom-Json
         $modeEnPlace = $ancien.Agent.Mode
         $stabiliteEnPlace = $ancien.Agent.StabiliteMinutes
         $fenetreEnPlace = $ancien.Agent.FenetreJours
+        $fneEnPlace = $ancien.Fne
     }
 
     $service = Get-Service $NomService -ErrorAction SilentlyContinue
@@ -385,6 +425,42 @@ function Preparer-Poste {
     if ($Fenetre -gt 0) { Fixer-Propriete $config.Agent 'FenetreJours' $Fenetre }
     elseif ($null -ne $fenetreEnPlace) { Fixer-Propriete $config.Agent 'FenetreJours' $fenetreEnPlace }
 
+    # Tout ce que la section Fne portait est repose, sauf les deux chemins que
+    # cette preparation vient justement de fixer. Une valeur non vide et non
+    # gabarit l'emporte sur celle du depot : c'est un reglage de ce poste, que
+    # la version livree ne connait pas.
+    if ($null -ne $fneEnPlace) {
+        foreach ($champ in $fneEnPlace.PSObject.Properties) {
+            if ($champ.Name -in @('CertificationLedgerPath')) { continue }
+
+            $valeur = $champ.Value
+            if ($null -eq $valeur) { continue }
+            if ($valeur -is [string]) {
+                if ([string]::IsNullOrWhiteSpace($valeur)) { continue }
+                if ($valeur -match '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$') { continue }
+            }
+
+            Fixer-Propriete $config.Fne $champ.Name $valeur
+        }
+    }
+
+    # Puis ce que les secrets du CLI portaient : c'est la valeur avec laquelle
+    # des factures ont deja ete certifiees.
+    foreach ($nom in $identiteReprise.Keys) {
+        $dejaBonne = $config.Fne.PSObject.Properties.Name -contains $nom -and
+                     $config.Fne.$nom -and
+                     $config.Fne.$nom -notmatch '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$'
+
+        if (-not $dejaBonne) {
+            Fixer-Propriete $config.Fne $nom $identiteReprise[$nom]
+            Bien "Fne:$nom repris des secrets du CLI."
+        }
+    }
+
+    # Le parametre passe devant tout : c'est la correction qu'on vient taper.
+    if ($PointDeVente) { Fixer-Propriete $config.Fne 'PointOfSale' $PointDeVente }
+    if ($Etablissement) { Fixer-Propriete $config.Fne 'Establishment' $Etablissement }
+
     $config | ConvertTo-Json -Depth 10 | Set-Content $fichier -Encoding UTF8
 
     # Relu depuis le fichier, pas depuis les variables : afficher ce qu'on
@@ -396,6 +472,36 @@ function Preparer-Poste {
     Note "Envois par tour   $($relu.Agent.LimiteEnvoisParTour) au plus"
     Note "Journal           $($relu.Agent.CheminJournal)"
     Note "Registre          $($relu.Fne.CertificationLedgerPath)"
+
+    # Affiches, parce qu'ils sont restes invisibles pendant que la DGI refusait
+    # toutes les factures a cause d'eux.
+    Note "Point de vente    $($relu.Fne.PointOfSale)"
+    Note "Etablissement     $($relu.Fne.Establishment)"
+
+    $identiteAFaire = @()
+    foreach ($paire in @(
+        @{ Nom = 'Fne:PointOfSale';  Valeur = $relu.Fne.PointOfSale },
+        @{ Nom = 'Fne:Establishment'; Valeur = $relu.Fne.Establishment })) {
+
+        if ([string]::IsNullOrWhiteSpace($paire.Valeur) -or
+            $paire.Valeur -match '^(A_COMPLETER|A_RENSEIGNER|TODO|XXX)$') {
+            $identiteAFaire += $paire.Nom
+        }
+    }
+
+    if ($identiteAFaire.Count -gt 0) {
+        Alerte ""
+        Alerte "ATTENTION : $($identiteAFaire -join ' et ') n'est pas renseigne."
+        Alerte "  La DGI refusera toutes les factures - « Establishment is invalid »."
+        Alerte "  Ces valeurs vous sont donnees par la DGI avec votre acces a la"
+        Alerte "  plateforme ; elles ne viennent pas de Sage. Posez-les ainsi :"
+        Alerte ""
+        Alerte "    powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 ``"
+        Alerte "      -Preparer -PointDeVente 'VOTRE_POINT' -Etablissement 'VOTRE_ETAB'"
+        Alerte ""
+        Alerte "  L'agent refuse d'envoyer tant qu'elles manquent : aucune facture"
+        Alerte "  ne partira pour se faire refuser."
+    }
 
     # L'adresse du tableau de bord, en toutes lettres. Un ecran que personne ne
     # sait ou trouver ne sert a rien, et le journal est le seul endroit ou l'on

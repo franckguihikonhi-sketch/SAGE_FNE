@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using SageFne.Core.Batch;
 using SageFne.Core.Certification;
 using SageFne.Core.Data;
+using SageFne.Core.Validation;
 
 namespace SageFne.Core.Fne;
 
@@ -109,6 +110,30 @@ public sealed class InvoiceSender(
         if (conversion.Invoice is null)
         {
             return new EnvoiResultat(EtatFne.Error, $"La pièce {piece} n'a pas pu être traduite.", conversion);
+        }
+
+        // Le point de vente et l'établissement identifient le contribuable
+        // auprès de la DGI. Ils ne viennent pas de Sage mais du paramétrage, si
+        // bien qu'aucun contrôle de pièce ne les regarde : une facture
+        // parfaitement conforme part avec « A_COMPLETER » et se fait refuser —
+        // « Establishment is invalid » — sans que rien n'ait pu le prévoir.
+        //
+        // FneCompleteness voyait déjà ce cas, mais n'était appelé que par la
+        // commande « apercu » du CLI : chez l'appelant, encore, et non dans le
+        // composant qui envoie. C'est le troisième défaut de cette forme.
+        //
+        // Refusé avant d'inscrire Sending : un envoi impossible ne doit pas
+        // laisser une pièce en suspens.
+        var gabarits = FneCompleteness.IdentiteAControler(conversion.Invoice);
+        if (gabarits.Count > 0)
+        {
+            return new EnvoiResultat(
+                EtatFne.Error,
+                $"Rien n'a été envoyé : {string.Join(" et ", gabarits)} " +
+                "dans la section Fne d'appsettings.json. La DGI refuserait la facture " +
+                "(« Establishment is invalid »). Ces valeurs vous sont données par la DGI " +
+                "avec votre accès à la plateforme ; elles ne viennent pas de Sage.",
+                conversion);
         }
 
         if (!confirme)

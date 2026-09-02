@@ -85,6 +85,13 @@ public class TableauTests
                 ["Agent:Mode"] = "Manual",
                 ["Agent:FenetreJours"] = "5000",
                 ["Fne:BaseUrl"] = "http://54.247.95.108/ws",
+
+                // Sans eux, l'expéditeur refuse avant tout appel : ils
+                // identifient le contribuable auprès de la DGI et ne viennent
+                // pas de Sage. Les omettre ici ferait échouer ces tests pour
+                // une raison étrangère à ce qu'ils éprouvent.
+                ["Fne:PointOfSale"] = "POINT-ESSAI",
+                ["Fne:Establishment"] = "ETAB-ESSAI",
             })
             .Build();
 
@@ -215,6 +222,32 @@ public class TableauTests
     }
 
     // --- Le bouton ----------------------------------------------------------
+
+    [Fact]
+    public async Task Le_tableau_annonce_une_identite_DGI_non_renseignee()
+    {
+        // Le paramétrage livré porte « A_COMPLETER ». La DGI refuse alors
+        // TOUTES les factures — « Establishment is invalid » — et rien, ni dans
+        // Sage ni dans les contrôles de pièce, ne peut le prévoir : ces deux
+        // champs ne viennent pas de la facture. L'écran est le seul endroit où
+        // leur absence peut se voir avant le premier refus.
+        using var fournisseur = Cabler();
+        var etat = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/etat"));
+
+        Assert.False(etat.GetProperty("identiteRenseignee").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Une_identite_renseignee_ne_declenche_aucune_alerte()
+    {
+        using var fournisseur = Cabler(
+            reglages: [("Fne:PointOfSale", "POINT"), ("Fne:Establishment", "ETAB")]);
+
+        var etat = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/etat"));
+
+        Assert.True(etat.GetProperty("identiteRenseignee").GetBoolean());
+        Assert.Equal("ETAB", etat.GetProperty("etablissement").GetString());
+    }
 
     [Fact]
     public async Task Une_visite_ne_certifie_pas()

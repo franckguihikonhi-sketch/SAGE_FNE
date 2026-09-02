@@ -20,6 +20,39 @@ public static class FneCompleteness
 
     public sealed record Manque(string Champ, string Origine, string Consequence);
 
+    /// <summary>
+    /// Les deux champs d'identité du contribuable qui ne sont pas encore
+    /// renseignés, décrits en clair. Vide quand tout va bien.
+    /// </summary>
+    /// <remarks>
+    /// Ces deux-là seulement, et à dessein. Le reste de <see cref="Verifier"/>
+    /// porte sur la pièce, et les contrôles de pièce le couvrent déjà — le
+    /// dupliquer dans l'expéditeur ferait deux règles pour un même fait, avec
+    /// la divergence au bout.
+    ///
+    /// <c>pointOfSale</c> et <c>establishment</c>, eux, ne viennent pas de Sage
+    /// mais du paramétrage : aucun contrôle de pièce ne peut les voir. Une
+    /// facture irréprochable part donc avec « A_COMPLETER » et se fait refuser
+    /// par la DGI — « Establishment is invalid » — sans que rien n'ait pu le
+    /// prévoir. C'est arrivé, sur quatre pièces d'affilée.
+    /// </remarks>
+    public static IReadOnlyList<string> IdentiteAControler(FneInvoice facture)
+    {
+        var manques = new List<string>();
+
+        if (Absent(facture.PointOfSale))
+        {
+            manques.Add($"le point de vente n'est pas renseigné (« {facture.PointOfSale} »)");
+        }
+
+        if (Absent(facture.Establishment))
+        {
+            manques.Add($"l'établissement n'est pas renseigné (« {facture.Establishment} »)");
+        }
+
+        return manques;
+    }
+
     public static List<Manque> Verifier(FneInvoice facture, string template)
     {
         var manques = new List<Manque>();

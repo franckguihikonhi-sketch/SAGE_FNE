@@ -1376,6 +1376,41 @@ Windows, les avertissements et au-delà vont aussi à l'Event Log.
 Le service démarre avec Windows, survit à la déconnexion de l'utilisateur, et s'arrête
 proprement à l'extinction.
 
+### « Establishment is invalid » : le réglage que personne ne voyait
+
+La DGI a refusé quatre pièces d'affilée. Le corps de sa réponse le disait :
+
+```json
+{"message":"Bad Request Exception","error":"bad_request","statusCode":400,
+ "errors":{"establishment":{"invalid":"Establishment is invalid"}}}
+```
+
+`Fne:PointOfSale` et `Fne:Establishment` identifient le dossier auprès de la DGI. Ils **ne
+viennent pas de Sage** : aucun contrôle de pièce ne peut les regarder, et une facture
+irréprochable part donc se faire refuser sans que rien n'ait pu le prévoir.
+
+Trois choses concouraient au même silence :
+
+- **Le service ne tourne pas sous le compte qui l'installe.** Ces deux valeurs vivent dans
+  les secrets utilisateur du CLI — c'est là que la documentation dit de les poser. Le CLI,
+  lancé par l'exploitant, certifiait donc avec la bonne valeur ; le service, sous un autre
+  compte, retombait sur `A_COMPLETER` d'`appsettings.json`. **Deux programmes du même dépôt,
+  deux identités différentes.** L'installeur ne reportait que la chaîne Sage et la clé d'API.
+- **Une republication les remettait à `A_COMPLETER`.** Exactement le défaut de `FenetreJours`,
+  sur des champs qui n'étaient pas sur la liste de ceux qu'on pense à porter. La section `Fne`
+  est désormais reprise **en entier**, et non champ par champ.
+- **`FneCompleteness` voyait le cas depuis toujours** — mais n'était appelé que par la commande
+  `apercu` du CLI. Chez l'appelant, une fois de plus.
+
+Le refus vit maintenant dans `InvoiceSender`, **avant l'inscription de `Sending`** : un envoi
+impossible ne doit pas laisser une pièce en suspens. L'installeur affiche les deux valeurs,
+alerte quand elles manquent, les reprend des secrets du CLI, et `-PointDeVente` /
+`-Etablissement` les posent. Le tableau de bord les montre dans son bandeau.
+
+Seuls ces deux champs bloquent dans l'expéditeur, et c'est délibéré : le reste de
+`FneCompleteness` porte sur la pièce, que les contrôles de pièce couvrent déjà. Deux règles
+pour un même fait finissent par diverger.
+
 ### Le tableau de bord : voir les factures, et certifier d'un clic
 
 `http://localhost:5080` — l'agent sert une page qui liste les factures de la fenêtre, chacune
