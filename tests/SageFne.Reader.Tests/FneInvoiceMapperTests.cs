@@ -115,16 +115,30 @@ public class FneInvoiceMapperTests
     }
 
     [Fact]
-    public void Une_tva_a_zero_sans_regime_bloque_la_piece()
+    public void Une_tva_a_zero_declaree_sans_regime_bloque_la_piece()
     {
         var rapport = new CheckReport();
-        Mappeur().Map(Entete, [Ligne()], Client, rapport);
+        Mappeur().Map(Entete, [Ligne(code1: "TVA", taxe1: 0m)], Client, rapport);
 
         var constat = Assert.Single(rapport.Constats, c => c.Code == "ZERO_VAT_CATEGORY_UNKNOWN");
         Assert.Equal(Severite.Erreur, constat.Severite);
         Assert.True(rapport.ContientDesErreurs);
         Assert.Contains("TVAC", constat.Message);
         Assert.Contains("TVAD", constat.Message);
+    }
+
+    [Fact]
+    public void Une_ligne_sans_TVA_renseignee_bloque_sous_un_autre_constat()
+    {
+        // Le blocage est le même — c'est ce qu'on veut — mais le constat oriente
+        // vers Sage et non vers l'écriture d'une règle d'exonération.
+        var rapport = new CheckReport();
+        Mappeur().Map(Entete, [Ligne()], Client, rapport);
+
+        var constat = Assert.Single(rapport.Constats, c => c.Code == "TVA_ABSENTE");
+        Assert.Equal(Severite.Erreur, constat.Severite);
+        Assert.True(rapport.ContientDesErreurs);
+        Assert.DoesNotContain(rapport.Constats, c => c.Code == "ZERO_VAT_CATEGORY_UNKNOWN");
     }
 
     [Fact]

@@ -68,12 +68,49 @@ public class ZeroVatTests
     [Fact]
     public void Zero_pour_cent_sans_regime_ne_donne_aucun_code()
     {
-        var resultat = TaxMapping.Read(Ligne(), CodeTvaZero.Inconnu);
+        // Un emplacement de TVA rempli à 0 : le vendeur a écrit « TVA, 0 % ».
+        // L'exonération est déclarée, seul son régime manque.
+        var resultat = TaxMapping.Read(Ligne(code1: "TVA"), CodeTvaZero.Inconnu);
 
         Assert.Empty(resultat.Taxes);
         Assert.True(resultat.RegimeZeroRequis);
+        Assert.False(resultat.TvaAbsente);
         Assert.Contains("TVAC", resultat.Avertissements[0]);
         Assert.Contains("TVAD", resultat.Avertissements[0]);
+    }
+
+    [Fact]
+    public void Une_ligne_sans_le_moindre_emplacement_de_TVA_ne_declare_pas_une_exoneration()
+    {
+        // La forme de la pièce 1223 : AIRSI sur l'emplacement 1, rien ailleurs.
+        // Le middleware annonçait « TVA 0 % détectée », ce qui menait droit à
+        // écrire une règle d'exonération — pour une ligne dont la facture
+        // jumelle du même client, le même jour, portait TVAB à 9 %.
+        //
+        // Le blocage est le même, et c'est voulu. C'est le diagnostic qui
+        // change, parce qu'il oriente vers le bon remède : le code de taxe de
+        // l'article dans Sage, pas une règle de TVA à 0 %.
+        var resultat = TaxMapping.Read(Ligne(taxe1: 1.5m, code1: "AIRSI"), CodeTvaZero.Inconnu);
+
+        Assert.Empty(resultat.Taxes);
+        Assert.True(resultat.TvaAbsente);
+        Assert.False(resultat.RegimeZeroRequis);
+        Assert.Contains("aucun emplacement de TVA", resultat.Avertissements[0]);
+        Assert.DoesNotContain("TVA 0 % détectée", resultat.Avertissements[0]);
+    }
+
+    [Fact]
+    public void Une_regle_validee_decide_meme_sans_emplacement_de_TVA()
+    {
+        // Ce dossier ne porte aucune fiche F_TAXE à 0 % : une ligne réellement
+        // exonérée n'a donc aucune colonne à montrer. Ne pas consulter la règle
+        // pour cette forme-là rendrait ces lignes définitivement
+        // incertifiables.
+        var resultat = TaxMapping.Read(Ligne(taxe1: 1.5m, code1: "AIRSI"), CodeTvaZero.Tvad);
+
+        Assert.Equal(["TVAD"], resultat.Taxes);
+        Assert.False(resultat.TvaAbsente);
+        Assert.False(resultat.RegimeZeroRequis);
     }
 
     [Fact]
@@ -101,7 +138,9 @@ public class ZeroVatTests
         // mais le customTaxes reste juste.
         var resultat = TaxMapping.Read(Ligne(taxe2: 1.5m, code2: "AIRSI"), CodeTvaZero.Inconnu);
 
-        Assert.True(resultat.RegimeZeroRequis);
+        // Bloquée, mais parce que la TVA n'est pas renseignée du tout — pas
+        // parce qu'une exonération déclarée manquerait de régime.
+        Assert.True(resultat.TvaAbsente);
         var prelevement = Assert.Single(resultat.CustomTaxes);
         Assert.Equal("AIRSI", prelevement.Name);
         Assert.Equal(1.5m, prelevement.Amount);
@@ -435,7 +474,12 @@ public class RegimeAcheteurTests
 
         Assert.Equal(CodeTvaZero.Inconnu, decision.Code);
         Assert.Empty(Codes(politique, Ligne(0m)));
-        Assert.True(TaxMapping.Read(Ligne(0m), decision.Code).RegimeZeroRequis);
+
+        // Bloquée dans les deux formes : exonération déclarée sans régime, ou
+        // TVA pas renseignée du tout. Le constat diffère, le blocage non.
+        var lue = TaxMapping.Read(Ligne(0m), decision.Code);
+        Assert.True(lue.RegimeZeroRequis || lue.TvaAbsente);
+        Assert.Empty(lue.Taxes);
     }
 
     [Theory]
@@ -634,7 +678,10 @@ public class CodeEtFondementTests
             Piece = "1", Domaine = 0, Type = 6, Ligne = 1000,
             ArticleReference = "25SN001", Designation = "Sardine",
             Quantite = 1m, PrixUnitaire = 1000m, MontantHT = 1000m,
-            CodeTaxe1 = "", Taxe1 = 0m,
+            // « TVA » à 0 : l'exonération est déclarée, seul son régime manque.
+            // Sans ce code, la ligne ne dirait rien de la TVA — un autre cas,
+            // et un autre constat.
+            CodeTaxe1 = "TVA", Taxe1 = 0m,
         };
 
         var resultat = TaxMapping.Read(ligne, CodeTvaZero.Inconnu);

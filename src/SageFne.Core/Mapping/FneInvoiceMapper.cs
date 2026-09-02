@@ -83,7 +83,19 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
             // Une TVA à 0 % dont le régime n'est pas classé bloque la pièce :
             // TVAC et TVAD valent tous deux 0 %, et annoncer à la DGI une
             // exonération devinée ne se corrige plus qu'avec un avoir.
-            if (taxes.RegimeZeroRequis)
+            if (taxes.TvaAbsente)
+            {
+                // Bloquant comme une TVA à 0 % non classée, mais sous un autre
+                // code et pour une autre raison : ici, rien n'a été déclaré.
+                // La règle consultée n'est pas mentionnée — il n'y a pas de
+                // règle à chercher, et en nommer une orienterait vers le
+                // mauvais remède.
+                foreach (var avertissement in taxes.Avertissements)
+                {
+                    report?.Erreur(TaxMapping.CodeTvaAbsente, avertissement);
+                }
+            }
+            else if (taxes.RegimeZeroRequis)
             {
                 foreach (var avertissement in taxes.Avertissements)
                 {
@@ -100,7 +112,7 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
                 }
             }
 
-            if (taxes.Taxes.Count == 0 && !taxes.RegimeZeroRequis)
+            if (taxes.Taxes.Count == 0 && !taxes.RegimeZeroRequis && !taxes.TvaAbsente)
             {
                 // Ni TVA reconnue, ni exonération : la ligne porte un taux que
                 // la nomenclature ne connaît pas.
