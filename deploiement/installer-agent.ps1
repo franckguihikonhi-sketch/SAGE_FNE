@@ -188,8 +188,18 @@ function Preparer-Poste {
     Titre 'Préparation'
 
     if (-not (EstAdministrateur)) {
-        throw "Les variables d'environnement MACHINE demandent une console administrateur. " +
-              "Rouvrez PowerShell en tant qu'administrateur."
+        # Dire ce qui exige les droits, et comment rouvrir une console qui les a.
+        # « Rouvrez en administrateur » sans plus laisse chercher : le repertoire
+        # de depart C:\WINDOWS\System32 ressemble a une console elevee sans en
+        # etre une, et l'on relance la meme commande en croyant avoir obei.
+        throw "Cette preparation demande une console administrateur. Elle arrete et " +
+              "redemarre le service, ecrit dans $Destination et $Registre, et retire " +
+              "des variables d'environnement MACHINE.`n`n" +
+              "Pour ouvrir une console elevee deja placee ici, collez cette ligne :`n" +
+              "  Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-Command'," +
+              "'cd ''$PWD'''`n`n" +
+              "Windows demandera confirmation. La nouvelle fenetre reste ouverte : " +
+              "relancez-y la meme commande."
     }
 
     $depot = RacineDuDepot
