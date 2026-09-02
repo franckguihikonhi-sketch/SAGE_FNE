@@ -1575,13 +1575,13 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
         EtatPiece.EnSuspens =>
             "  Elle ne repartira pas seule. Cherchez-la sur le portail DGI, puis :\n" +
             $"    debloquer {numeroStatut} --transmise --confirmer      (elle y est, pas encore certifiée)\n" +
-            $"    debloquer {numeroStatut} --reference REF --confirmer  (elle y est, certifiée sous ce numéro)\n" +
+            $"    debloquer {numeroStatut} --reference <la référence du portail> --confirmer  (elle y est, certifiée sous ce numéro)\n" +
             $"    debloquer {numeroStatut} --sans-reference --confirmer (elle y est, certifiée sans numéro)\n" +
             $"    debloquer {numeroStatut} --non-certifiee --confirmer  (le portail ne la connaît pas)",
         EtatPiece.Transmise =>
             "  Elle est déjà au portail : la renvoyer l'y mettrait deux fois.\n" +
             "  Une fois le clic passé et la référence en main :\n" +
-            $"    debloquer {numeroStatut} --reference REF --confirmer\n" +
+            $"    debloquer {numeroStatut} --reference <la référence du portail> --confirmer\n" +
             $"    debloquer {numeroStatut} --sans-reference --confirmer (si le clic ne publie aucun numéro)",
         EtatPiece.HorsPerimetre =>
             "  Elle est hors du périmètre : antérieure à la date de démarrage FNE.\n" +

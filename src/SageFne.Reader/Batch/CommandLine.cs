@@ -452,6 +452,10 @@ public sealed record CommandLine
                     break;
                 case "--reference-actuelle":
                 case "--référence-actuelle":
+                    // Volontairement non filtrée par Marqueur() : c'est
+                    // l'option qui sert à corriger une écriture fautive, et il
+                    // faut donc pouvoir y nommer le mot fautif lui-même - y
+                    // compris « LA_REFERENCE », qui a bel et bien été inscrit.
                     referenceActuelle = Valeur() ?? "";
                     if (referenceActuelle is "")
                         erreurs.Add("--reference-actuelle attend la référence que porte le registre aujourd'hui.");
@@ -459,6 +463,7 @@ public sealed record CommandLine
                 case "--motif":
                     motif = Valeur() ?? "";
                     if (motif is "") erreurs.Add("--motif attend une phrase expliquant la décision.");
+                    else if (Marqueur(motif, "--motif") is { } motifRefuse) erreurs.Add(motifRefuse);
                     break;
                 case "--token":
                 case "--jeton":
@@ -469,6 +474,7 @@ public sealed record CommandLine
                 case "--référence":
                     reference = Valeur() ?? "";
                     if (reference is "") erreurs.Add("--reference attend la référence lue sur le portail DGI.");
+                    else if (Marqueur(reference, "--reference") is { } refuse) erreurs.Add(refuse);
                     break;
                 case "--non-certifiee":
                 case "--non-certifiée":
@@ -550,6 +556,56 @@ public sealed record CommandLine
             AfficherJson = afficherJson,
             Erreurs = erreurs,
         };
+    }
+
+    /// <summary>
+    /// Les mots que la documentation emploie comme trous à remplir.
+    /// </summary>
+    /// <remarks>
+    /// Trois fois de suite, un marqueur écrit pour être remplacé a été collé
+    /// tel quel : « &lt;numéro&gt; », « …ce que la commande ci-dessus a montré… »,
+    /// puis « LA_REFERENCE ». La troisième a inscrit au registre une référence
+    /// FNE qui n'existe pas — exactement ce que ce projet s'interdit.
+    ///
+    /// Ce n'est pas une faute de frappe à reprocher à qui la commet : un outil
+    /// qui accepte comme valeur un mot que sa propre aide donne comme à
+    /// remplacer est un outil mal fait. La liste ci-dessous est tirée des
+    /// exemples du dépôt, et doit le rester : y ajouter un mot chaque fois
+    /// qu'un exemple en introduit un.
+    /// </remarks>
+    private static readonly string[] MarqueursDeDocumentation =
+    [
+        "LA_REFERENCE", "TA_REFERENCE_FNE", "VOTRE_REFERENCE", "REFERENCE", "REF",
+        "A_COMPLETER", "A_RENSEIGNER", "LE_NUMERO", "NUMERO", "XXX", "MOT_DE_PASSE",
+    ];
+
+    /// <summary>
+    /// Refuse une valeur qui n'en est visiblement pas une.
+    /// </summary>
+    /// <remarks>
+    /// Deux formes : un marqueur connu, et tout ce qui porte les signes
+    /// typographiques d'un texte à remplacer — chevrons, points de suspension,
+    /// guillemets français. Une vraie référence FNE n'en contient aucun.
+    /// </remarks>
+    private static string? Marqueur(string valeur, string option)
+    {
+        var nu = valeur.Trim();
+
+        if (nu.IndexOfAny(['<', '>', '…', '«', '»']) >= 0)
+        {
+            return $"{option} a reçu « {nu} », qui porte des signes de texte à remplacer " +
+                   "(chevrons, points de suspension). Ce n'est pas une valeur : remplacez-la " +
+                   "par ce que vous avez réellement lu.";
+        }
+
+        if (MarqueursDeDocumentation.Contains(nu, StringComparer.OrdinalIgnoreCase))
+        {
+            return $"{option} a reçu « {nu} », qui est un mot employé dans la documentation " +
+                   "pour marquer un trou à remplir, pas une valeur. Rien n'a été écrit. " +
+                   "Reprenez la commande avec ce que le portail DGI affiche réellement.";
+        }
+
+        return null;
     }
 
     private static DateTime? Date(string? valeur, string option, List<string> erreurs)

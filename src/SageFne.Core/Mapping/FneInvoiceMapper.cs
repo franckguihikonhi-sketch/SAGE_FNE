@@ -136,6 +136,28 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
         // Sage ne porte pas le mode de règlement du document. La valeur vient du
         // paramétrage, et cela doit se voir sur chaque pièce plutôt que dans une
         // note de bas de page.
+        // Le corps envoyé ne porte aucune date : la plateforme n'a pas de champ
+        // pour celle de Sage, et la facture sera donc datée du jour du dépôt.
+        // Tant que l'émission et le dépôt tombent le même jour, cela ne se voit
+        // pas. Un agent arrêté un week-end, une correction reprise le
+        // surlendemain, et la DGI certifie une facture sous une date qui n'est
+        // pas celle du document Sage - un écart fiscal, pas un détail
+        // d'affichage.
+        //
+        // Rien n'est inventé pour autant : aucun nom de champ n'est supposé,
+        // aucune date n'est ajoutée au corps. L'écart est signalé quand il
+        // existe, et la question est posée à la DGI.
+        var jours = (DateTime.Today - header.Date.Date).Days;
+        if (jours != 0)
+        {
+            report?.Avertir(
+                "DATE_EMISSION_NON_TRANSMISE",
+                $"La pièce est datée du {header.Date:dd/MM/yyyy} et serait déposée " +
+                $"aujourd'hui, {DateTime.Today:dd/MM/yyyy} — {Math.Abs(jours)} jour(s) " +
+                "d'écart. Le corps FNE ne porte aucun champ de date : la facture serait " +
+                "certifiée à la date du dépôt, pas à celle du document Sage.");
+        }
+
         report?.Avertir(
             "PAYMENT_METHOD_SUPPOSE",
             $"paymentMethod = « {_options.PaymentMethod} », valeur du paramétrage : " +
