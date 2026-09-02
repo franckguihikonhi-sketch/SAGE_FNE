@@ -189,4 +189,36 @@ public static class ServicesMiddleware
         !string.IsNullOrWhiteSpace(chaine)
         && !chaine.Contains("SERVEUR_SQL", StringComparison.OrdinalIgnoreCase)
         && !chaine.Contains("MOT_DE_PASSE", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Ce qui empêche cette chaîne d'être une chaîne de connexion, ou null.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ConnexionRenseignee"/> dit seulement qu'une valeur a été
+    /// posée. Elle ne dit pas qu'elle est lisible : du texte quelconque —
+    /// une note collée à la place de la chaîne, un exemple recopié tel quel —
+    /// passe ce contrôle et ne se voit qu'au premier appel à SQL Server, sous
+    /// forme d'une trace de pile de quinze lignes.
+    ///
+    /// Le message renvoyé ici ne reprend jamais la chaîne : elle porte le mot
+    /// de passe du compte de lecture, et un journal se lit par-dessus l'épaule.
+    /// </remarks>
+    public static string? ChaineIllisible(string? chaine)
+    {
+        if (string.IsNullOrWhiteSpace(chaine)) return null;
+
+        try
+        {
+            _ = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(chaine);
+        }
+        catch (ArgumentException erreur)
+        {
+            return "La chaîne de connexion Sage n'est pas analysable : " + erreur.Message.Trim() +
+                   " Attendu quelque chose comme « Server=POSTE\\SQLEXPRESS;Database=…;" +
+                   "User Id=…;Password=…;TrustServerCertificate=True; ». " +
+                   "La valeur n'est pas reproduite ici : elle porte un mot de passe.";
+        }
+
+        return null;
+    }
 }

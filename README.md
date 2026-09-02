@@ -1392,10 +1392,17 @@ chose :
 | Clé d'API | pas exigée — rien n'est envoyé | exigée |
 | Registre absent ou relatif | **refusé** — la vérification mentirait | **refusé** |
 | Registre dans un profil | **signalé**, et il tourne | **refusé** |
+| Chaîne de connexion illisible | **refusé** | **refusé** |
 
 Un registre dans votre profil est le bon pour une vérification que vous lancez vous-même : il
 porte les certifications faites en ligne de commande. Il ne conviendra pas au service, qui
 tournera sous un autre compte — le journal vous le dit sans vous empêcher de tourner.
+
+Une chaîne de connexion posée mais **illisible** — un exemple recopié tel quel, une note collée
+à la place — passait le contrôle « renseignée » et ne se voyait qu'au premier appel à SQL
+Server, en quinze lignes de trace. Elle est refusée au démarrage, en une phrase. **Le message
+ne reprend jamais la chaîne** : elle porte le mot de passe du compte de lecture, et un journal
+se lit par-dessus l'épaule.
 
 Le journal dit d'abord **sur quoi il a lu** — votre dossier Sage ou le jeu d'essai. « 0 pièce
 lue » ne veut pas dire la même chose dans les deux cas, et sans cette ligne on chercherait une

@@ -1,3 +1,5 @@
+using SageFne.Core;
+
 namespace SageFne.Agent.Configuration;
 
 /// <summary>
@@ -57,6 +59,14 @@ public static class GardeInstallation
             // Sans base réelle, l'agent tourne sur le jeu d'essai : il ne peut
             // rien certifier, et rien de ce qui suit ne s'applique.
             return empechements;
+        }
+
+        // Une chaîne posée mais illisible ne se voyait qu'au premier appel à
+        // SQL Server, sous forme d'une trace de pile. Le dire au démarrage, en
+        // une phrase, évite d'aller chercher la cause dans le mauvais endroit.
+        if (Core.Configuration.ServicesMiddleware.ChaineIllisible(chaineSage) is { } illisible)
+        {
+            empechements.Add(illisible);
         }
 
         if (string.IsNullOrWhiteSpace(cheminRegistreConfigure))

@@ -136,6 +136,39 @@ public class GardeInstallationTests
     }
 
     [Fact]
+    public void Une_chaine_illisible_empeche_le_demarrage()
+    {
+        // Le cas réel : un texte d'exemple collé à la place de la chaîne. Le
+        // contrôle « renseignée » le laissait passer, et l'erreur ne se voyait
+        // qu'au premier appel à SQL Server, en quinze lignes de trace.
+        var empechements = GardeInstallation.Empechements(
+            "…ce que la commande ci-dessus a montré…", RegistrePartage, Cle);
+
+        Assert.Contains(empechements, cause => cause.Contains("n'est pas analysable"));
+    }
+
+    [Fact]
+    public void Le_message_ne_reprend_jamais_la_chaine()
+    {
+        // Elle porte le mot de passe du compte de lecture, et un journal se lit
+        // par-dessus l'épaule.
+        const string avecMotDePasse = "Server=X;Password=secret-a-ne-pas-journaliser;;;=";
+
+        var empechements = GardeInstallation.Empechements(avecMotDePasse, RegistrePartage, Cle);
+
+        Assert.NotEmpty(empechements);
+        Assert.DoesNotContain(empechements, cause => cause.Contains("secret-a-ne-pas-journaliser"));
+    }
+
+    [Fact]
+    public void Une_chaine_valide_ne_gene_pas()
+    {
+        Assert.Empty(GardeInstallation.Empechements(
+            "Server=POSTE\\SQLEXPRESS;Database=HT;Integrated Security=true;",
+            RegistrePartage, Cle));
+    }
+
+    [Fact]
     public void Les_empechements_se_cumulent()
     {
         // Les annoncer un par un ferait recommencer l'installation trois fois.
