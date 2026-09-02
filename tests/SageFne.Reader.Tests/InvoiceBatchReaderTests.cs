@@ -115,11 +115,15 @@ public class InvoiceBatchReaderTests
         CodeTaxe1 = "TVA",
     };
 
-    private static SageCustomer Client(string ctNum, string ncc = "1432262S") => new()
+    private static SageCustomer Client(
+        string ctNum, string ncc = "1432262S", string telephone = "0700000000") => new()
     {
         CtNum = ctNum,
         Intitule = $"Client {ctNum}",
         Identifiant = ncc,
+        // La DGI marque le téléphone obligatoire : sans lui la pièce est
+        // bloquée, et ces tests-ci portent sur autre chose.
+        Telephone = telephone,
     };
 
     /// <summary>Registre d'essai qui compte ses lectures.</summary>

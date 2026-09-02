@@ -41,6 +41,10 @@ public class CampagneNccTests
         MontantTTC = montantTTC,
     };
 
+    /// <remarks>
+    /// Sans téléphone par défaut : la DGI l'exige au même titre que le NCC, et
+    /// un client complet doit le dire explicitement.
+    /// </remarks>
     private static SageCustomer Client(
         string ctNum, string ncc = "", string intitule = "Client",
         string telephone = "", string email = "", short typeNif = 0) => new()
@@ -70,23 +74,63 @@ public class CampagneNccTests
             [Ligne("1", 1000m)],
             Client("C1"));
 
-        Assert.Equal(1, etat.FacturesSansNcc);
+        Assert.Equal(1, etat.FacturesIncompletes);
         Assert.Equal(0, etat.FacturesCouvertes);
         Assert.Equal("C1", Assert.Single(etat.Comptes).CtNum);
     }
 
     [Fact]
-    public void Un_client_avec_ncc_n_y_entre_pas()
+    public void Un_client_complet_n_y_entre_pas()
     {
+        var etat = Analyser(
+            [Entete("1", "C1")],
+            [Ligne("1", 1000m)],
+            Client("C1", "1432262S", telephone: "0700000000"));
+
+        Assert.Equal(0, etat.FacturesIncompletes);
+        Assert.Equal(1, etat.FacturesCouvertes);
+        Assert.Empty(etat.Comptes);
+        Assert.Equal(1, etat.ComptesRenseignes);
+    }
+
+    [Fact]
+    public void Un_client_avec_ncc_mais_sans_telephone_reste_dans_la_campagne()
+    {
+        // Le téléphone est obligatoire côté DGI. Un compte qui n'a que son NCC
+        // ne fait pas partir ses factures : les sortir de la liste au motif que
+        // le NCC est là laisserait croire au travail fini.
         var etat = Analyser(
             [Entete("1", "C1")],
             [Ligne("1", 1000m)],
             Client("C1", "1432262S"));
 
-        Assert.Equal(0, etat.FacturesSansNcc);
-        Assert.Equal(1, etat.FacturesCouvertes);
-        Assert.Empty(etat.Comptes);
-        Assert.Equal(1, etat.ComptesRenseignes);
+        var compte = Assert.Single(etat.Comptes);
+
+        Assert.False(compte.SansNcc);
+        Assert.True(compte.SansTelephone);
+        Assert.Equal("tél.", compte.Manques);
+        Assert.Equal(0, etat.ComptesSansNcc);
+        Assert.Equal(1, etat.ComptesSansTelephone);
+    }
+
+    [Fact]
+    public void Les_deux_manques_se_comptent_separement()
+    {
+        var etat = Analyser(
+            [Entete("1", "C1"), Entete("2", "C2"), Entete("3", "C3")],
+            [Ligne("1", 100m), Ligne("2", 100m), Ligne("3", 100m)],
+            Client("C1"),
+            Client("C2", "1432262S"),
+            Client("C3", telephone: "0700000000"));
+
+        Assert.Equal(2, etat.ComptesSansNcc);
+        Assert.Equal(2, etat.ComptesSansTelephone);
+        Assert.Equal(1, etat.ComptesSansLesDeux);
+
+        var parCompte = etat.Comptes.ToDictionary(compte => compte.CtNum);
+        Assert.Equal("NCC + tél.", parCompte["C1"].Manques);
+        Assert.Equal("tél.", parCompte["C2"].Manques);
+        Assert.Equal("NCC", parCompte["C3"].Manques);
     }
 
     [Theory]
@@ -106,7 +150,7 @@ public class CampagneNccTests
             [Ligne("1", 1000m)],
             Client("C1", valeur));
 
-        Assert.Equal(1, etat.FacturesSansNcc);
+        Assert.Equal(1, etat.FacturesIncompletes);
     }
 
     [Fact]
@@ -121,7 +165,7 @@ public class CampagneNccTests
             Client("C1"));
 
         Assert.Equal(750_000m, Assert.Single(etat.Comptes).MontantTTC);
-        Assert.Equal(750_000m, etat.MontantSansNcc);
+        Assert.Equal(750_000m, etat.MontantIncomplet);
     }
 
     [Fact]
@@ -149,7 +193,7 @@ public class CampagneNccTests
             Client("C1"));
 
         Assert.Equal(1, etat.Factures);
-        Assert.Equal(1, etat.FacturesSansNcc);
+        Assert.Equal(1, etat.FacturesIncompletes);
         Assert.Equal(1, Assert.Single(etat.Comptes).Factures);
     }
 
@@ -223,7 +267,7 @@ public class CampagneNccTests
 
         var etat = Analyser(entetes, lignes, clients.ToArray());
 
-        Assert.Equal(12, etat.FacturesSansNcc);
+        Assert.Equal(12, etat.FacturesIncompletes);
         Assert.Equal(1, etat.ComptesPour(0.5m));
         Assert.Equal(5, etat.ComptesPour(0.8m));
     }
@@ -234,7 +278,7 @@ public class CampagneNccTests
         var etat = Analyser(
             [Entete("1", "C1")],
             [Ligne("1", 1_000m)],
-            Client("C1", "1432262S"));
+            Client("C1", "1432262S", telephone: "0700000000"));
 
         Assert.Equal(0, etat.ComptesPour(0.5m));
     }
@@ -481,7 +525,7 @@ public class CampagneNccTests
         var etat = Analyser(
             [Entete("1", "C1"), Entete("2", "C2")],
             [Ligne("1", 100m), Ligne("2", 100m)],
-            Client("C1"), Client("C2", "1432262S", "Même groupe"));
+            Client("C1"), Client("C2", "1432262S", "Même groupe", telephone: "0700000000"));
 
         var propose = Assert.Single(etat.Comptes);
 

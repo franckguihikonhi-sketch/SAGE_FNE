@@ -29,6 +29,19 @@ public sealed record CompteSansNcc
     /// <summary>Vrai quand la fiche client elle-même est introuvable.</summary>
     public bool FicheIntrouvable { get; init; }
 
+    /// <summary>Ce qui manque à ce compte pour que ses factures puissent partir.</summary>
+    public bool SansNcc { get; init; }
+    public bool SansTelephone { get; init; }
+
+    /// <summary>Les manques, nommés, pour une liste d'appels.</summary>
+    public string Manques => (SansNcc, SansTelephone) switch
+    {
+        (true, true) => "NCC + tél.",
+        (true, false) => "NCC",
+        (false, true) => "tél.",
+        _ => "—",
+    };
+
     /// <summary>
     /// <c>CT_TypeNIF</c>, tel quel. Sage le porte, et personne ne le lisait.
     /// </summary>
@@ -98,8 +111,27 @@ public sealed record NccEcart(string CtNum, string Intitule, string Ncc, string 
 public sealed record EtatCampagneNcc
 {
     public int Factures { get; init; }
-    public int FacturesSansNcc { get; init; }
-    public decimal MontantSansNcc { get; init; }
+
+    /// <summary>
+    /// Factures qu'il manque quelque chose — NCC, téléphone, ou les deux.
+    /// </summary>
+    /// <remarks>
+    /// Les deux champs sont obligatoires côté DGI, et se saisissent sur la même
+    /// fiche client. Les compter séparément ferait croire à deux campagnes ;
+    /// c'est un seul passage par fiche, avec deux colonnes à remplir.
+    /// </remarks>
+    public int FacturesIncompletes { get; init; }
+    public decimal MontantIncomplet { get; init; }
+
+    // Ces deux-là comptaient les seuls NCC manquants et s'appelaient
+    // « SansNcc ». Depuis que le téléphone bloque aussi, le nom aurait dit une
+    // chose et la valeur une autre — la faute qui revient le plus souvent ici.
+
+    /// <summary>Le détail des deux manques, pour savoir ce qu'on va chercher.</summary>
+    public int ComptesSansNcc => Comptes.Count(compte => compte.SansNcc);
+    public int ComptesSansTelephone => Comptes.Count(compte => compte.SansTelephone);
+    public int ComptesSansLesDeux =>
+        Comptes.Count(compte => compte.SansNcc && compte.SansTelephone);
 
     public IReadOnlyList<CompteSansNcc> Comptes { get; init; } = [];
 
@@ -126,7 +158,7 @@ public sealed record EtatCampagneNcc
     public FormeNcc? FormeDominante =>
         Formes.Count > 0 && Formes[0].Comptes > 1 ? Formes[0] : null;
 
-    public int FacturesCouvertes => Factures - FacturesSansNcc;
+    public int FacturesCouvertes => Factures - FacturesIncompletes;
 
     /// <summary>
     /// Combien de comptes il faut renseigner pour couvrir cette part des
@@ -140,14 +172,14 @@ public sealed record EtatCampagneNcc
     /// croire que ce sont les trois premières lignes. Ce n'en est aucune.
     /// </remarks>
     public int ComptesPour(decimal part) =>
-        Combien(part, FacturesSansNcc, compte => compte.Factures);
+        Combien(part, FacturesIncompletes, compte => compte.Factures);
 
     /// <summary>
     /// Combien de comptes il faut renseigner pour couvrir cette part du
     /// <b>montant</b> en attente.
     /// </summary>
     public int ComptesPourMontant(decimal part) =>
-        Combien(part, MontantSansNcc, compte => compte.MontantTTC);
+        Combien(part, MontantIncomplet, compte => compte.MontantTTC);
 
     /// <summary>Les comptes qui débloquent le plus de factures, quel qu'en soit le montant.</summary>
     public IReadOnlyList<CompteSansNcc> ParNombre =>
@@ -217,8 +249,11 @@ public static class CampagneNcc
         SageCustomer? Fiche(string tiers) =>
             clients.TryGetValue(tiers, out var client) ? client : null;
 
+        static bool Incomplet(SageCustomer? fiche) =>
+            Absent(fiche?.Identifiant) || string.IsNullOrWhiteSpace(fiche?.Telephone);
+
         var manquants = pieces
-            .Where(entete => Absent(Fiche(entete.Tiers)?.Identifiant))
+            .Where(entete => Incomplet(Fiche(entete.Tiers)))
             .GroupBy(entete => entete.Tiers, StringComparer.OrdinalIgnoreCase)
             .Select(groupe =>
             {
@@ -236,6 +271,8 @@ public static class CampagneNcc
                     Ville = fiche?.Ville.Trim() ?? "",
                     FicheIntrouvable = fiche is null,
                     TypeNif = fiche?.TypeNif ?? 0,
+                    SansNcc = Absent(fiche?.Identifiant),
+                    SansTelephone = string.IsNullOrWhiteSpace(fiche?.Telephone),
                 };
             })
             // Le montant d'abord : c'est lui qui dit par quel appel commencer.
@@ -259,8 +296,8 @@ public static class CampagneNcc
         return new EtatCampagneNcc
         {
             Factures = pieces.Count,
-            FacturesSansNcc = manquants.Sum(compte => compte.Factures),
-            MontantSansNcc = manquants.Sum(compte => compte.MontantTTC),
+            FacturesIncompletes = manquants.Sum(compte => compte.Factures),
+            MontantIncomplet = manquants.Sum(compte => compte.MontantTTC),
             Comptes = manquants,
             ComptesRenseignes = renseignes.Count,
             Formes = Formes(renseignes),

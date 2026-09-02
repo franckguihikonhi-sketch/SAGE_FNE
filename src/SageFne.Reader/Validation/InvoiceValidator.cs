@@ -59,11 +59,19 @@ public static class InvoiceValidator
                     "Aucune adresse n'est inventée.");
             }
 
+            // Le portail marque « Téléphone du client » d'une étoile, et il
+            // distingue : « Régime d'imposition » n'en porte pas. Une pièce sans
+            // téléphone est donc bloquée, comme une pièce sans NCC.
+            //
+            // La 1052 est partie avec un téléphone renseigné : elle ne prouve
+            // rien sur le cas vide. Si la DGI confirme un jour que l'API
+            // l'accepte absent, c'est ici que cela redeviendra un avertissement.
             if (string.IsNullOrWhiteSpace(client.Telephone))
             {
-                rapport.Avertir(
+                rapport.Erreur(
                     "CLIENT_SANS_TELEPHONE",
-                    $"CT_Telephone vide pour {client.CtNum} : clientPhone partira vide.");
+                    $"CT_Telephone vide pour {client.CtNum} : le téléphone du client est " +
+                    "obligatoire sur le formulaire de la DGI. Il se saisit dans Sage.");
             }
 
             // Le NCC identifie le client auprès de la DGI : une facture B2B

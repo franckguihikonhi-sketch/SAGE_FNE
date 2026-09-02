@@ -738,11 +738,14 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         $"  Prêtes de ce côté        {campagne.FacturesCouvertes} " +
         $"({Part(campagne.FacturesCouvertes, campagne.Factures)})");
     Console.WriteLine(
-        $"  En attente d'un NCC      {campagne.FacturesSansNcc} " +
-        $"({Part(campagne.FacturesSansNcc, campagne.Factures)})");
-    Console.WriteLine($"  Montant TTC en attente   {Somme(campagne.MontantSansNcc)}");
+        $"  Incomplètes              {campagne.FacturesIncompletes} " +
+        $"({Part(campagne.FacturesIncompletes, campagne.Factures)})");
+    Console.WriteLine($"  Montant TTC en attente   {Somme(campagne.MontantIncomplet)}");
     Console.WriteLine($"  Comptes à renseigner     {campagne.Comptes.Count}");
-    Console.WriteLine($"  Comptes déjà renseignés  {campagne.ComptesRenseignes}");
+    Console.WriteLine($"    dont sans NCC          {campagne.ComptesSansNcc}");
+    Console.WriteLine($"    dont sans téléphone    {campagne.ComptesSansTelephone}");
+    Console.WriteLine($"    dont sans les deux     {campagne.ComptesSansLesDeux}");
+    Console.WriteLine($"  Comptes portant un NCC   {campagne.ComptesRenseignes}");
 
     if (campagne.Comptes.Count == 0)
     {
@@ -755,8 +758,8 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         // téléphoner en premier. Le nombre de factures suit.
         Titre("Par quel appel commencer");
         Console.WriteLine(
-            "  Classé par montant TTC en jeu. Le NCC se saisit dans Sage,\n" +
-            "  fiche client, champ CT_Identifiant.");
+            "  Classé par montant TTC en jeu. Tout se saisit sur la fiche client\n" +
+            "  dans Sage : CT_Identifiant pour le NCC, CT_Telephone pour le téléphone.");
         var nifParlant = !campagne.TypeNifConstant;
         if (!nifParlant && campagne.Comptes.Count > 1)
         {
@@ -768,7 +771,8 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         Console.WriteLine();
         Console.WriteLine(
             $"  {"CT_Num",-16} {"Intitulé",-28} {"Fact.",5} {"Montant TTC",16} " +
-            $"{"Cumul %",8}  {(nifParlant ? $"{"NIF",3}  " : "")}{"Dernière",10}  Contact");
+            $"{"Cumul %",8}  {(nifParlant ? $"{"NIF",3}  " : "")}{"Dernière",10}  " +
+            $"{"Manque",-10} Contact");
 
         var cumulNcc = 0m;
         var affiches = ligneDeCommande.Client is null ? 25 : campagne.Comptes.Count;
@@ -785,9 +789,10 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 $"  {Tronquer(compte.CtNum, 16),-16} " +
                 $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 28),-28} " +
                 $"{compte.Factures,5} {Somme(compte.MontantTTC),16} " +
-                $"{(campagne.MontantSansNcc == 0 ? "—" : $"{cumulNcc / campagne.MontantSansNcc:P0}"),8}  " +
+                $"{(campagne.MontantIncomplet == 0 ? "—" : $"{cumulNcc / campagne.MontantIncomplet:P0}"),8}  " +
                 $"{(nifParlant ? $"{compte.TypeNif,3}  " : "")}" +
-                $"{compte.DerniereFacture,10:dd/MM/yyyy}  {Tronquer(compte.MoyenDeContact, 28)}");
+                $"{compte.DerniereFacture,10:dd/MM/yyyy}  " +
+                $"{compte.Manques,-10} {Tronquer(compte.MoyenDeContact, 20)}");
         }
 
         if (listeNcc.Count > affiches)
@@ -798,7 +803,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         Console.WriteLine();
         Console.WriteLine(
             $"  Par le montant : {campagne.ComptesPourMontant(0.5m)} compte(s) couvrent la moitié " +
-            $"des {Somme(campagne.MontantSansNcc)} en attente,\n" +
+            $"des {Somme(campagne.MontantIncomplet)} en attente,\n" +
             $"                   {campagne.ComptesPourMontant(0.8m)} en couvrent les quatre cinquièmes. " +
             "Ce sont les lignes ci-dessus.");
 
@@ -818,7 +823,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         Console.WriteLine();
         Console.WriteLine(
             $"  Par le nombre  : {campagne.ComptesPour(0.5m)} compte(s) couvrent la moitié des " +
-            $"{Pluriel(campagne.FacturesSansNcc, "facture")},\n" +
+            $"{Pluriel(campagne.FacturesIncompletes, "facture")},\n" +
             $"                   {tetePourNombre} en couvrent les quatre cinquièmes. " +
             (memesComptes
                 ? "Ce sont les mêmes comptes."
@@ -836,7 +841,7 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 Console.WriteLine(
                     $"  {Tronquer(compte.CtNum, 16),-16} " +
                     $"{Tronquer(compte.Intitule == "" ? "— fiche introuvable —" : compte.Intitule, 28),-28} " +
-                    $"{compte.Factures,5} {Part(cumulNombre, campagne.FacturesSansNcc),8}  " +
+                    $"{compte.Factures,5} {Part(cumulNombre, campagne.FacturesIncompletes),8}  " +
                     $"{Somme(compte.MontantTTC)}");
             }
         }
@@ -852,12 +857,16 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 "Ce n'est\n  pas un NCC qui manque, c'est le client : à voir avant d'appeler.");
         }
 
-        if (sansContact > 0)
+        if (campagne.ComptesSansTelephone > 0)
         {
             Console.WriteLine();
             Console.WriteLine(
-                $"  {sansContact} compte(s) ne portent ni téléphone ni courriel dans Sage. " +
-                "Le NCC\n  devra venir d'ailleurs — d'une facture passée, ou du commercial.");
+                $"  {campagne.ComptesSansTelephone} compte(s) n'ont pas de téléphone dans Sage. " +
+                "La DGI le marque\n  obligatoire au même titre que le NCC : ces pièces sont bloquées " +
+                "des deux côtés.");
+            Console.WriteLine(
+                $"  {sansContact} n'ont ni téléphone ni courriel : rien pour les joindre, et " +
+                "c'est\n  justement ce qu'il faut aller chercher.");
         }
     }
 
@@ -966,7 +975,8 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         // donner. Rien dans Sage ne porte cette distinction dans ce dossier —
         // c'est un jugement humain, ligne par ligne.
         csv.AppendLine("CT_Num;Intitule;Factures;MontantTTC;PremiereFacture;DerniereFacture;" +
-                       "Ville;Telephone;Email;CT_TypeNIF;Nature_du_tiers;NCC_a_saisir");
+                       "Ville;Telephone;Email;CT_TypeNIF;Manque;Nature_du_tiers;" +
+                       "NCC_a_saisir;Telephone_a_saisir");
 
         static string Cellule(string valeur) =>
             valeur.Replace("\"", "\"\"").Replace(';', ',').Replace('\n', ' ').Replace('\r', ' ');
@@ -987,6 +997,8 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
                 Cellule(compte.Telephone),
                 Cellule(compte.Email),
                 compte.TypeNif.ToString(CultureInfo.InvariantCulture),
+                Cellule(compte.Manques),
+                "",
                 "",
                 ""));
         }
@@ -998,8 +1010,10 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         Titre("Liste exportée");
         Console.WriteLine($"  {campagne.Comptes.Count} compte(s) écrits dans {Path.GetFullPath(chemin)}");
         Console.WriteLine(
-            "  Deux colonnes vides : Nature_du_tiers d'abord — entreprise ou particulier —\n" +
-            "  puis NCC_a_saisir, qui ne concerne que les entreprises.");
+            "  Trois colonnes vides : Nature_du_tiers d'abord — entreprise ou particulier —\n" +
+            "  puis NCC_a_saisir, qui ne concerne que les entreprises, et\n" +
+            "  Telephone_a_saisir, que la DGI exige pour tous. La colonne Manque dit\n" +
+            "  lesquelles remplir pour chaque ligne.");
         Console.WriteLine("  Ce fichier ne revient pas tout seul dans Sage — la saisie s'y fait à la main.");
     }
 
@@ -1007,8 +1021,9 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
     Console.WriteLine("""
         Lecture seule. Rien n'a été écrit dans Sage, aucune facture n'a été envoyée.
 
-        Le NCC se saisit dans Sage : fiche client, champ CT_Identifiant. Relancez
-        cette commande ensuite — les compteurs diront ce que la campagne a gagné.
+        Tout se saisit dans Sage, sur la fiche client : CT_Identifiant pour le NCC,
+        CT_Telephone pour le téléphone. Relancez cette commande ensuite — les
+        compteurs diront ce que la campagne a gagné.
         """);
     return campagne.Comptes.Count == 0 ? 0 : 1;
 }

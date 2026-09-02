@@ -91,7 +91,11 @@ public class CertificationTests
                 Taxe2 = 1.5m, CodeTaxe2 = "AIRSI",
             },
         ],
-        Clients = [new() { CtNum = "4111SITASARL", Intitule = "SITA SARL", Identifiant = "1432262S" }],
+        Clients = [new()
+        {
+            CtNum = "4111SITASARL", Intitule = "SITA SARL",
+            Identifiant = "1432262S", Telephone = "0700000000",
+        }],
     };
 
     private static InvoiceBatchReader Lecteur(ISageInvoiceRepository depot, ICertificationLedger registre)

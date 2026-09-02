@@ -39,6 +39,7 @@ public class ZeroVatTests
         CtNum = ctNum,
         Intitule = "SITA SARL",
         Identifiant = "1432262S",
+        Telephone = "0700000000",
     };
 
     // --- Les mappings confirmés, qui ne bougent pas ------------------------

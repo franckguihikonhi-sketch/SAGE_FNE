@@ -379,9 +379,23 @@ Pour le meilleur de chaque taux, la fiche donne `DO_Piece`, `DO_Type`, `DO_DocTy
 dotnet run --project src\SageFne.Reader -- ncc
 ```
 
-Le NCC — `CT_Identifiant` sur la fiche client — est obligatoire en B2B. Sans lui, la facture
-est refusée à la certification, quel que soit son taux de TVA. Sur le dossier réel, **977
-factures sur 1 004** sont dans ce cas, réparties sur 74 comptes.
+**Deux champs** de la fiche client bloquent la certification, et ils se saisissent au même
+endroit :
+
+- **Le NCC** (`CT_Identifiant`), obligatoire en B2B. Sur le dossier réel, **977 factures sur
+  1 004** en manquent, réparties sur 74 comptes.
+- **Le téléphone** (`CT_Telephone`), que le formulaire de la DGI marque obligatoire d'une
+  étoile — et le formulaire distingue : « Régime d'imposition » n'en porte pas. **68 des 74
+  comptes** n'en ont pas.
+
+La colonne `Manque` dit, pour chaque compte, lequel des deux — ou les deux. Les compter
+séparément ferait croire à deux campagnes ; c'est un seul passage par fiche.
+
+La pièce 1052 est partie **avec** un téléphone : elle ne prouve rien sur le cas vide. En
+revanche `clientEmail` est parti vide et la facture a été certifiée — l'e-mail n'est donc pas
+exigé par l'API, et l'étoile du formulaire ne se transpose pas mécaniquement à tous les
+champs. Si la DGI confirme un jour que le téléphone peut manquer, `InvoiceValidator` est le
+seul endroit à changer.
 
 **Cette commande n'écrit rien.** Le NCC vit dans Sage et s'y corrige, fiche par fiche. Elle
 produit une liste d'appels à passer, dans l'ordre où ils rapportent le plus.

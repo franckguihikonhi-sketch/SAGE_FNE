@@ -36,6 +36,12 @@ public static class FneCompleteness
         Exiger("clientCompanyName", facture.ClientCompanyName, "CT_Intitule",
             "nom du client sur la facture certifiée.");
 
+        // Étoilé sur le formulaire de la DGI, quel que soit le type de
+        // facturation. clientEmail ne l'est pas — la 1052 est partie sans, et a
+        // été certifiée : ce qui vaut pour l'un ne vaut pas pour l'autre.
+        Exiger("clientPhone", facture.ClientPhone, "CT_Telephone",
+            "téléphone du client : obligatoire sur le formulaire de la DGI.");
+
         if (GabaritFne.ExigeNcc(template))
         {
             Exiger("clientNcc", facture.ClientNcc, "CT_Identifiant",
