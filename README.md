@@ -1415,27 +1415,35 @@ soit sa date, parce que son sort est un fait et non une candidature ; et laissé
 nulle, elle ne change rien — tout le dossier reste dans le périmètre, comme
 avant.
 
-`installer-agent.ps1 -Preparer` la pose sur le jour de l'installation, une seule
-fois : la relancer ne déplace pas une frontière déjà retenue. Pour une autre
-date :
+Elle vit dans `appsettings.json`, suivie par le CLI comme par l'agent, et sa
+valeur est **2026-09-01**. Une seule source : une variable machine qui la
+doublerait donnerait deux dates pour une frontière, sans qu'on sache laquelle
+s'applique.
+
+`-Preparer` la relit dans le fichier publié et l'affiche — il ne l'invente pas.
+Pour déroger sur un poste, et sciemment :
 
 ```powershell
-.\deploiement\installer-agent.ps1 -Preparer -DemarrageLe 2026-08-01
+powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Preparer -DemarrageLe 2026-08-01
 ```
+
+La dérogation pose la variable machine `Fne__DemarrageLe`, qui prime sur le
+fichier. L'effacer fait revenir à la valeur versionnée.
 
 Un script fait tout cela et s'arrête à la moindre incertitude. Windows refuse par défaut
-d'exécuter le moindre script : autorisez-le **pour cette fenêtre seulement**, ce qui n'écrit
-rien dans le registre Windows et disparaît à la fermeture. Sans `-Force`, Windows pose une
-question de confirmation et attend une réponse : si vous avez collé les quatre lignes d'un bloc,
-les trois suivantes restent en file d'attente derrière cette question.
+d'exécuter le moindre script : autorisez-le **pour ce seul lancement**, ce qui n'écrit rien
+dans le registre Windows et ne pose aucune question.
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-
-.\deploiement\installer-agent.ps1 -Preparer   # variables machine, registre partagé
-.\deploiement\installer-agent.ps1 -Verifier   # un passage de lecture, rien n'est créé
-.\deploiement\installer-agent.ps1 -Installer  # crée et démarre le service, en Manual
+powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Preparer
+powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Verifier
+powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Installer
 ```
+
+`-ExecutionPolicy Bypass` porte sur ce seul lancement : rien n'est écrit dans le
+registre Windows, et il n'y a pas de question de confirmation. C'est la forme à
+préférer — `Set-ExecutionPolicy -Scope Process` ne vaut que pour la fenêtre
+courante, et il faut la retaper à chaque console rouverte.
 
 Il **copie** le registre depuis votre profil, il ne le déplace pas : l'ancien reste intact tant
 que vous n'avez pas vérifié le nouveau. Les secrets sont repris de `dotnet user-secrets` sans

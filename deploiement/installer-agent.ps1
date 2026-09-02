@@ -29,20 +29,19 @@
     rien. C'est délibéré, et cela doit le rester plusieurs jours.
 
 .NOTES
-    Windows refuse par défaut d'exécuter le moindre script. Autorisez-le pour
-    cette fenêtre seulement - rien n'est écrit dans le registre Windows, et tout
-    revient à la normale à la fermeture :
+    Windows refuse par défaut d'exécuter le moindre script. Autorisez-le pour ce
+    seul lancement - rien n'est écrit dans le registre Windows, et aucune
+    question n'est posée :
 
-        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+        powershell -ExecutionPolicy Bypass -File .\deploiement\installer-agent.ps1 -Preparer
 
-    Sans -Force, Windows pose une question de confirmation. Si vous avez colle
-    plusieurs lignes d'un bloc, les suivantes attendent derriere cette question :
-    la console n'est pas figee, elle attend un O.
+    Set-ExecutionPolicy -Scope Process fonctionne aussi, mais ne vaut que pour
+    la fenêtre courante : il faut la retaper à chaque console rouverte.
 
 .EXAMPLE
-    .\installer-agent.ps1 -Preparer
-    .\installer-agent.ps1 -Verifier
-    .\installer-agent.ps1 -Installer
+    powershell -ExecutionPolicy Bypass -File .\installer-agent.ps1 -Preparer
+    powershell -ExecutionPolicy Bypass -File .\installer-agent.ps1 -Verifier
+    powershell -ExecutionPolicy Bypass -File .\installer-agent.ps1 -Installer
 #>
 
 [CmdletBinding()]
@@ -58,9 +57,15 @@ param(
     [string]$NomService = 'SageFneAgent',
 
     # Le jour a partir duquel le middleware se sent concerne. Rien de date
-    # avant lui ne sera jamais candidat. Par defaut, aujourd'hui : on demarre
-    # sur ce que l'on va emettre, pas sur l'historique du dossier.
-    [string]$DemarrageLe = (Get-Date -Format 'yyyy-MM-dd')
+    # avant lui ne sera jamais candidat.
+    #
+    # Vide par defaut, et c'est voulu : la date vit dans appsettings.json, sous
+    # Fne:DemarrageLe, ou elle est versionnee et suivie par le CLI comme par
+    # l'agent. Une variable machine posee ici la remplacerait en silence, et
+    # l'on aurait deux dates pour une seule frontiere sans savoir laquelle
+    # s'applique. Ne renseignez ce parametre que pour deroger sciemment sur ce
+    # poste.
+    [string]$DemarrageLe = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -183,30 +188,6 @@ function Preparer-Poste {
     # défaut, celle que la DGI publie pour son environnement d'essai. Sans elle,
     # la sonde réseau répond « injoignable » et l'agent n'enverrait rien même
     # une fois passé en Automatic.
-    # Le perimetre. Pose une seule fois : le relancer ne doit pas deplacer une
-    # frontiere deja retenue, sans quoi un -Preparer de routine rouvrirait
-    # l'historique sans que personne ne l'ait demande.
-    Titre 'Perimetre FNE'
-    $demarrageExistant = [Environment]::GetEnvironmentVariable('Fne__DemarrageLe', 'Machine')
-    if ($demarrageExistant) {
-        Note "Demarrage deja pose au $demarrageExistant. Inchange."
-        Note "Pour le deplacer, effacez d'abord la variable machine Fne__DemarrageLe."
-    }
-    else {
-        if ($DemarrageLe -notmatch '^\d{4}-\d{2}-\d{2}$') {
-            throw "-DemarrageLe attend une date au format AAAA-MM-JJ, pas « $DemarrageLe »."
-        }
-
-        [Environment]::SetEnvironmentVariable('Fne__DemarrageLe', $DemarrageLe, 'Machine')
-        Set-Item 'env:Fne__DemarrageLe' $DemarrageLe
-        Note "Demarrage pose au $DemarrageLe."
-        Note "Aucune facture anterieure ne sera candidate. Elles restent lues et"
-        Note "affichees, mais classees « hors perimetre » - jamais « bloquees »."
-        Note "Pour une autre date, relancez avec : -Preparer -DemarrageLe AAAA-MM-JJ"
-        Alerte "Verifiez cette date avant d'installer : une facture datee de la veille"
-        Alerte "ne partira jamais toute seule."
-    }
-
     if (-not [Environment]::GetEnvironmentVariable('Fne__BaseUrl', 'Machine')) {
         [Environment]::SetEnvironmentVariable('Fne__BaseUrl', 'http://54.247.95.108/ws', 'Machine')
         Set-Item 'env:Fne__BaseUrl' 'http://54.247.95.108/ws'
@@ -253,6 +234,49 @@ function Preparer-Poste {
     & dotnet publish (Join-Path $depot 'src\SageFne.Agent') -c Release -o $Destination
     if ($LASTEXITCODE -ne 0) { throw "La publication a échoué." }
     Bien "Publié dans $Destination"
+
+    # Le perimetre, lu apres la publication : ce bloc affiche la date que le
+    # binaire chargera reellement, et non celle qu'il devrait charger. Annoncer
+    # une date sans l'avoir lue serait l'affirmation sans preuve que ce projet
+    # s'emploie a bannir.
+    Titre 'Perimetre FNE'
+    $demarrageMachine = [Environment]::GetEnvironmentVariable('Fne__DemarrageLe', 'Machine')
+
+    if ($DemarrageLe) {
+        if ($DemarrageLe -notmatch '^\d{4}-\d{2}-\d{2}$') {
+            throw "-DemarrageLe attend une date au format AAAA-MM-JJ, pas « $DemarrageLe »."
+        }
+
+        [Environment]::SetEnvironmentVariable('Fne__DemarrageLe', $DemarrageLe, 'Machine')
+        Set-Item 'env:Fne__DemarrageLe' $DemarrageLe
+        Alerte "Derogation posee sur ce poste : demarrage au $DemarrageLe."
+        Alerte "Elle prime sur appsettings.json. Pour revenir a la valeur versionnee,"
+        Alerte "effacez la variable machine Fne__DemarrageLe."
+    }
+    elseif ($demarrageMachine) {
+        Alerte "Une derogation machine existe deja : Fne__DemarrageLe = $demarrageMachine."
+        Alerte "Elle prime sur appsettings.json. Effacez-la pour suivre la valeur versionnee."
+    }
+    else {
+        # Lue dans le fichier plutot qu'annoncee : afficher une date que le
+        # binaire n'appliquerait pas serait exactement le genre d'affirmation
+        # sans preuve que ce projet s'emploie a bannir.
+        $fichier = Join-Path $Destination 'appsettings.json'
+        $lue = if (Test-Path $fichier) {
+            (Get-Content $fichier -Raw -Encoding UTF8 | ConvertFrom-Json).Fne.DemarrageLe
+        } else { $null }
+
+        if ($lue) {
+            Note "Demarrage au $lue, lu dans $fichier."
+            Note "Aucune facture anterieure ne sera candidate. Elles restent lues et"
+            Note "affichees, mais classees « hors perimetre » - jamais « bloquees »."
+        }
+        else {
+            Alerte "Aucune date de demarrage : tout l'historique du dossier est dans le"
+            Alerte "perimetre. Posez Fne:DemarrageLe dans appsettings.json, ou relancez"
+            Alerte "avec -DemarrageLe AAAA-MM-JJ pour deroger sur ce poste."
+        }
+    }
 }
 
 # --- Vérification -----------------------------------------------------------
