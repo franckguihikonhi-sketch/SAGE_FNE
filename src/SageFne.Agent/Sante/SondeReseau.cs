@@ -51,12 +51,45 @@ public readonly record struct ResultatSonde(bool Joignable, string Cible, string
           "plateforme est en panne : un pare-feu ou un proxy sortant donne le même refus.";
 }
 
+/// <summary>Choisit la sonde qui convient à une adresse.</summary>
+public static class SondeReseau
+{
+    /// <summary>
+    /// Une sonde TCP si l'adresse est exploitable, une sonde qui dit non sinon.
+    /// </summary>
+    /// <remarks>
+    /// Hors du Program pour être éprouvable : la faute qu'elle porte - lire une
+    /// adresse vide et conclure « injoignable » - vivait dans une lambda de
+    /// câblage, où aucun test ne pouvait l'atteindre.
+    ///
+    /// Sans adresse, rien n'est joignable, et c'est la bonne réponse : une sonde
+    /// qui répondrait « oui » par défaut ferait entrer l'agent dans le chemin
+    /// d'envoi avec une configuration vide.
+    /// </remarks>
+    public static ISondeReseau Pour(string? adresse, TimeSpan delai) =>
+        Uri.TryCreate(adresse, UriKind.Absolute, out var uri) && DialablePar(uri)
+            ? new SondeTcp(uri, delai)
+            : new SondeFigee(false);
+
+    /// <summary>Un schéma vers lequel ouvrir un socket a un sens.</summary>
+    /// <remarks>
+    /// Sous Unix, <c>Uri.TryCreate</c> accepte « /external/invoices/sign » comme
+    /// adresse absolue et en fait un <c>file://</c> — sous Windows, non. Une
+    /// BaseUrl mal saisie donnerait donc une sonde TCP vers un hôte vide sur un
+    /// poste et une sonde figée sur l'autre, avec un journal qui parlerait de
+    /// « :80 ». Le même piège que Path.IsPathRooted, au même endroit du code.
+    /// </remarks>
+    private static bool DialablePar(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+}
+
 /// <summary>
 /// Sonde par ouverture de connexion TCP sur l'hôte de la plateforme.
 /// </summary>
 public sealed class SondeTcp(Uri adresse, TimeSpan delai) : ISondeReseau
 {
-    private string Cible
+    /// <summary>Ce qui est éprouvé : hôte et port, port du schéma compris.</summary>
+    public string Cible
     {
         get
         {

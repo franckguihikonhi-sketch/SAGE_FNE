@@ -30,7 +30,13 @@ namespace SageFne.Agent;
 public sealed class ServiceSurveillance(
     IServiceProvider fabrique,
     IOptions<AgentOptions> reglages,
-    IOptions<FneApiOptions> api,
+    // FneApiOptions, et non IOptions<FneApiOptions> : c'est l'instance liée par
+    // AjouterMiddlewareFne que le reste de l'application utilise. Personne
+    // n'appelle Configure<FneApiOptions>, si bien qu'un IOptions<> rendait un
+    // objet neuf, aux valeurs par défaut - BaseUrl vide et Environment=Test.
+    // Le battement annonçait donc « env=TEST » quelle que soit la configuration,
+    // y compris sur un agent qui certifierait pour de vrai.
+    FneApiOptions api,
     ISondeReseau sonde,
     IPublicationHeartbeat battements,
     ILogger<ServiceSurveillance> logger) : BackgroundService
@@ -293,7 +299,7 @@ public sealed class ServiceSurveillance(
             Quand: DateTimeOffset.Now,
             Sage: _sage,
             Reseau: _reseau,
-            Environnement: api.Value.EstTest ? "TEST" : "PRODUCTION",
+            Environnement: api.EstTest ? "TEST" : "PRODUCTION",
             Mode: _reglages.Mode.ToString())
         {
             DerniereActivite = _derniereActivite,

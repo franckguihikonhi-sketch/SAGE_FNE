@@ -87,19 +87,10 @@ if (OperatingSystem.IsWindows()) constructeur.Logging.AjouterEventLog();
 
 // --- Santé -----------------------------------------------------------------
 
-constructeur.Services.AddSingleton<IPublicationHeartbeat, HeartbeatJournal>();
-
-constructeur.Services.AddSingleton<ISondeReseau>(services =>
-{
-    var api = services.GetRequiredService<IOptions<FneApiOptions>>().Value;
-
-    // Sans adresse configurée, rien n'est joignable — et c'est la bonne
-    // réponse : une sonde qui répondrait « oui » par défaut ferait entrer
-    // l'agent dans le chemin d'envoi avec une configuration vide.
-    return Uri.TryCreate(api.BaseUrl, UriKind.Absolute, out var adresse)
-        ? new SondeTcp(adresse, TimeSpan.FromSeconds(5))
-        : new SondeFigee(false);
-});
+// Dans une méthode éprouvable, et non dans une lambda d'ici : c'est ce câblage
+// qui a annoncé « INJOIGNABLE » sur le premier poste réel alors que
+// Test-NetConnection ouvrait la connexion sans peine.
+constructeur.Services.AjouterSante(TimeSpan.FromSeconds(5));
 
 constructeur.Services.AddHostedService<ServiceSurveillance>();
 
