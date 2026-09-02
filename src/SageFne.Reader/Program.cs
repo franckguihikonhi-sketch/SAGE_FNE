@@ -2296,6 +2296,16 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
             ? "comptabilisée : c'est la même facture qu'en DO_Type 6, pas une nouvelle."
             : "non encore comptabilisée."));
 
+    // DO_Statut est lu depuis toujours et ne sert à rien : l'agent attend un
+    // délai de stabilité plutôt que de lire un état que Sage porte peut-être
+    // déjà. Avant de s'en servir, il faut savoir ce que ce champ vaut ici — sur
+    // une facture en cours de saisie et sur une facture validée. Le supposer
+    // ferait partir des brouillons.
+    Console.WriteLine(
+        $"  DO_Statut {entete.Statut} — valeur brute. Comparez-la entre une facture " +
+        "en cours de saisie et une facture validée : si elle diffère, l'agent pourra " +
+        "s'y fier au lieu d'attendre un délai.");
+
     // 2. La conversion réelle, contrôles compris.
     var lecteurDetail = hote.Services.GetRequiredService<InvoiceBatchReader>();
     var releve = await lecteurDetail.ReadAsync(InvoiceQuery.Piece(numero));

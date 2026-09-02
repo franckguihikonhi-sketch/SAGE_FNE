@@ -74,7 +74,16 @@ param(
     # une preparation de routine ramenerait silencieusement un poste d'Automatic
     # a Manual, et l'on chercherait longtemps pourquoi plus rien ne part.
     [ValidateSet('', 'Manual', 'Automatic')]
-    [string]$Mode = ''
+    [string]$Mode = '',
+
+    # Minutes pendant lesquelles une piece doit rester inchangee avant de
+    # partir. Le compteur repart de zero a chaque modification : le delai ne
+    # couvre donc pas la duree de la saisie, mais la pause qui la suit.
+    #
+    # Trop court, une pause en cours de saisie - un appel telephonique - passe
+    # pour une saisie finie et la facture part incomplete. Trop long, elle se
+    # fait attendre. Vide : la valeur d'appsettings.json est conservee.
+    [int]$Stabilite = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -182,10 +191,21 @@ function Preparer-Poste {
         'Agent__FenetreJours'          = '30'
     }
 
+    if ($Stabilite -gt 0) {
+        $aPoser['Agent__StabiliteMinutes'] = "$Stabilite"
+    }
+
     foreach ($nom in $aPoser.Keys) {
         [Environment]::SetEnvironmentVariable($nom, $aPoser[$nom], 'Machine')
         Set-Item "env:$nom" $aPoser[$nom]
         Note "$nom = $($aPoser[$nom])"
+    }
+
+    if ($Stabilite -le 0) {
+        $existant = [Environment]::GetEnvironmentVariable('Agent__StabiliteMinutes', 'Machine')
+        if ($existant) {
+            Note "Agent__StabiliteMinutes = $existant (inchange). Pour le changer : -Stabilite <minutes>."
+        }
     }
 
     # Le mode a part. Il ne se reecrit pas a chaque preparation : c'est un
