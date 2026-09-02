@@ -152,12 +152,19 @@ public class GardeInstallationTests
     {
         // Elle porte le mot de passe du compte de lecture, et un journal se lit
         // par-dessus l'épaule.
-        const string avecMotDePasse = "Server=X;Password=secret-a-ne-pas-journaliser;;;=";
+        // « MOT_DE_PASSE » plutôt qu'un faux secret d'apparence crédible : le
+        // détecteur du dépôt reconnaît ce gabarit et se tait. Un détecteur qui
+        // crie au loup sur ses propres tests finit par ne plus être lu.
+        // Un témoin distinct de celui que le message d'exemple emploie : les
+        // confondre ferait échouer ce test sur sa propre documentation, ce qui
+        // est arrivé une fois.
+        const string temoin = "A_RENSEIGNER";
+        const string avecMotDePasse = "Server=X;Password=A_RENSEIGNER;;;=";
 
         var empechements = GardeInstallation.Empechements(avecMotDePasse, RegistrePartage, Cle);
 
         Assert.NotEmpty(empechements);
-        Assert.DoesNotContain(empechements, cause => cause.Contains("secret-a-ne-pas-journaliser"));
+        Assert.DoesNotContain(empechements, cause => cause.Contains(temoin));
     }
 
     [Fact]

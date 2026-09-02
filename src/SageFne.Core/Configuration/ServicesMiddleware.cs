@@ -215,7 +215,7 @@ public static class ServicesMiddleware
         {
             return "La chaîne de connexion Sage n'est pas analysable : " + erreur.Message.Trim() +
                    " Attendu quelque chose comme « Server=POSTE\\SQLEXPRESS;Database=…;" +
-                   "User Id=…;Password=…;TrustServerCertificate=True; ». " +
+                   "User Id=…;Password=MOT_DE_PASSE;TrustServerCertificate=True; ». " +
                    "La valeur n'est pas reproduite ici : elle porte un mot de passe.";
         }
 
