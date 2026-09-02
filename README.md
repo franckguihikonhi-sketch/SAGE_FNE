@@ -1394,10 +1394,12 @@ l'autre a envoyé — et le doublon suivrait. Donnez un chemin absolu, hors de t
 
 Un script fait tout cela et s'arrête à la moindre incertitude. Windows refuse par défaut
 d'exécuter le moindre script : autorisez-le **pour cette fenêtre seulement**, ce qui n'écrit
-rien dans le registre Windows et disparaît à la fermeture.
+rien dans le registre Windows et disparaît à la fermeture. Sans `-Force`, Windows pose une
+question de confirmation et attend une réponse : si vous avez collé les quatre lignes d'un bloc,
+les trois suivantes restent en file d'attente derrière cette question.
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 .\deploiement\installer-agent.ps1 -Preparer   # variables machine, registre partagé
 .\deploiement\installer-agent.ps1 -Verifier   # un passage de lecture, rien n'est créé

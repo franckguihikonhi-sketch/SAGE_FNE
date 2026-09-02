@@ -33,7 +33,11 @@
     cette fenêtre seulement - rien n'est écrit dans le registre Windows, et tout
     revient à la normale à la fermeture :
 
-        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+    Sans -Force, Windows pose une question de confirmation. Si vous avez colle
+    plusieurs lignes d'un bloc, les suivantes attendent derriere cette question :
+    la console n'est pas figee, elle attend un O.
 
 .EXAMPLE
     .\installer-agent.ps1 -Preparer
