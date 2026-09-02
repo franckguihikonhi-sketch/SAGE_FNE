@@ -250,7 +250,14 @@ public sealed class RouteurTableau(
                 Piece: piece,
                 Etat: resultat.Etat.ToString(),
                 Message: resultat.Message,
-                ReferenceFne: resultat.Reponse?.ReferenceFne ?? "")));
+                ReferenceFne: resultat.Reponse?.ReferenceFne ?? "",
+                CodeHttp: resultat.Reponse?.CodeHttp,
+
+                // Le corps brut, tel quel. Le reformuler reviendrait à
+                // interpréter un message dont nous ne connaissons pas encore le
+                // vocabulaire — et c'est précisément ce vocabulaire qu'on
+                // cherche à apprendre.
+                ReponsePlateforme: resultat.Reponse?.CorpsBrut ?? "")));
         }
         finally
         {

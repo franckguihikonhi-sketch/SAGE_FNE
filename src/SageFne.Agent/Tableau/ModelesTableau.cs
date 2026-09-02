@@ -65,9 +65,25 @@ public sealed record EtatTableau(
     string Lu);
 
 /// <summary>L'issue d'un clic sur « Certifier ».</summary>
+/// <param name="CodeHttp">Ce que la plateforme a répondu, quand elle a répondu.</param>
+/// <param name="ReponsePlateforme">
+/// Le corps brut de la réponse de la DGI.
+/// </param>
+/// <remarks>
+/// Ce corps porte le motif du refus, et il était jeté : le client d'API ne
+/// garde de l'échec que la ligne de statut — « la plateforme a répondu 400 Bad
+/// Request » — qui ne dit pas ce qui cloche. L'écran affichait donc un nombre
+/// là où la DGI avait écrit une phrase, et il fallait aller lire le journal
+/// pour la trouver.
+///
+/// Encore une absence prise pour une information : un code sans corps ne dit
+/// pas « la facture est mauvaise », il dit « je n'ai pas regardé ».
+/// </remarks>
 public sealed record ResultatCertification(
     bool Reussi,
     string Piece,
     string Etat,
     string Message,
-    string ReferenceFne);
+    string ReferenceFne,
+    int? CodeHttp,
+    string ReponsePlateforme);

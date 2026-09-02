@@ -5,6 +5,9 @@ using SageFne.Agent.Configuration;
 using SageFne.Agent.Sante;
 using SageFne.Agent.Tableau;
 using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Fne;
+using SageFne.Core.Models.Fne;
 
 namespace SageFne.Agent.Tests;
 
@@ -56,6 +59,45 @@ public class TableauTests
         // Après le câblage : la dernière inscription l'emporte, et la sonde
         // réelle ouvrirait un socket vers la DGI depuis un test.
         services.AddSingleton<ISondeReseau>(new SondeDite(joignable));
+
+        return services.BuildServiceProvider();
+    }
+
+    /// <summary>Répond ce qu'on lui dit, sans rien envoyer.</summary>
+    private sealed class ClientDit(FneSignResult reponse) : IFneApiClient
+    {
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default) =>
+            Task.FromResult(reponse);
+    }
+
+    /// <summary>
+    /// Un conteneur qui accepte d'envoyer : jeu d'essai déclaré réel, et un
+    /// client d'API qui répond ce que le test veut éprouver.
+    /// </summary>
+    private static ServiceProvider CablerAvecPlateforme(FneSignResult reponse)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Agent:Mode"] = "Manual",
+                ["Agent:FenetreJours"] = "5000",
+                ["Fne:BaseUrl"] = "http://54.247.95.108/ws",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.Configure<AgentOptions>(configuration.GetSection(AgentOptions.Section));
+        services.AjouterMiddlewareFne(configuration, chaineSage: "", cheminRegistre: null);
+        services.AjouterAgent(TimeSpan.FromMilliseconds(50));
+
+        services.AddSingleton<ISondeReseau>(new SondeDite(true));
+        services.AddSingleton<ISageInvoiceRepository>(
+            new DemoSageInvoiceRepository(estReel: true));
+        services.AddSingleton<IFneApiClient>(new ClientDit(reponse));
 
         return services.BuildServiceProvider();
     }
@@ -223,6 +265,42 @@ public class TableauTests
 
         Assert.Equal(422, reponse.Code);
         Assert.False(Lire(reponse).GetProperty("reussi").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Un_refus_rapporte_la_reponse_de_la_plateforme_mot_pour_mot()
+    {
+        // « la plateforme a répondu 400 Bad Request » ne dit pas ce qui cloche.
+        // Le motif est dans le corps de la réponse, que le client d'API laisse
+        // tomber de son message — il fallait aller le lire dans le journal. Un
+        // écran qui affiche le nombre et cache la phrase fait perdre exactement
+        // l'information qu'on cherche.
+        const string corps = "{\"message\":\"clientNcc invalide\",\"code\":\"NCC_FORMAT\"}";
+
+        using var fournisseur = CablerAvecPlateforme(
+            new FneSignResult(false, 400, CorpsBrut: corps, Erreur: "la plateforme a répondu 400."));
+
+        var reponse = await Routeur(fournisseur)
+            .RepondreAsync("POST", "/api/factures/1220/certifier");
+
+        var lu = Lire(reponse);
+        Assert.Equal(400, lu.GetProperty("codeHttp").GetInt32());
+        Assert.Equal(corps, lu.GetProperty("reponsePlateforme").GetString());
+    }
+
+    [Fact]
+    public async Task Une_certification_rapporte_sa_reference()
+    {
+        using var fournisseur = CablerAvecPlateforme(new FneSignResult(
+            true, 201, "2304903U26000000002", "JETON", "{\"reference\":\"...\"}"));
+
+        var reponse = await Routeur(fournisseur)
+            .RepondreAsync("POST", "/api/factures/1220/certifier");
+
+        Assert.Equal(200, reponse.Code);
+        var lu = Lire(reponse);
+        Assert.True(lu.GetProperty("reussi").GetBoolean());
+        Assert.Equal("2304903U26000000002", lu.GetProperty("referenceFne").GetString());
     }
 
     [Fact]

@@ -100,6 +100,14 @@ public static class PageTableau
             padding: 12px 20px; border-top: 1px solid var(--trait); background: #fafbfc; }
   .grave { color: var(--rouge); font-weight: 600; }
   footer { color: var(--doux); font-size: 12px; padding: 16px 4px 40px; }
+  pre.brut {
+    background: #f0f2f4; border: 1px solid var(--trait); border-radius: 6px;
+    padding: 10px; margin: 0; max-height: 240px; overflow: auto;
+    font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .titre-ok { color: var(--vert); }
+  .titre-ko { color: var(--rouge); }
 </style>
 </head>
 <body>
@@ -137,6 +145,16 @@ public static class PageTableau
     <button class="discret" id="c-non">Annuler</button>
     <button id="c-oui">Certifier</button>
   </div>
+</dialog>
+
+<dialog id="resultat">
+  <div class="d-corps">
+    <h2 id="r-titre"></h2>
+    <p id="r-message"></p>
+    <p id="r-brut-libelle" style="color:var(--doux);margin-bottom:6px"></p>
+    <pre class="brut" id="r-brut" hidden></pre>
+  </div>
+  <div class="d-pied"><button id="r-ok">Fermer</button></div>
 </dialog>
 
 <script>
@@ -280,15 +298,46 @@ async function certifier(piece) {
     const r = await fetch(`/api/factures/${encodeURIComponent(piece)}/certifier`,
                           { method: 'POST' });
     const d = await r.json();
-    alert(d.message || 'Réponse illisible de l\'agent.');
+    montrer(d);
   } catch (err) {
-    alert("L'agent n'a pas répondu. Regardez le journal : la facture est peut-être "
-        + 'partie malgré tout, et dans ce cas elle ne doit pas être renvoyée.');
+    montrer({
+      reussi: false,
+      message: "L'agent n'a pas répondu. Regardez le journal : la facture est peut-être "
+             + 'partie malgré tout, et dans ce cas elle ne doit pas être renvoyée.',
+    });
   } finally {
     occupe = null;
     charger();
   }
 }
+
+// La réponse de la plateforme, mot pour mot. « 400 Bad Request » ne dit pas ce
+// qui cloche ; le corps de la réponse, lui, le dit — et il fallait aller le lire
+// dans le journal. Un écran qui affiche le nombre et cache la phrase fait perdre
+// exactement l'information qu'on cherche.
+function montrer(d) {
+  const ok = !!d.reussi;
+  $('r-titre').textContent = ok
+    ? `Pièce ${d.piece} certifiée`
+    : `Pièce ${d.piece || ''} non certifiée`;
+  $('r-titre').className = ok ? 'titre-ok' : 'titre-ko';
+  $('r-message').textContent = d.message || 'Réponse illisible de l\'agent.';
+
+  if (ok && d.referenceFne) {
+    $('r-message').textContent += `\nRéférence FNE : ${d.referenceFne}`;
+  }
+
+  const brut = (d.reponsePlateforme || '').trim();
+  $('r-brut').hidden = !brut;
+  $('r-brut').textContent = brut;
+  $('r-brut-libelle').textContent = brut
+    ? `Réponse de la plateforme${d.codeHttp ? ' (HTTP ' + d.codeHttp + ')' : ''}, mot pour mot :`
+    : (d.codeHttp ? `La plateforme a répondu HTTP ${d.codeHttp} sans corps de réponse.` : '');
+
+  $('resultat').showModal();
+}
+
+$('r-ok').onclick = () => $('resultat').close();
 
 charger();
 setInterval(() => { if (!occupe) charger(); }, 15000);
