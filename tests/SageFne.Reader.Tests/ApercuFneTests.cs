@@ -107,8 +107,16 @@ public class ApercuFneTests
         InvoiceValidator.Validate(Entete, Client(email: ""), [Ligne()], "B2B", rapport);
 
         var constat = Assert.Single(rapport.Constats, c => c.Code == "CLIENT_SANS_EMAIL");
+
+        // Avertissement et non erreur, alors que la procédure d'interfaçage de
+        // la DGI marque clientEmail obligatoire. La règle écrite et le
+        // comportement observé se contredisent : la pièce 1222 est partie sans
+        // adresse et la plateforme l'a acceptée. Bloquer sur la seule foi du
+        // document arrêterait des factures qui passent ; le taire laisserait
+        // ignorer une exigence écrite. Le constat dit les deux.
         Assert.Equal(Severite.Avertissement, constat.Severite);
-        Assert.Contains("Aucune adresse n'est inventée", constat.Message);
+        Assert.Contains("OBLIGATOIRE", constat.Message);
+        Assert.Contains("aucune n'est inventée", constat.Message);
     }
 
     [Fact]

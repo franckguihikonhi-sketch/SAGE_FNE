@@ -49,14 +49,24 @@ public static class InvoiceValidator
                 rapport.Avertir("CLIENT_SANS_NOM", $"Le client {client.CtNum} n'a pas d'intitulé.");
             }
 
-            // Ce que Sage ne porte pas ne s'invente pas : on le signale, et
-            // c'est à l'exploitant de dire si la DGI l'exige.
+            // La DGI l'exige, et c'est écrit. « PROCEDURE D'INTERFACAGE DES
+            // ENTREPRISES PAR API », mai 2025, tableau des paramètres de
+            // POST /external/invoices/sign : clientEmail, obligatoire.
+            //
+            // Ce n'était qu'un avertissement, faute de savoir. Les faits vont
+            // dans le même sens : les deux factures certifiées de ce dossier
+            // portaient une adresse, et la seule envoyée sans - la 1222 - n'a
+            // jamais été certifiée. Laisser partir une pièce dont on sait
+            // qu'elle sera refusée, c'est dépenser une tentative pour rien.
             if (string.IsNullOrWhiteSpace(client.Email))
             {
                 rapport.Avertir(
                     "CLIENT_SANS_EMAIL",
-                    $"CT_EMail vide pour {client.CtNum} : clientEmail partira vide. " +
-                    "Aucune adresse n'est inventée.");
+                    $"CT_EMail vide pour {client.CtNum} : la DGI marque clientEmail " +
+                    "OBLIGATOIRE dans sa procédure d'interfaçage. L'adresse se saisit dans " +
+                    "Sage — aucune n'est inventée ici. Avertissement et non blocage : la " +
+                    "plateforme a accepté une pièce sans adresse, la règle écrite et le " +
+                    "comportement observé se contredisent.");
             }
 
             // Le portail marque « Téléphone du client » d'une étoile, et il

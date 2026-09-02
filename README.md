@@ -685,8 +685,26 @@ Les lignes sans référence au portail ne sont donc pas un mode de dépôt volon
 les rescapées d'appels qui ont échoué après que la plateforme eut enregistré la facture.
 Elles portent une icône de modification, là où une facture certifiée porte une loupe.
 
-**Nous ne savons pas produire un brouillon à dessein.** Le corps documenté n'a pas de champ
-qui le demanderait, et en supposer un serait inventer. C'est une question posée à la DGI.
+**Il n'existe aucun mode brouillon.** Ce n'est plus une supposition : la
+[procédure d'interfaçage par API de la DGI](https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf)
+(mai 2025) énumère trois endpoints et trois seulement —
+`POST /external/invoices/sign`, deux fois, et `POST /external/invoices/{id}/refund`. Aucun ne
+dépose sans certifier, et le tableau des paramètres du corps ne porte aucun champ d'état, de
+brouillon ni de date d'émission.
+
+Certifier après coup d'un clic au portail n'est donc pas atteignable par cette API. Ce qui
+rend la main à l'opérateur, c'est le mode `Manual` : l'agent lit, contrôle, juge la saisie
+finie, et s'arrête avant l'envoi.
+
+Deux autres choses que ce document établit :
+
+- **`clientEmail` y est marqué obligatoire**, ce qu'aucune de nos lectures ne disait. Le
+  constat `CLIENT_SANS_EMAIL` reste un avertissement — la pièce 1222 est partie sans adresse
+  et la plateforme l'a acceptée — mais il cite désormais l'exigence écrite. La règle et le
+  comportement se contredisent, et c'est le genre de contradiction qu'on énonce plutôt que de
+  trancher.
+- **`{id}/refund` existe**, ce qui ouvre la voie aux avoirs (`DO_Type` 4), aujourd'hui non
+  traités.
 
 **Le code HTTP ne suffit toujours pas à conclure en cas d'échec.** Un `5xx` peut avoir
 enregistré la facture, un `400` peut être passager — la 1225 en a essuyé cinq avant de passer
