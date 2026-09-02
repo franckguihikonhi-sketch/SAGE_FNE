@@ -133,6 +133,18 @@ public sealed record EtatCampagneNcc
     public int ComptesSansLesDeux =>
         Comptes.Count(compte => compte.SansNcc && compte.SansTelephone);
 
+    /// <summary>
+    /// Comptes que seul le téléphone bloque : leur NCC est là.
+    /// </summary>
+    /// <remarks>
+    /// Ceux-là paraissaient prêts tant que le téléphone n'était qu'un
+    /// avertissement. Ils ne l'étaient pas, et l'un d'eux porte 107 millions
+    /// dans le dossier réel — un compte que le classement par montant ne
+    /// montrait à personne.
+    /// </remarks>
+    public int ComptesSansTelephoneSeulement =>
+        Comptes.Count(compte => !compte.SansNcc && compte.SansTelephone);
+
     public IReadOnlyList<CompteSansNcc> Comptes { get; init; } = [];
 
     /// <summary>Comptes distincts portant un NCC renseigné.</summary>

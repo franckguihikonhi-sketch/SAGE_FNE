@@ -861,12 +861,29 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         {
             Console.WriteLine();
             Console.WriteLine(
-                $"  {campagne.ComptesSansTelephone} compte(s) n'ont pas de téléphone dans Sage. " +
-                "La DGI le marque\n  obligatoire au même titre que le NCC : ces pièces sont bloquées " +
-                "des deux côtés.");
-            Console.WriteLine(
-                $"  {sansContact} n'ont ni téléphone ni courriel : rien pour les joindre, et " +
-                "c'est\n  justement ce qu'il faut aller chercher.");
+                $"  {campagne.ComptesSansTelephone} compte(s) n'ont pas de téléphone dans Sage : " +
+                "la DGI l'exige au même\n  titre que le NCC, et sans lui la pièce est bloquée.");
+
+            // Ceux-là paraissaient prêts tant que le téléphone n'était qu'un
+            // avertissement. Le dire à part, parce que ce sont les seuls dont
+            // un unique champ sépare les factures de la certification.
+            if (campagne.ComptesSansTelephoneSeulement > 0)
+            {
+                Console.WriteLine(
+                    $"  {campagne.ComptesSansTelephoneSeulement} d'entre eux ont déjà leur NCC : " +
+                    "seul le téléphone les retient, et leurs\n  factures paraissaient prêtes " +
+                    "jusqu'ici.");
+            }
+
+            // Deux comptes différents, même s'ils tombent souvent au même
+            // nombre : l'un dit ce qui bloque, l'autre ce qui manque pour aller
+            // le chercher.
+            if (sansContact > 0)
+            {
+                Console.WriteLine(
+                    $"  {sansContact} n'ont ni téléphone ni courriel : rien pour les joindre, et " +
+                    "c'est\n  justement ce qu'il faut aller chercher.");
+            }
         }
     }
 

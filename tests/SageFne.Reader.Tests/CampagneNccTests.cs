@@ -273,6 +273,24 @@ public class CampagneNccTests
     }
 
     [Fact]
+    public void Un_compte_que_seul_le_telephone_retient_se_compte_a_part()
+    {
+        // Ceux-là paraissaient prêts tant que le téléphone n'était qu'un
+        // avertissement. Les noyer parmi les autres cacherait qu'un seul champ
+        // sépare leurs factures de la certification.
+        var etat = Analyser(
+            [Entete("1", "C1"), Entete("2", "C2"), Entete("3", "C3")],
+            [Ligne("1", 100m), Ligne("2", 100m), Ligne("3", 100m)],
+            Client("C1", "1432262S"),
+            Client("C2"),
+            Client("C3", telephone: "0700000000"));
+
+        Assert.Equal(1, etat.ComptesSansTelephoneSeulement);
+        Assert.Equal(2, etat.ComptesSansTelephone);
+        Assert.Equal(1, etat.ComptesSansLesDeux);
+    }
+
+    [Fact]
     public void Sans_manque_aucun_appel_n_est_a_passer()
     {
         var etat = Analyser(
