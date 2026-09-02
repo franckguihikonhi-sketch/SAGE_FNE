@@ -264,8 +264,58 @@ function Preparer-Poste {
 
     # 4. Le binaire.
     Titre 'Publication'
+
+    # Le service verrouille ses propres DLL. Sans cet arret, dotnet publish
+    # echoue apres dix tentatives sur « le fichier est verrouille par SageFne
+    # Agent », et l'on repart avec l'ancien binaire en croyant avoir la nouvelle
+    # version - la mise a jour la plus dangereuse qui soit : celle qu'on croit
+    # faite.
+    $service = Get-Service $NomService -ErrorAction SilentlyContinue
+    $tournait = $service -and $service.Status -eq 'Running'
+
+    if ($tournait) {
+        Alerte "Le service $NomService tourne et verrouille ses fichiers. Arret le temps de"
+        Alerte "publier, puis redemarrage. Pendant ces quelques secondes, aucune facture"
+        Alerte "n'est examinee ni envoyee."
+        & sc.exe stop $NomService 2>&1 | Out-Null
+
+        $attendu = 0
+        while ((Get-Service $NomService).Status -ne 'Stopped' -and $attendu -lt 60) {
+            Start-Sleep -Seconds 1
+            $attendu++
+        }
+
+        if ((Get-Service $NomService).Status -ne 'Stopped') {
+            throw "Le service $NomService ne s'arrete pas apres $attendu s. Rien n'a ete " +
+                  "publie : l'ancien binaire reste en place, ce qui vaut mieux qu'une " +
+                  "publication a moitie faite."
+        }
+
+        Note "Service arrete."
+    }
+
     & dotnet publish (Join-Path $depot 'src\SageFne.Agent') -c Release -o $Destination
-    if ($LASTEXITCODE -ne 0) { throw "La publication a échoué." }
+    $publication = $LASTEXITCODE
+
+    # Le redemarrage d'abord, meme si la publication a echoue : un service arrete
+    # par ce script ne doit pas le rester parce que la compilation s'est mal
+    # passee. Ne rien envoyer est sur ; ne plus rien examiner sans le savoir ne
+    # l'est pas.
+    if ($tournait) {
+        & sc.exe start $NomService 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+
+        if ((Get-Service $NomService -ErrorAction SilentlyContinue).Status -eq 'Running') {
+            Note "Service redemarre."
+        }
+        else {
+            Alerte "ATTENTION : le service ne redemarre pas. Relancez-le a la main :"
+            Alerte "  sc.exe start $NomService"
+            Alerte "puis lisez $Journaux."
+        }
+    }
+
+    if ($publication -ne 0) { throw "La publication a échoué." }
     Bien "Publié dans $Destination"
 
     # Le perimetre, lu apres la publication : ce bloc affiche la date que le
