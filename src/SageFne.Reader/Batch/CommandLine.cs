@@ -299,6 +299,13 @@ public sealed record CommandLine
                 case "--json":
                     afficherJson = true;
                     break;
+                case "dry-run":
+                case "dryrun":
+                    // Le verbe par défaut porte enfin son nom. Il n'en avait
+                    // aucun, et le mot que tout le monde emploie pour le
+                    // désigner tombait dans les numéros de pièce.
+                    verbe = Verbe.DryRun;
+                    break;
                 case "doctypes":
                     verbe = Verbe.TypesDocuments;
                     break;
@@ -477,8 +484,27 @@ public sealed record CommandLine
                     if (limite == LimiteParDefaut) limite = 2000;
                     break;
                 default:
-                    if (argument.StartsWith('-')) erreurs.Add($"Option inconnue : {argument}");
-                    else pieces.Add(argument);
+                    if (argument.StartsWith('-'))
+                    {
+                        erreurs.Add($"Option inconnue : {argument}");
+                    }
+                    else if (!argument.Any(char.IsDigit))
+                    {
+                        // Un mot nu sans le moindre chiffre n'est pas un numéro
+                        // de pièce. Sans ce refus, « dry-run » - une commande
+                        // qui n'existe pas - devenait un filtre sur la pièce
+                        // nommée « dry-run », et le CLI répondait « Aucune
+                        // facture ». Cette phrase se lit comme un fait sur le
+                        // dossier : on en conclut que Sage est vide.
+                        erreurs.Add(
+                            $"« {argument} » n'est ni une commande connue ni un numéro de pièce " +
+                            "(un numéro de pièce porte au moins un chiffre). Sans commande, " +
+                            "c'est le dry run qui s'exécute.");
+                    }
+                    else
+                    {
+                        pieces.Add(argument);
+                    }
                     break;
             }
         }

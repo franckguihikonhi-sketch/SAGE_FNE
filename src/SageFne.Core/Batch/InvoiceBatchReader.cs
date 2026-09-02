@@ -36,7 +36,19 @@ public sealed class InvoiceBatchReader(
         var entetes = await repository.GetInvoicesAsync(query, cancellation);
         if (entetes.Count == 0)
         {
-            constats.Avertir("LOT_VIDE", $"Aucune facture pour {query.Describe()}.");
+            // « Aucune facture » tout court se lit comme « le dossier est vide ».
+            // Quand un filtre sur pièce est en jeu, c'est presque toujours lui
+            // le responsable, et il faut le nommer : un numéro mal tapé donne
+            // exactement la même phrase qu'un dossier réellement vide.
+            var vide = $"Aucune facture pour {query.Describe()}.";
+            if (query.Pieces.Count > 0)
+            {
+                vide += " Le filtre porte sur ce ou ces numéros de pièce : " +
+                        string.Join(", ", query.Pieces) +
+                        ". Sans lui, la fenêtre en contient peut-être.";
+            }
+
+            constats.Avertir("LOT_VIDE", vide);
             return new InvoiceBatch { Conversions = [], Constats = constats.Constats };
         }
 
