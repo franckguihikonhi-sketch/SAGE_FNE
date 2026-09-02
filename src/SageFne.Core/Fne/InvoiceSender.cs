@@ -660,6 +660,195 @@ public sealed class InvoiceSender(
     }
 
     /// <summary>
+    /// Reclasse « au portail » une certification déclarée à tort.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CorrigerReferenceAsync"/> ne corrige que la référence : elle
+    /// suppose la certification acquise et seule sa désignation fautive. Il
+    /// existe un cas qu'elle ne couvre pas, et qui est arrivé sur la pièce 1222
+    /// — la certification elle-même a été déclarée à tort. La pièce avait été
+    /// déposée au portail sans réponse exploitable, et un « debloquer
+    /// --reference » l'a inscrite certifiée. Retirer la référence laissait
+    /// « certifiée, sans référence », phrase parfaitement légitime et
+    /// parfaitement fausse : la pièce attend toujours le clic.
+    ///
+    /// Sans cette correction, elle était enfermée. « debloquer » refuse d'agir
+    /// hors de <see cref="EtatFne.Sending"/> et <see cref="EtatFne.Transmise"/>,
+    /// si bien que la vraie référence, une fois le clic passé, n'aurait plus pu
+    /// être inscrite nulle part.
+    ///
+    /// <b>Pourquoi cette transition est sûre.</b> Elle mène de
+    /// <see cref="EtatFne.Certified"/> à <see cref="EtatFne.Transmise"/> : deux
+    /// états qui refusent l'un comme l'autre tout renvoi. Le doublon reste
+    /// impossible pendant et après. Aucun chemin n'est ouvert vers un état
+    /// renvoyable — ce serait, lui, un desserrage de la seule protection qui
+    /// compte.
+    ///
+    /// Les mêmes gardes que la correction de référence : motif obligatoire,
+    /// origine manuelle exclusivement — une certification lue dans la réponse de
+    /// la DGI fait foi et ne se déclare pas fausse —, état du registre déclaré
+    /// par l'appelant, et copie avant écriture.
+    /// </remarks>
+    public async Task<DeblocageResultat> CorrigerVersTransmiseAsync(
+        string piece,
+        string? referenceAttendue,
+        bool sansReferenceAttendue,
+        string? motif,
+        bool confirme,
+        CancellationToken cancellation = default)
+    {
+        if (string.IsNullOrWhiteSpace(motif))
+        {
+            return new DeblocageResultat(
+                false,
+                "Une correction demande un motif : --motif \"…\". Déclarer fausse une " +
+                "certification sans dire pourquoi laisserait un registre que personne ne " +
+                "saura relire.");
+        }
+
+        if (string.IsNullOrWhiteSpace(referenceAttendue) && !sansReferenceAttendue)
+        {
+            return new DeblocageResultat(
+                false,
+                "Déclarez ce que le registre porte aujourd'hui : --reference-actuelle \"…\", " +
+                "ou --sans-reference-actuelle s'il n'en porte aucune. La correction refuse " +
+                "d'agir à l'aveugle — le registre a pu changer depuis que vous l'avez lu.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(referenceAttendue) && sansReferenceAttendue)
+        {
+            return new DeblocageResultat(
+                false,
+                "--reference-actuelle et --sans-reference-actuelle se contredisent : " +
+                "le registre porte une référence, ou il n'en porte pas.");
+        }
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion?.Certification is not { } trace)
+        {
+            return new DeblocageResultat(
+                false,
+                conversion is null
+                    ? $"Aucune facture au numéro {piece} dans Sage."
+                    : $"La pièce {piece} ne porte aucune trace au registre : il n'y a rien à corriger.");
+        }
+
+        if (trace.Etat == EtatFne.Transmise)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est déjà « au portail, en attente de clic ». " +
+                "Il n'y a rien à corriger.");
+        }
+
+        if (trace.Etat != EtatFne.Certified)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est au registre en « {trace.Etat} », pas en « Certified ». " +
+                "Cette correction ne vise que les certifications déclarées à tort.");
+        }
+
+        if (trace.Source == SourceCertification.Inconnue)
+        {
+            return new DeblocageResultat(
+                false,
+                $"L'origine de la certification de la pièce {piece} n'est pas établie : cette " +
+                "entrée a été écrite avant que le registre ne consigne sa source. Une " +
+                "correction ne se fait pas à l'aveugle — établissez-la d'abord avec " +
+                $"« reparer-source {piece} », qui dira ce que les preuves internes désignent.");
+        }
+
+        if (trace.Source != SourceCertification.ReconciliationManuelle)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La certification de la pièce {piece} vient de la réponse de la DGI, lue par " +
+                "le middleware : elle fait foi et ne se déclare pas fausse. Seule une " +
+                "réconciliation manuelle repose sur une lecture humaine, donc peut être " +
+                "erronée.");
+        }
+
+        var porteUneReference = !trace.SansReference;
+        if (sansReferenceAttendue && porteUneReference)
+        {
+            return new DeblocageResultat(
+                false,
+                $"Le registre porte « {trace.ReferenceFne} » pour la pièce {piece}, alors que " +
+                "vous le déclarez sans référence. Rien n'est écrit : vérifiez avec " +
+                $"« statut {piece} ».");
+        }
+
+        if (!sansReferenceAttendue &&
+            !string.Equals(trace.ReferenceFne, referenceAttendue!.Trim(), StringComparison.Ordinal))
+        {
+            return new DeblocageResultat(
+                false,
+                $"Le registre porte « {(trace.SansReference ? "aucune référence" : trace.ReferenceFne)} » " +
+                $"pour la pièce {piece}, et non « {referenceAttendue.Trim()} ». Rien n'est écrit : " +
+                $"vérifiez avec « statut {piece} » ce qu'il contient réellement.");
+        }
+
+        var quand = DateTimeOffset.Now;
+        var journal =
+            $"Correction du {quand:dd/MM/yyyy à HH:mm} : certification déclarée à tort, " +
+            "reclassée « au portail, en attente de clic »" +
+            (porteUneReference ? $". Référence « {trace.ReferenceFne} » retirée" : "") +
+            $". Motif : {motif.Trim()}";
+
+        if (!confirme)
+        {
+            return new DeblocageResultat(
+                false,
+                "Rien n'a été écrit : la confirmation manque.\n" +
+                $"  Deviendrait   état Transmise — au portail, en attente de clic\n" +
+                (porteUneReference ? $"  Serait retiré  référence « {trace.ReferenceFne} »\n" : "") +
+                $"  Serait gardé   identité {trace.Identite}, empreinte {trace.Empreinte}\n" +
+                "  La pièce ne repartira pas davantage qu'avant : Transmise refuse le renvoi " +
+                "comme Certified.\n" +
+                $"  {journal}",
+                ConfirmationManque: true);
+        }
+
+        string? sauvegarde = null;
+        if (registre is JsonCertificationLedger surFichier)
+        {
+            try
+            {
+                sauvegarde = await surFichier.SauvegarderAsync(cancellation);
+            }
+            catch (Exception erreur) when (erreur is IOException or UnauthorizedAccessException)
+            {
+                return new DeblocageResultat(
+                    false,
+                    $"Le registre n'a pas pu être sauvegardé : {erreur.Message} Rien n'a été " +
+                    "corrigé — une correction sans copie préalable ne se défait pas.");
+            }
+        }
+
+        var corrigee = (trace with
+        {
+            Etat = EtatFne.Transmise,
+            ReferenceFne = "",
+        }).AvecMotif(journal);
+
+        await registre.RecordAsync(corrigee, cancellation);
+        logger.LogInformation(
+            "Pièce {Piece} : certification déclarée à tort, reclassée Transmise. Sauvegarde : {Sauvegarde}",
+            piece, sauvegarde ?? "aucune");
+
+        return new DeblocageResultat(
+            true,
+            $"La pièce {piece} est reclassée « au portail, en attente de clic ». Elle ne " +
+            "repart toujours pas. Une fois le clic passé, inscrivez la vraie référence : " +
+            $"debloquer {piece} --reference <ce que le portail affiche> --confirmer" +
+            (sauvegarde is null ? "" : $"\n  Sauvegarde : {sauvegarde}"),
+            EtatFne.Transmise);
+    }
+
+    /// <summary>
     /// Établit l'origine d'une certification que le registre ne qualifie pas.
     /// </summary>
     /// <remarks>

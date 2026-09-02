@@ -1370,28 +1370,54 @@ if (ligneDeCommande.Verbe == Verbe.CorrigerReconciliation)
     if (ligneDeCommande.Query.Pieces.Count != 1)
     {
         Console.Error.WriteLine(
-            "corriger-reconciliation attend un numéro de pièce, par exemple :\n" +
-            "  corriger-reconciliation 1052 --supprimer-reference \\\n" +
-            "    --reference-actuelle \"TA_REFERENCE_FNE\" --motif \"…\" --confirmer");
+            "corriger-reconciliation attend un numéro de pièce et l'une des deux corrections :\n" +
+            "\n" +
+            "  la référence est fausse, la certification est acquise :\n" +
+            "    corriger-reconciliation 1052 --supprimer-reference \\\n" +
+            "      --reference-actuelle \"<ce que porte le registre>\" --motif \"…\" --confirmer\n" +
+            "\n" +
+            "  la certification elle-même a été déclarée à tort, la pièce attend le clic :\n" +
+            "    corriger-reconciliation 1052 --transmise \\\n" +
+            "      --sans-reference-actuelle --motif \"…\" --confirmer");
         return 2;
     }
 
-    if (!ligneDeCommande.SupprimerReference)
+    if (ligneDeCommande.SupprimerReference && ligneDeCommande.Transmise)
     {
         Console.Error.WriteLine(
-            "corriger-reconciliation attend --supprimer-reference : c'est la seule correction " +
-            "qu'elle sache faire, et elle ne la devine pas.");
+            "--supprimer-reference et --transmise sont deux corrections différentes : la " +
+            "première garde la certification et n'ôte que la référence, la seconde déclare " +
+            "que la certification n'a jamais eu lieu. Choisissez.");
+        return 2;
+    }
+
+    if (!ligneDeCommande.SupprimerReference && !ligneDeCommande.Transmise)
+    {
+        Console.Error.WriteLine(
+            "corriger-reconciliation attend --supprimer-reference ou --transmise : elle ne " +
+            "devine pas laquelle des deux corrections vous voulez.");
         return 2;
     }
 
     var numeroCorrige = ligneDeCommande.Query.Pieces[0];
     Titre($"Correction de réconciliation — pièce {numeroCorrige}");
     Console.WriteLine("Aucune API n'est appelée. Sage reste en lecture seule.");
-    Console.WriteLine("La certification n'est pas défaite : seule la référence est retirée.");
+    Console.WriteLine(ligneDeCommande.Transmise
+        // Deux états qui refusent l'un comme l'autre le renvoi : la correction
+        // ne desserre rien, elle rétablit ce qui est vrai.
+        ? "La pièce reste bloquée au renvoi : « au portail » ne repart pas plus que « certifiée »."
+        : "La certification n'est pas défaite : seule la référence est retirée.");
     Console.WriteLine();
 
-    var correction = await hote.Services.GetRequiredService<InvoiceSender>()
-        .CorrigerReferenceAsync(
+    var expediteur = hote.Services.GetRequiredService<InvoiceSender>();
+    var correction = ligneDeCommande.Transmise
+        ? await expediteur.CorrigerVersTransmiseAsync(
+            numeroCorrige,
+            ligneDeCommande.ReferenceActuelle,
+            ligneDeCommande.SansReferenceActuelle,
+            ligneDeCommande.Motif,
+            ligneDeCommande.Confirme)
+        : await expediteur.CorrigerReferenceAsync(
             numeroCorrige,
             ligneDeCommande.ReferenceActuelle,
             ligneDeCommande.Motif,

@@ -163,6 +163,16 @@ public sealed record CommandLine
     /// <summary>Retirer aussi le jeton.</summary>
     public bool SupprimerJeton { get; init; }
 
+    /// <summary>
+    /// L'appelant déclare que le registre ne porte aujourd'hui aucune référence.
+    /// </summary>
+    /// <remarks>
+    /// À ne pas confondre avec <see cref="SansReference"/>, qui déclare une
+    /// certification acquise sans numéro. Celle-ci décrit ce qu'on s'attend à
+    /// trouver ; l'autre, ce qu'on veut inscrire.
+    /// </remarks>
+    public bool SansReferenceActuelle { get; init; }
+
     /// <summary>Référence que l'appelant s'attend à trouver au registre.</summary>
     public string? ReferenceActuelle { get; init; }
 
@@ -267,6 +277,7 @@ public sealed record CommandLine
         int? codeHttp = null;
         var nonCertifiee = false;
         var sansReference = false;
+        var sansReferenceActuelle = false;
         var supprimerReference = false;
         var supprimerJeton = false;
 
@@ -442,6 +453,15 @@ public sealed record CommandLine
                 case "--sans-référence":
                     sansReference = true;
                     break;
+                case "--sans-reference-actuelle":
+                case "--sans-référence-actuelle":
+                    // « Le registre n'en porte aucune », a distinguer de
+                    // --sans-reference, qui declare « certifiee sans numero ».
+                    // Deux phrases voisines, deux sens : leur donner le meme
+                    // drapeau serait la confusion d'etiquette que ce projet
+                    // paie assez cher par ailleurs.
+                    sansReferenceActuelle = true;
+                    break;
                 case "--supprimer-reference":
                 case "--supprimer-référence":
                     supprimerReference = true;
@@ -529,6 +549,7 @@ public sealed record CommandLine
             Sortie = sortie,
             Registre = registre,
             Reference = reference,
+            SansReferenceActuelle = sansReferenceActuelle,
             Jeton = jeton,
             Motif = motif,
             ReferenceActuelle = referenceActuelle,

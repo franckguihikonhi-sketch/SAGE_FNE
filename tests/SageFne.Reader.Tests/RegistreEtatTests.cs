@@ -1445,6 +1445,129 @@ public class CertificationSansReferenceTests
         Assert.False(resultat.Applique);
         Assert.Empty(registre.Ecritures);
     }
+
+    // --- Déclarer fausse une certification qui n'a jamais eu lieu -----------
+    //
+    // La pièce 1222 a été déposée au portail sans réponse exploitable, puis
+    // inscrite certifiée par un « debloquer --reference » portant un marqueur
+    // de documentation. Retirer la référence laissait « certifiée, sans
+    // référence » : légitime, et faux. Et la pièce s'en trouvait enfermée —
+    // « debloquer » refuse d'agir hors de Sending et Transmise, si bien que la
+    // vraie référence n'aurait plus pu être inscrite après le clic.
+
+    [Fact]
+    public async Task Une_certification_declaree_a_tort_se_reclasse_au_portail()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee());
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: true,
+            motif: "Marqueur de documentation inscrit par erreur", confirme: true);
+
+        Assert.True(resultat.Applique);
+        var ecrite = Assert.Single(registre.Ecritures);
+        Assert.Equal(EtatFne.Transmise, ecrite.Etat);
+        Assert.Equal("", ecrite.ReferenceFne);
+    }
+
+    [Fact]
+    public async Task La_piece_reclassee_ne_repart_toujours_pas()
+    {
+        // Le point qui rend la transition acceptable : elle mène d'un état qui
+        // refuse le renvoi vers un autre état qui le refuse. Si elle rendait la
+        // pièce envoyable, elle serait un desserrage de la seule protection qui
+        // compte contre le doublon.
+        var (_, _, _, lecteur) = Monter(Certifiee() with { Etat = EtatFne.Transmise });
+
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(Piece));
+
+        Assert.NotEqual(EtatPiece.ACertifier, lot.Conversions[0].Etat);
+        Assert.Equal(EtatPiece.Transmise, lot.Conversions[0].Etat);
+    }
+
+    [Fact]
+    public async Task La_reclassification_exige_un_motif()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee());
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: true, motif: null, confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--motif", resultat.Message);
+    }
+
+    [Fact]
+    public async Task La_reclassification_exige_de_declarer_ce_que_porte_le_registre()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee());
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: false, motif: "au motif", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("--sans-reference-actuelle", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_declaration_qui_ne_correspond_pas_au_registre_n_ecrit_rien()
+    {
+        // Le registre a pu changer depuis qu'on l'a lu. Corriger à l'aveugle
+        // une certification est exactement ce qu'il faut éviter.
+        var (expediteur, registre, _, _) = Monter(Certifiee(Placeholder));
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: true, motif: "au motif", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains(Placeholder, resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_certification_lue_chez_la_DGI_ne_se_declare_pas_fausse()
+    {
+        // Une référence lue dans la réponse de la plateforme fait foi. Seule
+        // une lecture humaine peut être erronée, donc seule elle se corrige.
+        var (expediteur, registre, _, _) = Monter(
+            Certifiee(source: SourceCertification.Middleware));
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: true, motif: "au motif", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("fait foi", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Sans_confirmation_la_reclassification_montre_ce_qu_elle_ferait()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee());
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: true, motif: "au motif", confirme: false);
+
+        Assert.False(resultat.Applique);
+        Assert.True(resultat.ConfirmationManque);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("Transmise", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_piece_deja_au_portail_n_a_rien_a_corriger()
+    {
+        var (expediteur, registre, _, _) = Monter(Certifiee() with { Etat = EtatFne.Transmise });
+
+        var resultat = await expediteur.CorrigerVersTransmiseAsync(
+            Piece, null, sansReferenceAttendue: true, motif: "au motif", confirme: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Empty(registre.Ecritures);
+        Assert.Contains("déjà", resultat.Message);
+    }
 }
 
 /// <summary>

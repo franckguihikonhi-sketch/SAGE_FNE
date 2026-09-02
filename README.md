@@ -928,6 +928,32 @@ La certification **n'est pas défaite** : seule la référence s'en va. L'état 
 `Certified`, l'identité, l'empreinte et l'horodatage d'origine ne bougent pas, et la pièce
 demeure bloquée au renvoi — c'est tout l'enjeu.
 
+### Quand la certification elle-même a été déclarée à tort
+
+La correction ci-dessus suppose la certification acquise et seule sa référence fautive. Il
+existe un autre cas, arrivé sur la pièce **1222** : la pièce avait été déposée au portail sans
+réponse exploitable, et un `debloquer --reference` l'a inscrite certifiée. Retirer la référence
+laissait « certifiée, sans référence » — phrase parfaitement légitime, et parfaitement fausse :
+la pièce attendait toujours le clic.
+
+```powershell
+dotnet run --project src\SageFne.Reader -- corriger-reconciliation 1222 `
+  --transmise --sans-reference-actuelle `
+  --motif "Certification déclarée à tort : la pièce attend le clic du portail" --confirmer
+```
+
+Sans cette correction, la pièce était **enfermée** : `debloquer` refuse d'agir hors de `Sending`
+et `Transmise`, si bien que la vraie référence, une fois le clic passé, n'aurait plus pu être
+inscrite nulle part.
+
+**Pourquoi cette transition ne desserre rien.** Elle mène de `Certified` à `Transmise` : deux
+états qui refusent l'un comme l'autre tout renvoi. Le doublon reste impossible pendant et
+après. Aucun chemin n'est ouvert vers un état renvoyable — ce serait, lui, un desserrage de la
+seule protection qui compte.
+
+`--sans-reference-actuelle` ne se confond pas avec `--sans-reference` : la première décrit ce
+qu'on s'attend à trouver, la seconde ce qu'on veut inscrire.
+
 `--reference-actuelle` est un verrou : vous déclarez ce que vous vous attendez à trouver, et
 la commande refuse si le registre porte autre chose. Il a pu changer depuis que vous l'avez
 lu. **Une copie horodatée du registre est prise avant écriture**, et jamais écrasée.
