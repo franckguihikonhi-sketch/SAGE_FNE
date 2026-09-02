@@ -228,6 +228,11 @@ function Preparer-Poste {
 
 # --- Vérification -----------------------------------------------------------
 
+function Taille-Journal([string]$fichier) {
+    if (Test-Path $fichier) { return (Get-Item $fichier).Length }
+    return 0
+}
+
 function Verifier-Poste {
     Titre 'Vérification'
     Note "Un passage de lecture. Aucun service n'est créé, aucune facture n'est envoyée."
@@ -245,26 +250,45 @@ function Verifier-Poste {
     }
 
     $journal = Join-Path $Journaux "agent-$(Get-Date -Format 'yyyy-MM-dd').log"
-    $avant = if (Test-Path $journal) { (Get-Item $journal).Length } else { -1 }
+
+    # Absent et vide comptent tous deux pour zéro. Avec -1 pour l'absence, un
+    # fichier créé mais vide passait de -1 a 0 : le script y lisait une
+    # croissance et déclarait la vérification passée sur un journal muet.
+    $avant = Taille-Journal $journal
 
     # Start-Process -Wait : le binaire est compilé sans console, PowerShell ne
     # l'attendrait pas et l'on lirait un journal encore vide.
     $processus = Start-Process $exe -ArgumentList '--verifier' -Wait -PassThru -NoNewWindow
 
-    $apres = if (Test-Path $journal) { (Get-Item $journal).Length } else { -1 }
+    $apres = Taille-Journal $journal
 
+    # Lues avant d'être montrées : le script doit compter ce qu'il affiche,
+    # sinon il annonce « le journal le montre » au-dessus de rien.
+    $lignes = @()
     if (Test-Path $journal) {
-        Titre 'Journal'
-        Get-Content $journal -Encoding UTF8 | Select-Object -Last 25
+        $lignes = @(Get-Content $journal -Encoding UTF8 | Where-Object { $_.Trim() -ne '' })
     }
 
-    # Un journal absent ou inchangé n'est pas une vérification qui passe : c'est
-    # une vérification dont on ne sait rien. Les confondre serait déclarer bon
-    # ce qu'on n'a pas regardé - la faute que tout ce projet s'emploie à éviter.
-    if ($apres -le $avant) {
-        throw "L'agent n'a rien écrit dans $Journaux. Sans journal, cette vérification " +
-              "ne prouve rien - ne la prenez pas pour un succès. Vérifiez que le dossier " +
-              "est accessible en écriture, puis relancez."
+    Titre 'Journal'
+    Note "Fichier : $journal"
+    Note "Taille : $avant octet(s) avant, $apres apres. Lignes : $($lignes.Count)."
+    # Write-Host, pas le pipeline : l'appelant fait « Verifier-Poste | Out-Null »
+    # pour jeter le $true de retour, et emportait avec lui les lignes du journal.
+    # Le titre « Journal » s'affichait alors au-dessus de rien, suivi de
+    # « le journal le montre » - la preuve annoncée mais jamais produite.
+    if ($lignes.Count -gt 0) {
+        Note ''
+        foreach ($ligne in ($lignes | Select-Object -Last 25)) { Note $ligne }
+    }
+
+    # Un journal absent, vide ou inchangé n'est pas une vérification qui passe :
+    # c'est une vérification dont on ne sait rien. Les confondre serait déclarer
+    # bon ce qu'on n'a pas regardé - la faute que tout ce projet s'emploie a
+    # éviter.
+    if ($apres -le $avant -or $lignes.Count -eq 0) {
+        throw "L'agent n'a écrit aucune ligne dans $journal. Sans journal, cette " +
+              "vérification ne prouve rien - ne la prenez pas pour un succès. Vérifiez " +
+              "que le dossier est accessible en écriture, puis relancez."
     }
 
     if ($processus.ExitCode -ne 0) {
@@ -272,7 +296,7 @@ function Verifier-Poste {
               "pourquoi. N'installez pas le service tant que ce n'est pas réglé."
     }
 
-    Bien "Vérification passée, et le journal le montre."
+    Bien "Vérification passée, et les $($lignes.Count) ligne(s) ci-dessus le montrent."
     return $true
 }
 
