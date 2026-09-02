@@ -665,26 +665,36 @@ Seul `--confirmer` déclenche l'appel.
 Trois refus avant même la requête : le jeu d'essai (une facture inventée ne s'envoie pas à
 la DGI), un accès non configuré, une pièce qui n'est pas « à certifier ».
 
-### Un POST ne certifie pas : il dépose
+### Un POST réussi certifie ; un POST en échec dépose parfois
 
-Sur la plateforme d'essai, `POST /external/invoices/sign` **ne certifie pas la facture**. Il la
-dépose au portail de la DGI, et c'est un **clic sur le portail** qui la certifie et lui donne
-sa référence.
+Cette section a d'abord affirmé le contraire, sur la foi de trois envois qui avaient tous
+échoué. **La correction vient d'un `201`.**
 
-Constaté sur la pièce 1221 : la plateforme a répondu `500`, et la facture est apparue au
-portail avec l'horodatage **exact de cette réponse 500** — elle est créée, puis l'erreur est
-renvoyée. Trois envois, trois `500`, trois dépôts réussis :
-
-| Pièce | Réponse HTTP | Arrivée au portail |
+| Pièce | Réponse HTTP | Au portail |
 | --- | --- | --- |
-| 1052 | 500 | oui |
-| 1072 | 500, puis 500 | oui — **deux fois**, d'où le doublon |
-| 1221 | 500 | oui |
+| 1052 | 500 | déposée, sans référence |
+| 1072 | 500, puis 500 | déposée **deux fois**, d'où le doublon |
+| 1221 | 500 | déposée, sans référence |
+| 1225 | 400 ×5, puis **201** | **certifiée**, référence `2304903U26000000002` |
 
-**Sur cette plateforme, le code HTTP ne dit rien.** Seul le portail tranche.
+Un `201` rend la facture **déjà certifiée** : référence, jeton de vérification, montants
+recalculés par la DGI. Aucun clic n'est nécessaire, et la pièce passe directement en
+`Certified`.
 
-D'où l'état **`Transmise`** — « au portail, en attente de clic ». Entre le dépôt et le clic, la
-pièce n'est ni `Sending` (l'issue est connue : elle est arrivée) ni `Certified` (personne ne
+Les lignes sans référence au portail ne sont donc pas un mode de dépôt volontaire : ce sont
+les rescapées d'appels qui ont échoué après que la plateforme eut enregistré la facture.
+Elles portent une icône de modification, là où une facture certifiée porte une loupe.
+
+**Nous ne savons pas produire un brouillon à dessein.** Le corps documenté n'a pas de champ
+qui le demanderait, et en supposer un serait inventer. C'est une question posée à la DGI.
+
+**Le code HTTP ne suffit toujours pas à conclure en cas d'échec.** Un `5xx` peut avoir
+enregistré la facture, un `400` peut être passager — la 1225 en a essuyé cinq avant de passer
+avec le corps inchangé.
+
+D'où l'état **`Transmise`** — « au portail, en attente de clic ». Il garde tout son sens pour
+les pièces déposées par un envoi qui a échoué : entre le dépôt et le clic, une telle pièce
+n'est ni `Sending` (l'issue est connue : elle est arrivée) ni `Certified` (personne ne
 l'a encore certifiée). Sans ce mot, une facture déposée restait indéfiniment « en suspens », et
 un avertissement qui crie au loup à chaque exécution finit par ne plus être lu.
 
