@@ -1428,6 +1428,42 @@ attrapent ce qui vient d'un copier-coller. L'installeur applique le même motif.
 Le défaut n'est pas chez qui colle : c'est d'écrire des exemples qui ressemblent à des
 valeurs.
 
+### Le mode de règlement se choisit, il ne se suppose plus
+
+Toutes les factures partaient jusqu'ici avec `deferred`, valeur du paramétrage : **chaque
+facture certifiée déclarait « à terme »**, vrai ou faux. La DGI marque ce champ obligatoire, et
+Sage ne le porte pas dans les colonnes que nous lisons — c'est donc un choix humain.
+
+La fenêtre de confirmation porte désormais la liste, et **le bouton reste inactif tant que rien
+n'est choisi**. Le choix est retenu pour ce client et présélectionné la fois suivante — retenu,
+pas imposé : le même client peut payer comptant une fois et par virement la suivante.
+
+Les six valeurs viennent de l'annexe « Lexique » de la
+[procédure d'interfaçage de la DGI](https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf),
+et l'agent les sert à la page — jamais recopiées dans le HTML, une liste en double finissant
+toujours par diverger de ce que l'API accepte :
+
+| Portail | Code envoyé |
+| --- | --- |
+| Carte bancaire | `card` |
+| Chèque | `check` |
+| Espèces | `cash` |
+| Mobile money | `mobile-money` |
+| Virement | `transfer` |
+| À terme | `deferred` |
+
+**Le libellé n'est pas le code.** Le portail affiche « Virement », l'API attend `transfer` :
+envoyer le libellé ferait refuser la facture. La liste montre le libellé et transmet le code —
+et un libellé recopié à la main est traduit plutôt que refusé, parce qu'un texte du portail
+finit toujours par être collé quelque part.
+
+Chaque ligne affiche le mode qui partirait et **s'il a été choisi ou supposé** : un mode
+appliqué sans être visible est un mode qu'on découvre sur la facture certifiée, quand il est
+trop tard pour autre chose qu'un avoir.
+
+Le choix est retenu **avant** l'envoi, jamais après : c'est le lecteur qui relit la pièce et
+construit le corps, et il ne peut prendre en compte que ce qui est déjà écrit.
+
 ### Le tableau de bord : voir les factures, et certifier d'un clic
 
 `http://localhost:5080` — l'agent sert une page qui liste les factures de la fenêtre, chacune

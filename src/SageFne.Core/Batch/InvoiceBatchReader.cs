@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using SageFne.Core.Configuration;
 using SageFne.Core.Certification;
+using SageFne.Core.Fne;
 using SageFne.Core.Data;
 using SageFne.Core.Mapping;
 using SageFne.Core.Models.Sage;
@@ -25,7 +26,15 @@ public sealed class InvoiceBatchReader(
     ISageInvoiceRepository repository,
     IFneInvoiceMapper mapper,
     ICertificationLedger ledger,
-    IOptions<FneOptions> options)
+    IOptions<FneOptions> options,
+
+    // En dernier et optionnel : les tests construisent ce lecteur par position,
+    // et un paramètre glissé au milieu les aurait tous cassés pour une raison
+    // étrangère à ce qu'ils éprouvent.
+    //
+    // Sans lui, le paramétrage s'applique et le rapport le signale comme une
+    // supposition — jamais comme un choix.
+    IModesPaiementClients? modesPaiement = null)
 {
     private readonly FneOptions _options = options.Value;
 
@@ -117,10 +126,17 @@ public sealed class InvoiceBatchReader(
                 "trancher laquelle envoyer, et rien ne part tant que ce n'est pas éclairci.");
         }
 
+        // Lus une fois pour tout le lot : le mapping est synchrone et ne doit
+        // pas se mettre à lire un fichier au milieu d'une traduction.
+        var modes = modesPaiement is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : await modesPaiement.ToutAsync(cancellation);
+
         var conversions = new List<InvoiceConversion>(entetes.Count);
         foreach (var entete in entetes)
         {
-            conversions.Add(Convertir(entete, parPiece, clients, deja, familles, catalogue));
+            conversions.Add(Convertir(
+                entete, parPiece, clients, deja, familles, catalogue, modes));
         }
 
         return new InvoiceBatch { Conversions = conversions, Constats = constats.Constats };
@@ -132,7 +148,8 @@ public sealed class InvoiceBatchReader(
         IReadOnlyDictionary<string, SageCustomer> clients,
         IReadOnlyDictionary<string, CertifiedInvoice> deja,
         IReadOnlyDictionary<string, string> familles,
-        TaxCatalogue catalogue)
+        TaxCatalogue catalogue,
+        IReadOnlyDictionary<string, string> modesParClient)
     {
         var rapport = new CheckReport();
         var lignes = parPiece.TryGetValue(entete.Piece, out var trouvees) ? trouvees : [];
@@ -145,7 +162,8 @@ public sealed class InvoiceBatchReader(
         // La facture n'est construite que si elle a de quoi l'être ; les
         // contrôles restent produits dans tous les cas.
         var facture = client is not null && lignes.Count > 0
-            ? mapper.Map(entete, lignes, client, rapport, familles, catalogue)
+            ? mapper.Map(entete, lignes, client, rapport, familles, catalogue,
+                modesParClient.TryGetValue(client.CtNum, out var mode) ? mode : null)
             : null;
 
         var empreinte = facture is null ? "" : InvoiceFingerprint.Compute(facture);

@@ -50,6 +50,27 @@ public static class ServicesMiddleware
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(api.TimeoutSeconds, 5, 300));
         });
 
+        // Le mode de règlement retenu client par client. À côté du registre
+        // quand il y en a un ; en mémoire sinon — sur le jeu d'essai, rien ne
+        // mérite de survivre au redémarrage.
+        //
+        // Perdre ce fichier ne fait que reposer une question à l'exploitant :
+        // il n'a rien à voir avec le registre des certifications, dont la perte
+        // ferait recertifier des factures déjà envoyées.
+        if (!string.IsNullOrWhiteSpace(cheminRegistre))
+        {
+            var dossier = Path.GetDirectoryName(cheminRegistre!.Trim());
+            var chemin = Path.Combine(
+                string.IsNullOrWhiteSpace(dossier) ? "." : dossier,
+                "modes-paiement.json");
+
+            services.AddSingleton<IModesPaiementClients>(new ModesPaiementFichier(chemin));
+        }
+        else
+        {
+            services.AddSingleton<IModesPaiementClients, ModesPaiementMemoire>();
+        }
+
         services.AddSingleton<InvoiceSender>();
         services.AddSingleton<IFneInvoiceMapper, FneInvoiceMapper>();
         services.AddSingleton<InvoiceBatchReader>();

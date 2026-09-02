@@ -13,5 +13,16 @@ public interface IFneInvoiceMapper
         SageCustomer customer,
         CheckReport? report = null,
         IReadOnlyDictionary<string, string>? famillesParArticle = null,
-        TaxCatalogue? catalogue = null);
+        TaxCatalogue? catalogue = null,
+
+        /// <summary>
+        /// Le mode de règlement retenu pour cette pièce, s'il l'a été.
+        /// </summary>
+        /// <remarks>
+        /// Par appel, et non par constructeur : le mapping est un singleton, si
+        /// bien qu'un dictionnaire posé à sa construction resterait figé — et
+        /// dans le câblage de production, vide pour toujours. Le mode change
+        /// pendant que le service tourne, à chaque choix de l'exploitant.
+        /// </remarks>
+        string? modePaiement = null);
 }

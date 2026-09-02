@@ -87,7 +87,10 @@ public class TableauTests
     /// Un conteneur qui accepte d'envoyer : jeu d'essai déclaré réel, et un
     /// client d'API qui répond ce que le test veut éprouver.
     /// </summary>
-    private static ServiceProvider CablerAvecPlateforme(FneSignResult reponse)
+    private static ServiceProvider CablerAvecPlateforme(FneSignResult reponse) =>
+        CablerAvecPlateforme(new ClientDit(reponse));
+
+    private static ServiceProvider CablerAvecPlateforme(IFneApiClient client)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -114,7 +117,7 @@ public class TableauTests
         services.AddSingleton<ISondeReseau>(new SondeDite(true));
         services.AddSingleton<ISageInvoiceRepository>(
             new DemoSageInvoiceRepository(estReel: true));
-        services.AddSingleton<IFneApiClient>(new ClientDit(reponse));
+        services.AddSingleton(client);
 
         return services.BuildServiceProvider();
     }
@@ -124,6 +127,14 @@ public class TableauTests
 
     private static JsonElement Lire(ReponseHttp reponse) =>
         JsonDocument.Parse(reponse.Corps).RootElement;
+
+    /// <summary>Le corps qu'envoie le navigateur quand un mode a été choisi.</summary>
+    private const string AvecMode = "{\"modePaiement\":\"cash\"}";
+
+    /// <summary>Certifie comme le fait l'écran : avec un mode de règlement.</summary>
+    private static Task<ReponseHttp> Certifier(
+        ServiceProvider fournisseur, string piece, string corps = AvecMode) =>
+        Routeur(fournisseur).RepondreAsync("POST", $"/api/factures/{piece}/certifier", corps);
 
     // --- La page ------------------------------------------------------------
 
@@ -280,6 +291,154 @@ public class TableauTests
         Assert.Equal("ETAB", etat.GetProperty("etablissement").GetString());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("{}")]
+    [InlineData("{\"modePaiement\":\"\"}")]
+    [InlineData("{\"modePaiement\":\"A_COMPLETER\"}")]
+    [InlineData("pas du json")]
+    public async Task Sans_mode_de_reglement_rien_ne_part(string corps)
+    {
+        // Toutes les factures partaient jusqu'ici avec « deferred », valeur du
+        // paramétrage : chaque facture certifiée déclarait « à terme », vrai ou
+        // faux. La DGI marque ce champ obligatoire et Sage ne le porte pas —
+        // c'est donc un choix humain, et il doit être fait.
+        //
+        // « virement » est le libellé français, pas le code : l'API attend
+        // « transfer ». Envoyer le libellé ferait refuser la facture.
+        using var fournisseur = Cabler();
+
+        var reponse = await Certifier(fournisseur, "1220", corps);
+
+        Assert.Equal(400, reponse.Code);
+        Assert.Contains("mode de règlement", Lire(reponse).GetProperty("message").GetString()!);
+    }
+
+    [Fact]
+    public async Task Le_libelle_francais_du_portail_est_traduit_en_code()
+    {
+        // Le portail affiche « Virement », l'API attend « transfer ». La liste
+        // déroulante transmet le code, mais un libellé recopié doit être
+        // traduit plutôt que refusé — c'est déjà arrivé quatre fois avec
+        // d'autres valeurs.
+        using var fournisseur = CablerAvecPlateforme(
+            new FneSignResult(true, 201, "REFERENCE", "JETON", "{}"));
+
+        var reponse = await Certifier(fournisseur, "1220", "{\"modePaiement\":\"Virement\"}");
+
+        Assert.Equal(200, reponse.Code);
+    }
+
+    [Fact]
+    public async Task Le_mode_choisi_est_retenu_pour_le_client()
+    {
+        // Choisi facture par facture, retenu client par client : la fois
+        // suivante, la liste s'ouvre déjà sur le bon mode.
+        using var fournisseur = CablerAvecPlateforme(
+            new FneSignResult(true, 201, "REFERENCE", "JETON", "{}"));
+
+        await Certifier(fournisseur, "1220", "{\"modePaiement\":\"mobile-money\"}");
+
+        var retenu = await fournisseur.GetRequiredService<IModesPaiementClients>()
+            .PourAsync("4111DEMOSA");
+
+        Assert.Equal("mobile-money", retenu);
+    }
+
+    [Fact]
+    public async Task Les_six_modes_de_la_DGI_sont_servis_a_la_page()
+    {
+        // Servis par l'agent depuis le lexique de la DGI, jamais recopiés dans
+        // la page : une liste en double finirait par diverger de ce que l'API
+        // accepte.
+        using var fournisseur = Cabler();
+        var reponse = await Routeur(fournisseur).RepondreAsync("GET", "/api/modes-paiement");
+
+        Assert.Equal(200, reponse.Code);
+        var codes = Lire(reponse).EnumerateArray()
+            .Select(m => m.GetProperty("code").GetString()).ToList();
+
+        Assert.Equal(
+            new[] { "card", "check", "cash", "mobile-money", "transfer", "deferred" }, codes);
+    }
+
+    [Fact]
+    public async Task Une_piece_dit_le_mode_qui_partirait_et_s_il_a_ete_choisi()
+    {
+        // Un mode appliqué sans être visible est un mode qu'on découvre sur la
+        // facture certifiée, quand il est trop tard pour autre chose qu'un avoir.
+        using var fournisseur = Cabler();
+        var lignes = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/factures"))
+            .EnumerateArray().ToList();
+
+        var ligne = lignes.First(l => l.GetProperty("piece").GetString() == "1220");
+
+        Assert.False(ligne.GetProperty("modePaiementChoisi").GetBoolean());
+        Assert.Equal("deferred", ligne.GetProperty("modePaiement").GetString());
+        Assert.Equal("À terme", ligne.GetProperty("modePaiementLibelle").GetString());
+    }
+
+    /// <summary>Retient la facture au lieu de l'envoyer.</summary>
+    private sealed class ClientEspion(FneSignResult reponse) : IFneApiClient
+    {
+        public FneInvoice? Vue { get; private set; }
+        public bool Reel => false;
+        public string DecrireRequete(FneInvoice facture) => "";
+
+        public Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken ct = default)
+        {
+            Vue = facture;
+            return Task.FromResult(reponse);
+        }
+    }
+
+    [Theory]
+    [InlineData("cash", "cash")]
+    [InlineData("mobile-money", "mobile-money")]
+    [InlineData("Virement", "transfer")]
+    [InlineData("Chèque", "check")]
+    public async Task Le_mode_choisi_part_reellement_dans_le_corps_FNE(string choisi, string attendu)
+    {
+        // LE test qui manquait. Retirer la prise en compte du mode dans le
+        // mapping ne faisait tomber aucun test : rien ne prouvait que le choix
+        // de l'exploitant atteigne la DGI. Toutes les factures pouvaient
+        // repartir en « deferred » sans que rien ne le dise.
+        //
+        // La chaîne entière est éprouvée ici : le clic, la mémoire par client,
+        // la relecture du lot, le mapping, et le corps remis au client d'API.
+        var espion = new ClientEspion(new FneSignResult(true, 201, "REFERENCE", "JETON", "{}"));
+
+        using var fournisseur = CablerAvecPlateforme(espion);
+
+        var reponse = await Certifier(
+            fournisseur, "1220", "{\"modePaiement\":\"" + choisi + "\"}");
+
+        Assert.Equal(200, reponse.Code);
+        Assert.NotNull(espion.Vue);
+        Assert.Equal(attendu, espion.Vue!.PaymentMethod);
+    }
+
+    [Fact]
+    public async Task Sans_choix_le_corps_porte_la_valeur_du_parametrage()
+    {
+        // Le pendant du précédent : sans lui, un refus général passerait pour
+        // une protection. L'agent en Automatic n'a personne pour choisir, et
+        // doit pouvoir retomber sur le paramétrage — signalé comme supposé.
+        var espion = new ClientEspion(new FneSignResult(true, 201, "REFERENCE", "JETON", "{}"));
+        using var fournisseur = CablerAvecPlateforme(espion);
+
+        var lecteur = fournisseur.GetRequiredService<SageFne.Core.Batch.InvoiceBatchReader>();
+        var lot = await lecteur.ReadAsync(SageFne.Core.Data.InvoiceQuery.Piece("1220"));
+
+        var facture = lot.Conversions.Single().Invoice;
+
+        Assert.NotNull(facture);
+        Assert.Equal("deferred", facture!.PaymentMethod);
+        Assert.Contains(
+            lot.Conversions.Single().Report.Constats,
+            c => c.Code == "PAYMENT_METHOD_SUPPOSE");
+    }
+
     [Fact]
     public async Task Une_visite_ne_certifie_pas()
     {
@@ -302,7 +461,7 @@ public class TableauTests
         // On évite le doute plutôt que de le trancher après coup.
         using var fournisseur = Cabler(joignable: false);
 
-        var reponse = await Routeur(fournisseur).RepondreAsync("POST", "/api/factures/1220/certifier");
+        var reponse = await Certifier(fournisseur, "1220");
 
         Assert.Equal(503, reponse.Code);
         Assert.Contains("intacte", Lire(reponse).GetProperty("message").GetString()!);
@@ -314,8 +473,7 @@ public class TableauTests
     public async Task Un_numero_de_piece_vide_est_refuse(string piece)
     {
         using var fournisseur = Cabler();
-        var reponse = await Routeur(fournisseur)
-            .RepondreAsync("POST", $"/api/factures/{piece}/certifier");
+        var reponse = await Certifier(fournisseur, piece);
 
         Assert.Equal(400, reponse.Code);
     }
@@ -324,8 +482,7 @@ public class TableauTests
     public async Task Une_piece_inconnue_ne_certifie_rien()
     {
         using var fournisseur = Cabler();
-        var reponse = await Routeur(fournisseur)
-            .RepondreAsync("POST", "/api/factures/999999/certifier");
+        var reponse = await Certifier(fournisseur, "999999");
 
         Assert.Equal(422, reponse.Code);
         Assert.False(Lire(reponse).GetProperty("reussi").GetBoolean());
@@ -344,8 +501,7 @@ public class TableauTests
         using var fournisseur = CablerAvecPlateforme(
             new FneSignResult(false, 400, CorpsBrut: corps, Erreur: "la plateforme a répondu 400."));
 
-        var reponse = await Routeur(fournisseur)
-            .RepondreAsync("POST", "/api/factures/1220/certifier");
+        var reponse = await Certifier(fournisseur, "1220");
 
         var lu = Lire(reponse);
         Assert.Equal(400, lu.GetProperty("codeHttp").GetInt32());
@@ -358,8 +514,7 @@ public class TableauTests
         using var fournisseur = CablerAvecPlateforme(new FneSignResult(
             true, 201, "2304903U26000000002", "JETON", "{\"reference\":\"...\"}"));
 
-        var reponse = await Routeur(fournisseur)
-            .RepondreAsync("POST", "/api/factures/1220/certifier");
+        var reponse = await Certifier(fournisseur, "1220");
 
         Assert.Equal(200, reponse.Code);
         var lu = Lire(reponse);
@@ -374,8 +529,7 @@ public class TableauTests
         // passe jamais outre les contrôles métier : la 1222 n'a pas de NCC, et
         // aucun clic ne doit pouvoir l'envoyer.
         using var fournisseur = Cabler();
-        var reponse = await Routeur(fournisseur)
-            .RepondreAsync("POST", "/api/factures/1222/certifier");
+        var reponse = await Certifier(fournisseur, "1222");
 
         Assert.Equal(422, reponse.Code);
         Assert.False(Lire(reponse).GetProperty("reussi").GetBoolean());

@@ -106,6 +106,14 @@ public static class PageTableau
     font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
     word-break: break-word;
   }
+  select {
+    font: inherit; width: 100%; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid var(--trait); background: var(--carte); color: var(--texte);
+  }
+  select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  label.champ { display: block; font-weight: 600; margin: 14px 0 6px; }
+  .mode { color: var(--doux); font-size: 12px; margin-top: 3px; }
+  .mode.suppose { color: var(--ambre); }
   .titre-ok { color: var(--vert); }
   .titre-ko { color: var(--rouge); }
 </style>
@@ -140,10 +148,17 @@ public static class PageTableau
     <p class="grave">Une facture certifiée ne s'annule pas. La seule correction
        possible ensuite est un avoir.</p>
     <p id="c-client" style="color:var(--doux)"></p>
+
+    <label class="champ" for="c-mode">Mode de paiement <span style="color:var(--rouge)">*</span></label>
+    <select id="c-mode">
+      <option value="">Sélectionner…</option>
+    </select>
+    <p class="mode" id="c-mode-aide">Sage ne porte pas cette information : elle part
+       telle quelle sur la facture certifiée.</p>
   </div>
   <div class="d-pied">
     <button class="discret" id="c-non">Annuler</button>
-    <button id="c-oui">Certifier</button>
+    <button id="c-oui" disabled>Certifier</button>
   </div>
 </dialog>
 
@@ -166,6 +181,7 @@ const html = (s) => String(s ?? '').replace(/[&<>"']/g,
 
 let etat = null;
 let occupe = null;
+let modes = [];
 
 const PASTILLES = {
   ACertifier:     ['p-pret',    'à certifier'],
@@ -176,6 +192,15 @@ const PASTILLES = {
   Bloquee:        ['p-bloque',  'bloquée'],
   HorsPerimetre:  ['p-neutre',  'hors périmètre'],
 };
+
+async function chargerModes() {
+  // Les six de la DGI, servis par l'agent depuis le lexique de la procédure —
+  // jamais recopiés dans la page. Une liste en double finirait par diverger de
+  // ce que l'API accepte, et les factures seraient refusées.
+  modes = await fetch('/api/modes-paiement').then((r) => r.json());
+  $('c-mode').innerHTML = '<option value="">Sélectionner…</option>'
+    + modes.map((m) => `<option value="${html(m.code)}">${html(m.libelle)}</option>`).join('');
+}
 
 async function charger() {
   try {
@@ -269,6 +294,12 @@ function dessinerFactures(lignes) {
       ? `<div class="conduite">Vous pouvez la certifier maintenant.</div>`
       : '';
 
+    // Ce qui partira réellement, et si quelqu'un l'a choisi. Un mode appliqué
+    // sans être visible est un mode qu'on découvre sur la facture certifiée.
+    const mode = `<div class="mode ${l.modePaiementChoisi ? '' : 'suppose'}">`
+      + `Paiement : ${html(l.modePaiementLibelle)}`
+      + (l.modePaiementChoisi ? '' : ' — supposé, non choisi') + '</div>';
+
     return `<tr>
       <td>${jour(l.date)}</td>
       <td class="piece">${html(l.piece)}</td>
@@ -277,6 +308,7 @@ function dessinerFactures(lignes) {
       <td class="num">${fcfa(l.totalTTC)}</td>
       <td><span class="pastille ${classe}">${html(libelle)}</span>
           ${conduite}
+          ${mode}
           <div class="motif">${l.certifiable ? 'L\'agent, seul&nbsp;: ' : ''}${html(l.explication)}</div>
           ${codes ? `<div class="codes">${codes}</div>` : ''}</td>
       <td class="num">${action}</td>
@@ -296,19 +328,35 @@ function demander(piece, lignes) {
   $('c-env').textContent = etat ? etat.environnement : '?';
   $('c-client').textContent = ligne
     ? `${ligne.clientNom || ligne.client} — ${fcfa(ligne.totalTTC)}` : '';
+
+  // Présélectionné seulement si quelqu'un l'a déjà choisi pour ce client. Un
+  // mode venu du paramétrage n'est pas un choix : le présélectionner ferait
+  // passer une supposition pour une décision, et il suffirait de cliquer.
+  $('c-mode').value = ligne && ligne.modePaiementChoisi ? ligne.modePaiement : '';
+  $('c-oui').disabled = !$('c-mode').value;
+  $('c-mode').onchange = () => { $('c-oui').disabled = !$('c-mode').value; };
+
   $('confirmation').returnValue = '';
   $('confirmation').showModal();
-  $('c-oui').onclick = () => { $('confirmation').close(); certifier(piece); };
+  $('c-oui').onclick = () => {
+    if (!$('c-mode').value) return;
+    const choisi = $('c-mode').value;
+    $('confirmation').close();
+    certifier(piece, choisi);
+  };
 }
 
 $('c-non').onclick = () => $('confirmation').close();
 
-async function certifier(piece) {
+async function certifier(piece, modePaiement) {
   occupe = piece;
   document.querySelectorAll('button[data-piece]').forEach((b) => (b.disabled = true));
   try {
-    const r = await fetch(`/api/factures/${encodeURIComponent(piece)}/certifier`,
-                          { method: 'POST' });
+    const r = await fetch(`/api/factures/${encodeURIComponent(piece)}/certifier`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modePaiement }),
+    });
     const d = await r.json();
     montrer(d);
   } catch (err) {
@@ -351,7 +399,7 @@ function montrer(d) {
 
 $('r-ok').onclick = () => $('resultat').close();
 
-charger();
+chargerModes().then(charger);
 setInterval(() => { if (!occupe) charger(); }, 15000);
 </script>
 </body>

@@ -9,6 +9,7 @@ using SageFne.Core.Batch;
 using SageFne.Core.Configuration;
 using SageFne.Core.Data;
 using SageFne.Core.Fne;
+using System.Text.Json.Serialization;
 using SageFne.Core.Validation;
 using FneOptions = SageFne.Core.Configuration.FneOptions;
 
@@ -61,7 +62,7 @@ public sealed class RouteurTableau(
 
     /// <summary>Répond à une requête, sans jamais toucher au réseau d'écoute.</summary>
     public async Task<ReponseHttp> RepondreAsync(
-        string methode, string chemin, CancellationToken arret = default)
+        string methode, string chemin, string corps = "", CancellationToken arret = default)
     {
         chemin = NormaliserChemin(chemin);
 
@@ -73,6 +74,11 @@ public sealed class RouteurTableau(
         if (methode == "GET" && chemin == "/api/etat")
         {
             return ReponseHttp.Json(200, Serialiser(await EtatAsync(arret)));
+        }
+
+        if (methode == "GET" && chemin == "/api/modes-paiement")
+        {
+            return ReponseHttp.Json(200, Serialiser(ModePaiementFne.Tous));
         }
 
         if (methode == "GET" && chemin == "/api/factures")
@@ -92,10 +98,37 @@ public sealed class RouteurTableau(
             }
 
             var piece = chemin["/api/factures/".Length..^"/certifier".Length];
-            return await CertifierAsync(Uri.UnescapeDataString(piece), arret);
+            return await CertifierAsync(Uri.UnescapeDataString(piece), corps, arret);
         }
 
         return Erreur(404, $"Rien à cette adresse : {chemin}");
+    }
+
+    private static DemandeCertification? LireDemande(string corps)
+    {
+        if (string.IsNullOrWhiteSpace(corps)) return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<DemandeCertification>(corps, Format);
+        }
+        catch (JsonException)
+        {
+            // Un corps illisible n'est pas un choix : la suite refusera, en
+            // disant que le mode n'a pas été choisi. C'est exact.
+            return null;
+        }
+    }
+
+    /// <summary>Le compte tiers d'une pièce, pour y rattacher le mode retenu.</summary>
+    private async Task<string?> CompteTiersAsync(string piece, CancellationToken arret)
+    {
+        using var portee = fabrique.CreateScope();
+        var lecteur = portee.ServiceProvider.GetRequiredService<InvoiceBatchReader>();
+        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), arret);
+
+        var tiers = lot.Conversions.FirstOrDefault()?.Header.Tiers;
+        return string.IsNullOrWhiteSpace(tiers) ? null : tiers;
     }
 
     /// <summary>Coupe la chaîne de requête et normalise la barre finale.</summary>
@@ -161,15 +194,36 @@ public sealed class RouteurTableau(
         // être certifiée » : deux affirmations contraires, sur le même écran.
         var identite = IdentitePosee();
 
+        var modes = await portee.ServiceProvider
+            .GetRequiredService<IModesPaiementClients>().ToutAsync(arret);
+
+        var parDefaut = portee.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<FneOptions>>()
+            .Value.PaymentMethod;
+
         return [.. lot.Conversions
-            .Select(conversion => Traduire(conversion, moteur.Decider(conversion), identite))
+            .Select(conversion => Traduire(
+                conversion, moteur.Decider(conversion), identite, modes, parDefaut))
             .OrderByDescending(ligne => ligne.Date)
             .ThenByDescending(ligne => ligne.Piece)];
     }
 
     private static LigneTableau Traduire(
-        InvoiceConversion conversion, DecisionAgent decision, bool identitePosee)
+        InvoiceConversion conversion,
+        DecisionAgent decision,
+        bool identitePosee,
+        IReadOnlyDictionary<string, string> modesParClient,
+        string modeParDefaut)
     {
+        // Ce qui partira réellement : le choix du client s'il existe, sinon le
+        // paramétrage. La distinction est affichée, parce qu'un mode supposé et
+        // un mode choisi ne s'engagent pas de la même façon.
+        var choisi = modesParClient.TryGetValue(conversion.Header.Tiers, out var retenu)
+            ? ModePaiementFne.Normaliser(retenu)
+            : null;
+
+        var effectif = choisi ?? modeParDefaut;
+
         var entete = conversion.Header;
 
         return new LigneTableau(
@@ -190,6 +244,9 @@ public sealed class RouteurTableau(
             // lui-même. Ni la stabilité ni le mode n'entrent ici : le clic est
             // précisément ce qu'ils remplaçaient.
             Certifiable: conversion.Etat == EtatPiece.ACertifier && identitePosee,
+            ModePaiement: effectif,
+            ModePaiementLibelle: ModePaiementFne.Libelle(effectif),
+            ModePaiementChoisi: choisi is not null,
 
             ReferenceFne: conversion.Certification?.ReferenceFne ?? "",
             Constats: [.. conversion.Report.Constats.Select(constat =>
@@ -225,13 +282,33 @@ public sealed class RouteurTableau(
             Lu: DateTimeOffset.Now.ToString("HH:mm:ss"));
     }
 
-    private async Task<ReponseHttp> CertifierAsync(string piece, CancellationToken arret)
+    /// <summary>Ce que le navigateur envoie avec le clic.</summary>
+    private sealed record DemandeCertification(
+        [property: JsonPropertyName("modePaiement")] string? ModePaiement);
+
+    private async Task<ReponseHttp> CertifierAsync(
+        string piece, string corps, CancellationToken arret)
     {
         piece = piece.Trim();
 
         if (piece.Length == 0 || piece.Length > 64)
         {
             return Erreur(400, "Numéro de pièce absent ou invraisemblable.");
+        }
+
+        // Le mode de règlement, exigé avant tout envoi. La DGI le marque
+        // obligatoire, et jusqu'ici toutes les factures partaient avec la
+        // valeur du paramétrage — « à terme » — vraie ou fausse. Une facture
+        // certifiée qui déclare un mode de paiement inexact ne se corrige que
+        // par un avoir.
+        var demande = LireDemande(corps);
+        var mode = ModePaiementFne.Normaliser(demande?.ModePaiement);
+
+        if (mode is null)
+        {
+            return Erreur(400,
+                $"Rien n'a été envoyé : le mode de règlement de la pièce {piece} n'a pas été " +
+                "choisi. La DGI l'exige, et Sage ne le porte pas — c'est à vous de le dire.");
         }
 
         lock (_verrou)
@@ -260,10 +337,27 @@ public sealed class RouteurTableau(
             }
 
             using var portee = fabrique.CreateScope();
+
+            // Retenu AVANT l'envoi : c'est le lecteur qui relit la pièce et
+            // construit le corps, et il ne peut prendre en compte que ce qui
+            // est déjà écrit. Le retenir après ferait partir la facture avec
+            // l'ancien mode, ou celui du paramétrage.
+            // Pièce inconnue : on ne retient rien, et c'est l'expéditeur qui le
+            // dira. Un second chemin d'erreur ici aurait rendu deux formes de
+            // réponse différentes pour un même 422.
+            var compte = await CompteTiersAsync(piece, arret);
+            if (compte is not null)
+            {
+                await portee.ServiceProvider.GetRequiredService<IModesPaiementClients>()
+                    .RetenirAsync(compte, mode, arret);
+            }
+
             var expediteur = portee.ServiceProvider.GetRequiredService<InvoiceSender>();
 
             logger.LogInformation(
-                "Tableau de bord : certification de la pièce {Piece} demandée à la main.", piece);
+                "Tableau de bord : certification de la pièce {Piece} demandée à la main, " +
+                "mode de règlement « {Mode} » ({Code}).",
+                piece, ModePaiementFne.Libelle(mode), mode);
 
             var resultat = await expediteur.EnvoyerAsync(piece, confirme: true, arret);
 

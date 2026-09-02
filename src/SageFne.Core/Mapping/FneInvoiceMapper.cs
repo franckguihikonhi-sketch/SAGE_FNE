@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using SageFne.Core.Configuration;
+using SageFne.Core.Fne;
 using SageFne.Core.Models.Fne;
 using SageFne.Core.Models.Sage;
 using SageFne.Core.Validation;
@@ -13,7 +14,8 @@ namespace SageFne.Core.Mapping;
 /// Ce qui manque encore dans Sage — le mode de règlement, le point de vente,
 /// l'établissement — vient du paramétrage plutôt que d'être deviné.
 /// </remarks>
-public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolicy? regimes = null) : IFneInvoiceMapper
+public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolicy? regimes = null)
+    : IFneInvoiceMapper
 {
     private readonly FneOptions _options = options.Value;
     /// <remarks>
@@ -21,6 +23,7 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
     /// adossée au seul paramétrage, qui suffit aux tests et au jeu d'essai.
     /// </remarks>
     private readonly IZeroVatPolicy _regimes = regimes ?? new ConfiguredZeroVatPolicy(options.Value.ZeroVat);
+
 
     /// <param name="famillesParArticle">
     /// FA_CodeFamille par AR_Ref, quand la classification par famille doit
@@ -34,7 +37,8 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
         SageCustomer customer,
         CheckReport? report = null,
         IReadOnlyDictionary<string, string>? famillesParArticle = null,
-        TaxCatalogue? catalogue = null)
+        TaxCatalogue? catalogue = null,
+        string? modePaiement = null)
     {
         var items = new List<FneInvoiceItem>(lines.Count);
 
@@ -170,15 +174,45 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
                 "certifiée à la date du dépôt, pas à celle du document Sage.");
         }
 
-        report?.Avertir(
-            "PAYMENT_METHOD_SUPPOSE",
-            $"paymentMethod = « {_options.PaymentMethod} », valeur du paramétrage : " +
-            "Sage ne porte pas le mode de règlement de la pièce. À confirmer avec la DGI.");
+        // Le mode retenu pour ce client l'emporte sur le paramétrage. Sage ne
+        // porte pas le mode de règlement dans les colonnes que nous lisons : il
+        // est choisi à l'écran, facture par facture, avant de certifier.
+        var modeRetenu = ModePaiementFne.Normaliser(modePaiement);
+
+        var modeEnvoye = modeRetenu ?? _options.PaymentMethod;
+
+        if (modeRetenu is null)
+        {
+            // On retombe sur le paramétrage. Deux gravités, parce que les deux
+            // cas ne coûtent pas la même chose : une valeur plausible mais non
+            // choisie est un avertissement ; une valeur que la DGI n'accepte
+            // pas est une erreur, puisqu'elle fera refuser la facture.
+            if (ModePaiementFne.EstConnu(_options.PaymentMethod))
+            {
+                // Le libellé ET le code : le premier se lit, le second est ce
+                // qui part réellement à la DGI. N'afficher que le libellé
+                // cacherait la valeur transmise.
+                report?.Avertir(
+                    "PAYMENT_METHOD_SUPPOSE",
+                    $"paymentMethod = « {ModePaiementFne.Libelle(_options.PaymentMethod)} » " +
+                    $"({_options.PaymentMethod}), valeur du paramétrage : personne n'a choisi " +
+                    "le mode de règlement de cette pièce, et Sage ne porte pas cette " +
+                    "information. La facture serait certifiée sur une supposition.");
+            }
+            else
+            {
+                report?.Erreur(
+                    "PAYMENT_METHOD_INCONNU",
+                    $"Fne:PaymentMethod vaut « {_options.PaymentMethod} », qui n'est aucun des " +
+                    "six modes de la DGI (cash, card, check, mobile-money, transfer, deferred). " +
+                    "La plateforme refuserait la facture.");
+            }
+        }
 
         return new FneInvoice
         {
             InvoiceType = "sale",
-            PaymentMethod = _options.PaymentMethod,
+            PaymentMethod = modeEnvoye,
             Template = _options.Template,
             IsRne = _options.IsRne,
             ClientNcc = customer.Identifiant,

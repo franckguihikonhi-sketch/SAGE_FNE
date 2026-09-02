@@ -40,6 +40,14 @@ public sealed record LigneTableau(
     string Motif,
     string Explication,
     bool Certifiable,
+
+    // Ce qui partira réellement à la DGI pour cette pièce, et d'où ça vient.
+    // Un mode appliqué sans être visible est un mode qu'on découvre sur la
+    // facture certifiée, quand il est trop tard.
+    string ModePaiement,
+    string ModePaiementLibelle,
+    bool ModePaiementChoisi,
+
     string ReferenceFne,
     IReadOnlyList<ConstatTableau> Constats);
 

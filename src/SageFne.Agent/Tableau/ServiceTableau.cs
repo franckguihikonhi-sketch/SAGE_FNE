@@ -122,9 +122,23 @@ public sealed class ServiceTableau(
                 return;
             }
 
+            // Le corps n'est lu que pour un POST, et borné : le tableau ne
+            // reçoit qu'un choix de mode de règlement, pas un téléversement.
+            var corps = "";
+            if (contexte.Request.HasEntityBody && contexte.Request.HttpMethod == "POST")
+            {
+                using var lecture = new StreamReader(
+                    contexte.Request.InputStream, contexte.Request.ContentEncoding);
+
+                var tampon = new char[4096];
+                var lus = await lecture.ReadAsync(tampon, 0, tampon.Length);
+                corps = new string(tampon, 0, lus);
+            }
+
             var reponse = await routeur.RepondreAsync(
                 contexte.Request.HttpMethod ?? "GET",
                 contexte.Request.Url?.AbsolutePath ?? "/",
+                corps,
                 arret);
 
             await EcrireAsync(contexte, reponse);
