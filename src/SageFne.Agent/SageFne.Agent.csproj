@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>sagefne-agent-ht</UserSecretsId>
+
+    <!-- Aucune fenêtre console, jamais. Un service Windows compilé en Exe
+         console ouvre une fenêtre dès qu'il est lancé à la main ; « WinExe »
+         l'en empêche au niveau du binaire, avant toute ligne de code. -->
+    <OutputType Condition="'$(OS)' == 'Windows_NT'">WinExe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SageFne.Agent.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SageFne.Core\SageFne.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <!-- Fait tourner l'hôte comme un service Windows : démarrage automatique,
+         survie à la déconnexion de l'utilisateur, arrêt propre par le SCM. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

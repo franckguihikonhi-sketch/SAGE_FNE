@@ -1,10 +1,10 @@
 using Microsoft.Extensions.Options;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Validation;
+using SageFne.Core.Configuration;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Ce que Sage ne porte pas ne s'invente pas. Ces tests tiennent la frontière

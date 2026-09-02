@@ -1,14 +1,14 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using SageFne.Reader.Batch;
-using SageFne.Reader.Certification;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Data;
-using SageFne.Reader.Fne;
-using SageFne.Reader.Mapping;
+using SageFne.Core.Batch;
+using SageFne.Core.Certification;
+using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Fne;
+using SageFne.Core.Mapping;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Le câblage se vérifie ici parce qu'il ne se vérifiait nulle part.

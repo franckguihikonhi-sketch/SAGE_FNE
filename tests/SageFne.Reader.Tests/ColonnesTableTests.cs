@@ -1,6 +1,6 @@
-using SageFne.Reader.Data;
+using SageFne.Core.Data;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Une liste de colonnes écrite en dur est un pari sur une version de Sage.

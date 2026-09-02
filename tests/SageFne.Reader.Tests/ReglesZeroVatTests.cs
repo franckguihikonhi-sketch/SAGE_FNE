@@ -1,10 +1,10 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Regles;
+using SageFne.Core.Configuration;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Regles;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Une règle ne produit son code qu'une fois validée sur une preuve.

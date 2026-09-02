@@ -1275,16 +1275,85 @@ B2B), `SANS_LIGNE`, `DESIGNATION_VIDE`, `QUANTITE_INVALIDE`, `PRIX_NEGATIF`.
 
 `AR_Ref` vide est admis — la désignation, elle, est exigée.
 
+## L'agent : Sage vers FNE, sans fenêtre
+
+Le CLI demande qu'on tape une commande. L'agent, lui, tourne seul.
+
+```
+SageFne.Core     les règles — lecture Sage, mapping, contrôles, registre
+SageFne.Reader   le CLI de diagnostic et de maintenance
+SageFne.Agent    le service Windows de production, sans interface
+```
+
+**Aucune règle fiscale ne vit dans l'agent.** Contrôles métier, mapping des taxes, TVA à 0 %,
+NCC, anti-doublon, empreinte : tout vient de `SageFne.Core`, exactement comme pour le CLI. Une
+règle qui vivrait en double finirait par diverger, et c'est la certification qui en paierait
+le prix.
+
+### Aucune fenêtre, jamais
+
+Le projet compile en `WinExe` sous Windows : la fenêtre est interdite **au niveau du binaire**,
+avant toute ligne de code. Aucun fournisseur console n'est déclaré — le journal va dans un
+fichier (`%APPDATA%\SageFne\journaux`, un par jour, purgé au bout de 30 jours) et, sous
+Windows, les avertissements et au-delà vont aussi à l'Event Log.
+
+Le service démarre avec Windows, survit à la déconnexion de l'utilisateur, et s'arrête
+proprement à l'extinction.
+
+### Ce que l'agent ajoute, et que le CLI n'avait pas besoin d'avoir
+
+**La stabilité.** Un humain qui tape `envoyer 1221` sait que sa saisie est finie. Un agent qui
+lit toutes les minutes ne le sait pas — et une facture apparaît dans Sage dès la première ligne
+saisie. L'agent attend donc de voir **deux fois le même contenu**, séparées d'un délai
+configurable : première lecture, attente, seconde lecture, comparaison d'empreinte. Le contenu
+a bougé ? Le compteur repart de zéro.
+
+Ce suivi vit en mémoire, à dessein. Le perdre au redémarrage ne fait que **retarder** un envoi.
+L'anti-doublon, lui, ne dépend jamais de la mémoire : il vit dans le registre des
+certifications, qui survit à tout. Un test garde cette frontière.
+
+**La patience réseau.** La joignabilité se vérifie **avant** d'entrer dans le chemin d'envoi,
+par une simple ouverture de socket qui ne porte aucune clé. Une fois le POST parti, plus rien
+ne distingue une coupure survenue avant de celle survenue après — et dans le doute la pièce
+reste bloquée en `Sending`. Mieux vaut ne pas créer le doute.
+
+Panne **avant** le départ : rien n'est parti, la pièce reste en file, elle repartira.
+Panne **après** : `Sending`, et **aucun retry**. Jamais.
+
+### Trois modes
+
+| Mode | Ce que l'agent fait |
+| --- | --- |
+| `Manual` | il observe et journalise. Il n'envoie rien. **C'est le défaut.** |
+| `SemiAutomatic` | il prépare tout et s'arrête au bord : un humain déclenche. |
+| `Automatic` | il envoie les pièces conformes et stables. |
+
+`Manual` par défaut n'est pas de la prudence décorative : une facture certifiée ne s'annule
+pas. Un paramétrage incomplet, un fichier oublié, une valeur mal orthographiée doivent tous
+retomber sur le mode qui n'envoie rien.
+
+**Le mode ne change jamais les règles.** Une pièce non conforme est bloquée dans les trois ; il
+ne décide que de qui appuie sur le bouton.
+
+### Le battement de cœur
+
+Un service sans interface est muet par construction : sans battement, la seule façon de savoir
+qu'il est mort serait de constater que des factures ne partent plus — trop tard. Toutes les
+cinq minutes par défaut, l'agent publie `AgentId`, `CompanyId`, version, dernière activité,
+état SQL Sage, état réseau, environnement FNE et mode.
+
+Ni clé, ni adresse, ni nom de client n'y entrent : ce battement finira dans un fichier, un
+Event Log, puis une télémétrie SaaS, et ce qui n'y entre pas n'en fuitera pas. `Inconnu` occupe
+la place zéro des états de lien, pour la même raison que dans le registre — un champ absent ne
+doit pas se relire comme « tout va bien ».
+
 ## Arborescence
 
 ```
 SageFne.sln
-├── src/SageFne.Reader/
-│   ├── Program.cs                       dry run : lecture, mapping, JSON, contrôles
-│   ├── appsettings.json                 gabarit de connexion et paramètres FNE
-│   ├── appsettings.Development.json     réglages du poste (jamais de mot de passe)
+├── src/SageFne.Core/                    LES RÈGLES — partagées par le CLI et l'agent
 │   ├── Batch/                           InvoiceBatchReader, InvoiceConversion,
-│   │                                    InvoiceBatch, CandidatFne, CommandLine
+│   │                                    InvoiceBatch, CandidatFne
 │   ├── Certification/                   ICertificationLedger, JsonCertificationLedger,
 │   │                                    CertifiedInvoice, InvoiceFingerprint
 │   ├── Configuration/                   FneOptions, ZeroVatOptions, FneApiOptions,
@@ -1312,13 +1381,28 @@ SageFne.sln
 │   │                                    CampagneNcc, CompteSansNcc, FormeNcc
 │   └── Validation/                      InvoiceValidator, FinancialChecks,
 │                                        FneCompleteness, CheckReport
+├── src/SageFne.Reader/                  LE CLI — diagnostic et maintenance
+│   ├── Program.cs                       toutes les commandes
+│   ├── Batch/CommandLine.cs             analyse des arguments
+│   ├── appsettings.json                 gabarit de connexion et paramètres FNE
+│   └── appsettings.Development.json     réglages du poste (jamais de mot de passe)
+├── src/SageFne.Agent/                   LE SERVICE — production, sans interface
+│   ├── Program.cs                       hôte Windows Service, sans console
+│   ├── ServiceSurveillance.cs           le tour de garde
+│   ├── Surveillance/                    VerificateurStabilite, MoteurSurveillance,
+│   │                                    ModeAgent, MotifAttente, DecisionAgent
+│   ├── Sante/                           Heartbeat, SondeReseau, EtatLien
+│   ├── Journalisation/                  JournalFichier, EventLogWindows
+│   └── Configuration/                   AgentOptions
 ├── supabase/migrations/                 schéma, règles métier, RLS, vues,
 │                                        journal des tentatives, règles versionnées
 ├── supabase/tests/                      invariants.sql — 78 vérifications sur
 │                                        PostgreSQL réel
-└── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,
-                                        ligne de commande, garde-fou SQL,
-                                        registre des règles
+├── tests/SageFne.Reader.Tests/          mapping des taxes, contrôles, lecture par lot,
+│                                        ligne de commande, garde-fou SQL,
+│                                        registre des règles
+└── tests/SageFne.Agent.Tests/           stabilité, décisions de l'agent, service
+                                        sans interface, réseau, anti-doublon
 ```
 
 ## Prochaines étapes, pas encore faites

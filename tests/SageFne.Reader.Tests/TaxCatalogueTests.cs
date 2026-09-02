@@ -1,7 +1,7 @@
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Relevé sur le dossier HT : les trois fiches de F_TAXE portent toutes

@@ -1,6 +1,6 @@
-using SageFne.Reader.Data;
+using SageFne.Core.Data;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 public class ReadOnlyGuardTests
 {

@@ -1,6 +1,6 @@
-using SageFne.Reader.Data;
+using SageFne.Core.Data;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// La règle de rattachement des lignes à leur entête vit dans le texte de la

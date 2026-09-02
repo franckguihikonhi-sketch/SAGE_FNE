@@ -2,11 +2,11 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Fne;
-using SageFne.Reader.Models.Fne;
+using SageFne.Core.Configuration;
+using SageFne.Core.Fne;
+using SageFne.Core.Models.Fne;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Le client n'avait jamais fait un vrai appel : ni en-tête vérifié, ni corps

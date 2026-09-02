@@ -1,7 +1,7 @@
-using SageFne.Reader.Data;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Data;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Une facture comptabilisée passe de DO_Type 6 à 7. Si l'identité du document

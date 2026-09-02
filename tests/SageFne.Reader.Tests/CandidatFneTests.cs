@@ -1,9 +1,9 @@
-using SageFne.Reader.Batch;
-using SageFne.Reader.Models.Fne;
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Validation;
+using SageFne.Core.Batch;
+using SageFne.Core.Models.Fne;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Le premier envoi à la DGI est irréversible. La pièce d'essai doit être la
@@ -227,8 +227,8 @@ public class CandidatFneTests
     [Fact]
     public async Task Le_jeu_d_essai_propose_un_candidat_par_taux()
     {
-        var depot = new SageFne.Reader.Data.DemoSageInvoiceRepository();
-        var entetes = await depot.GetInvoicesAsync(new SageFne.Reader.Data.InvoiceQuery());
+        var depot = new SageFne.Core.Data.DemoSageInvoiceRepository();
+        var entetes = await depot.GetInvoicesAsync(new SageFne.Core.Data.InvoiceQuery());
 
         // Il existe au moins une pièce à 18 % et une à 9 % dans le jeu d'essai :
         // sans quoi la commande ne montrerait jamais sa sortie complète.

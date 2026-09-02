@@ -1,6 +1,6 @@
-using SageFne.Reader.Configuration;
+using SageFne.Core.Configuration;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// La DGI publie <c>http://54.247.95.108/ws</c> pour son environnement d'essai :

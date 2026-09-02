@@ -1,8 +1,8 @@
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Configuration;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// TVAC et TVAD valent tous deux 0 % dans la nomenclature FNE, et Sage ne porte

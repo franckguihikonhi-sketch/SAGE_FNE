@@ -1,7 +1,7 @@
-using SageFne.Reader.Data;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Data;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Les commandes d'exploration désignent des tables depuis l'extérieur. Un nom

@@ -1,6 +1,6 @@
-using SageFne.Reader.Mapping;
+using SageFne.Core.Mapping;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Les quatre types de facturation, et ce qu'une faute de frappe coûterait.

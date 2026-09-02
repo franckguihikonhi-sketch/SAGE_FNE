@@ -1,7 +1,7 @@
-using SageFne.Reader.Audit;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Audit;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// La campagne de saisie des NCC : ce qui manque, et par quel appel commencer.

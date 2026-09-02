@@ -1,4 +1,4 @@
-using SageFne.Reader.Data;
+using SageFne.Core.Data;
 
 namespace SageFne.Reader.Batch;
 

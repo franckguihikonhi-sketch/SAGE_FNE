@@ -1,14 +1,14 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using SageFne.Reader.Batch;
-using SageFne.Reader.Certification;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Data;
-using SageFne.Reader.Fne;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Fne;
+using SageFne.Core.Batch;
+using SageFne.Core.Certification;
+using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Fne;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Fne;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Le format de la réponse de la DGI n'est pas connu d'avance. Échouer sur un
@@ -326,10 +326,10 @@ public class RegistreIndisponibleTests
     {
         public bool Appele { get; private set; }
         public bool Reel => false;
-        public string DecrireRequete(SageFne.Reader.Models.Fne.FneInvoice facture) => "";
+        public string DecrireRequete(SageFne.Core.Models.Fne.FneInvoice facture) => "";
 
         public Task<FneSignResult> SignAsync(
-            SageFne.Reader.Models.Fne.FneInvoice facture, CancellationToken ct = default)
+            SageFne.Core.Models.Fne.FneInvoice facture, CancellationToken ct = default)
         {
             Appele = true;
             return Task.FromResult(new FneSignResult(true, 200, "REF"));

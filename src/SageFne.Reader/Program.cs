@@ -8,17 +8,18 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
-using SageFne.Reader.Audit;
+using SageFne.Core.Audit;
+using SageFne.Core.Batch;
 using SageFne.Reader.Batch;
-using SageFne.Reader.Certification;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Data;
-using SageFne.Reader.Fne;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Regles;
-using SageFne.Reader.Models.Fne;
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Validation;
+using SageFne.Core.Certification;
+using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Fne;
+using SageFne.Core.Mapping;
+using SageFne.Core.Regles;
+using SageFne.Core.Models.Fne;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
 // Dry run : lire un lot de factures Sage, les traduire au format FNE, les
 // afficher. Rien n'est envoyé nulle part, et la base Sage n'est lue qu'en SELECT.

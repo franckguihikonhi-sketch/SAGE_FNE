@@ -1,7 +1,7 @@
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Validation;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 public class ChecksTests
 {

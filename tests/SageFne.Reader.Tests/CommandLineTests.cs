@@ -1,6 +1,7 @@
+using SageFne.Core.Batch;
 using SageFne.Reader.Batch;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 public class CommandLineTests
 {

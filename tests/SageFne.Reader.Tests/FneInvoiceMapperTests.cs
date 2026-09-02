@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Options;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Fne;
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Validation;
+using SageFne.Core.Configuration;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Fne;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Le mapping des taxes est le point où une erreur coûte le plus cher : une

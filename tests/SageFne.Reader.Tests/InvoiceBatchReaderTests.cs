@@ -1,12 +1,12 @@
 using Microsoft.Extensions.Options;
-using SageFne.Reader.Batch;
-using SageFne.Reader.Certification;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Data;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Batch;
+using SageFne.Core.Certification;
+using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 public class InvoiceBatchReaderTests
 {

@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SageFne.Core\SageFne.Core.csproj" />
     <ProjectReference Include="..\..\src\SageFne.Reader\SageFne.Reader.csproj" />
   </ItemGroup>
 

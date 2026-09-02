@@ -1,8 +1,9 @@
+using SageFne.Core.Batch;
 using SageFne.Reader.Batch;
-using SageFne.Reader.Audit;
-using SageFne.Reader.Models.Sage;
+using SageFne.Core.Audit;
+using SageFne.Core.Models.Sage;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// L'audit expose des faits et ne conclut rien.

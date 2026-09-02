@@ -1,14 +1,14 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using SageFne.Reader.Batch;
-using SageFne.Reader.Certification;
-using SageFne.Reader.Configuration;
-using SageFne.Reader.Data;
-using SageFne.Reader.Mapping;
-using SageFne.Reader.Models.Sage;
-using SageFne.Reader.Validation;
+using SageFne.Core.Batch;
+using SageFne.Core.Certification;
+using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Renvoyer à la DGI une facture déjà certifiée créerait un doublon

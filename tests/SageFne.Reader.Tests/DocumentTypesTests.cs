@@ -1,7 +1,8 @@
+using SageFne.Core.Batch;
 using SageFne.Reader.Batch;
-using SageFne.Reader.Data;
+using SageFne.Core.Data;
 
-namespace SageFne.Reader.Tests;
+namespace SageFne.Core.Tests;
 
 /// <summary>
 /// Le diagnostic des types de documents doit répondre à une question sans en
