@@ -134,15 +134,25 @@ if (empechements.Count > 0)
 // le binaire est compilé sans console, et lancé à la main il ne dirait rien.
 if (args.Contains("--verifier"))
 {
-    journalDemarrage.LogInformation(
-        "Vérification : un tour, puis arrêt. Aucun service n'est installé.");
+    journalDemarrage.LogInformation("Vérification. Aucun service n'est installé, rien n'est envoyé.");
 
-    await hote.StartAsync();
-    await Task.Delay(TimeSpan.FromSeconds(20));
-    await hote.StopAsync();
+    // Le service hébergé n'est pas démarré : on appelle le passage de
+    // vérification directement. Attendre une durée arbitraire ne prouvait rien
+    // et laissait croire à un échec quand la machine était simplement lente.
+    var service = hote.Services.GetServices<IHostedService>().OfType<ServiceSurveillance>().Single();
 
-    journalDemarrage.LogInformation(
-        "Vérification terminée. Lisez {Dossier} pour ce qui a été constaté.", dossierJournal);
+    try
+    {
+        var decisions = await service.VerifierAsync();
+        journalDemarrage.LogInformation(
+            "Vérification terminée : {Total} pièce(s) examinées.", decisions.Count);
+    }
+    catch (Exception erreur)
+    {
+        journalDemarrage.LogCritical(erreur, "Vérification interrompue.");
+        return 1;
+    }
+
     return 0;
 }
 

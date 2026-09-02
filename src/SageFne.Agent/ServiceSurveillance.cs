@@ -104,6 +104,83 @@ public sealed class ServiceSurveillance(
             _examinees, _envoyees);
     }
 
+    /// <summary>
+    /// Un passage de vérification : lit, décide, et n'envoie rien.
+    /// </summary>
+    /// <remarks>
+    /// Sert à éprouver un paramétrage avant d'installer quoi que ce soit. Deux
+    /// tours avec un délai de stabilité nul : le premier voit les pièces pour la
+    /// première fois, le second les retrouve inchangées. On sait alors que la
+    /// lecture, les contrôles et la stabilité fonctionnent, sans attendre.
+    ///
+    /// Le mode est forcé à <see cref="ModeAgent.Manual"/> : une vérification qui
+    /// certifierait une facture ne serait pas une vérification.
+    /// </remarks>
+    public async Task<IReadOnlyList<DecisionAgent>> VerifierAsync(CancellationToken arret = default)
+    {
+        using var portee = fabrique.CreateScope();
+        var lecteur = portee.ServiceProvider.GetRequiredService<InvoiceBatchReader>();
+
+        // La question qui précède toutes les autres. « 0 pièce lue » ne veut pas
+        // dire la même chose selon qu'on interroge le vrai dossier ou le jeu
+        // d'essai, et sans le dire on chercherait une panne là où il n'y a
+        // qu'une chaîne de connexion absente.
+        var depot = portee.ServiceProvider.GetRequiredService<ISageInvoiceRepository>();
+        var surDonneesReelles = depot is SageInvoiceRepository;
+
+        if (!surDonneesReelles)
+        {
+            logger.LogWarning(
+                "Aucune chaîne de connexion Sage : la lecture porte sur le JEU D'ESSAI, pas sur " +
+                "votre dossier. Posez ConnectionStrings__Sage en variable d'environnement " +
+                "MACHINE — un service ne voit pas les secrets utilisateur.");
+        }
+
+        var depuis = DateTime.Today.AddDays(-Math.Max(1, _reglages.FenetreJours));
+        var requete = new InvoiceQuery
+        {
+            Depuis = depuis,
+            Limite = Math.Max(1, _reglages.LimiteParTour),
+        };
+
+        logger.LogInformation(
+            "Lecture depuis le {Depuis:dd/MM/yyyy} — fenêtre de {Jours} jour(s), limite {Limite}.",
+            depuis, _reglages.FenetreJours, _reglages.LimiteParTour);
+
+        var moteur = new MoteurSurveillance(
+            lecteur, new VerificateurStabilite(TimeSpan.Zero), ModeAgent.Manual);
+
+        await moteur.ExaminerAsync(requete, arret);
+        var decisions = await moteur.ExaminerAsync(requete, arret);
+
+        foreach (var decision in decisions)
+        {
+            logger.LogInformation("{Explication}", decision.Explication);
+        }
+
+        var joignable = await sonde.JoignableAsync(arret);
+        _sage = EtatLien.Disponible;
+        _reseau = joignable ? EtatLien.Disponible : EtatLien.Indisponible;
+
+        logger.LogInformation(
+            "Source {Source} : {Total} pièce(s) lues sur la fenêtre, dont {Prets} que seul le " +
+            "mode retient — en Automatic, elles partiraient. Plateforme FNE : {Reseau}.",
+            surDonneesReelles ? "SAGE" : "jeu d'essai",
+            decisions.Count,
+            decisions.Count(decision => decision.Motif == MotifAttente.ModeNonAutomatique),
+            joignable ? "joignable" : "INJOIGNABLE");
+
+        if (decisions.Count == 0)
+        {
+            logger.LogWarning(
+                "Aucune pièce sur les {Jours} derniers jours. Ce n'est pas forcément une panne : " +
+                "élargissez Agent:FenetreJours pour en lire davantage.", _reglages.FenetreJours);
+        }
+
+        await BattreAsync(arret);
+        return decisions;
+    }
+
     private async Task UnTourAsync(VerificateurStabilite stabilite, CancellationToken arret)
     {
         // Une portée par tour : le registre, le dépôt Sage et le mapping se
