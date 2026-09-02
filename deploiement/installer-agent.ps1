@@ -83,7 +83,11 @@ param(
     # Trop court, une pause en cours de saisie - un appel telephonique - passe
     # pour une saisie finie et la facture part incomplete. Trop long, elle se
     # fait attendre. Vide : la valeur d'appsettings.json est conservee.
-    [int]$Stabilite = 0
+    [int]$Stabilite = 0,
+
+    # Sur combien de jours en arriere l'agent regarde a chaque tour. Vide : la
+    # valeur en place est conservee, et a defaut celle d'appsettings.json.
+    [int]$Fenetre = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -299,10 +303,12 @@ function Preparer-Poste {
     $fichierAvant = Join-Path $Destination 'appsettings.json'
     $modeEnPlace = $null
     $stabiliteEnPlace = $null
+    $fenetreEnPlace = $null
     if (Test-Path $fichierAvant) {
         $ancien = Get-Content $fichierAvant -Raw -Encoding UTF8 | ConvertFrom-Json
         $modeEnPlace = $ancien.Agent.Mode
         $stabiliteEnPlace = $ancien.Agent.StabiliteMinutes
+        $fenetreEnPlace = $ancien.Agent.FenetreJours
     }
 
     $service = Get-Service $NomService -ErrorAction SilentlyContinue
@@ -372,6 +378,12 @@ function Preparer-Poste {
 
     if ($Stabilite -gt 0) { Fixer-Propriete $config.Agent 'StabiliteMinutes' $Stabilite }
     elseif ($null -ne $stabiliteEnPlace) { Fixer-Propriete $config.Agent 'StabiliteMinutes' $stabiliteEnPlace }
+
+    # FenetreJours vivait dans une variable machine, retiree avec les autres, et
+    # n'etait ecrite nulle part : elle est retombee de 30 a 7 sans un mot. Un
+    # reglage qu'on cesse de porter sans le dire est un reglage perdu.
+    if ($Fenetre -gt 0) { Fixer-Propriete $config.Agent 'FenetreJours' $Fenetre }
+    elseif ($null -ne $fenetreEnPlace) { Fixer-Propriete $config.Agent 'FenetreJours' $fenetreEnPlace }
 
     $config | ConvertTo-Json -Depth 10 | Set-Content $fichier -Encoding UTF8
 
@@ -467,6 +479,15 @@ function Preparer-Poste {
     if ($tournait) {
         Titre 'Redemarrage'
         Redemarrer-Service | Out-Null
+    }
+    elseif (Get-Service $NomService -ErrorAction SilentlyContinue) {
+        # Le service existe mais ne tournait pas. Le demarrer d'office serait
+        # passer outre une decision d'exploitation ; se taire laisserait croire
+        # que tout va bien alors que rien n'examine les factures.
+        Titre 'Service'
+        Alerte "Le service $NomService existe mais est ARRETE. Aucune facture n'est"
+        Alerte "examinee ni envoyee. Les reglages ci-dessus l'attendent :"
+        Alerte "  sc.exe start $NomService"
     }
 }
 
