@@ -52,4 +52,17 @@ public class HeartbeatTests
         Assert.DoesNotContain("http", ligne, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Bearer", ligne, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Un_reseau_jamais_eprouve_ne_se_lit_pas_comme_disponible()
+    {
+        // Inconnu occupe la place zéro pour cette raison exacte : un champ
+        // qu'on n'a pas mesuré ne doit pas se relire « tout va bien ».
+        var jamais = new Heartbeat(
+            "POSTE-1", "GEMS-CI", "1.0.0.0", DateTimeOffset.UnixEpoch,
+            Sage: EtatLien.Disponible, Reseau: EtatLien.Inconnu, "TEST", "Automatic");
+
+        Assert.Contains("reseau=Inconnu", jamais.ToString());
+        Assert.DoesNotContain("reseau=Disponible", jamais.ToString());
+    }
 }

@@ -356,6 +356,31 @@ public sealed class ServiceSurveillance(
 
     private async Task BattreAsync(CancellationToken arret)
     {
+        // La joignabilité s'éprouve au battement, et pas seulement avant un
+        // envoi. Sur le premier service réel, « reseau=Inconnu » est resté
+        // indéfiniment : la sonde n'est appelée que lorsqu'une pièce est prête
+        // à partir, et il n'y en avait aucune. Le champ disait vrai — rien
+        // n'avait été éprouvé — mais un battement de santé qui n'apprend jamais
+        // rien sur le réseau ne sert à rien, et l'on découvrirait une coupure
+        // le jour où une facture attend.
+        //
+        // Le coût est un socket toutes les cinq minutes. La sonde ne porte
+        // aucune clé et n'envoie aucune requête HTTP : elle ne peut rien
+        // certifier par accident.
+        try
+        {
+            var essai = await sonde.EprouverAsync(arret);
+            _reseau = essai.Joignable ? EtatLien.Disponible : EtatLien.Indisponible;
+
+            // Le détail n'entre pas dans le battement, qui ne porte ni adresse
+            // ni nom : il va au journal, et seulement quand ça ne répond pas.
+            if (!essai.Joignable) logger.LogWarning("Plateforme FNE : {Explication}", essai.Explication);
+        }
+        catch (OperationCanceledException) when (arret.IsCancellationRequested)
+        {
+            throw;
+        }
+
         var battement = new Heartbeat(
             AgentId: string.IsNullOrWhiteSpace(_reglages.AgentId)
                 ? Environment.MachineName
