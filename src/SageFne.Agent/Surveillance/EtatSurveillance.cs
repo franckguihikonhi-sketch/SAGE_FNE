@@ -57,6 +57,26 @@ public enum MotifAttente
     /// <summary>Déjà certifiée, déjà partie, ou déposée au portail.</summary>
     DejaTraitee,
 
+    /// <summary>
+    /// La plateforme l'a refusée, et son contenu n'a pas changé depuis.
+    /// </summary>
+    /// <remarks>
+    /// Le lecteur autorise le renvoi après un échec, et il a raison : un humain
+    /// qui tape « envoyer » sait pourquoi il réessaie. Un agent qui relit toutes
+    /// les minutes ne le sait pas — sur le premier poste en Automatic, une pièce
+    /// refusée en 400 est repartie à chaque tour, indéfiniment, martelant la
+    /// plateforme sans rien apprendre.
+    ///
+    /// C'est l'empreinte qui tranche. Tant que le corps envoyé est identique à
+    /// celui qui a été refusé, l'issue le sera aussi. Dès qu'il change — la
+    /// facture corrigée dans Sage — la pièce redevient candidate, sans aucune
+    /// intervention.
+    ///
+    /// Cette retenue est celle de l'agent seul, comme la stabilité : le CLI ne
+    /// la connaît pas.
+    /// </remarks>
+    RefusInchange,
+
     /// <summary>Antérieure à la date de démarrage FNE.</summary>
     /// <remarks>
     /// Distinct de <see cref="NonConforme"/> : rien ne cloche sur cette pièce,

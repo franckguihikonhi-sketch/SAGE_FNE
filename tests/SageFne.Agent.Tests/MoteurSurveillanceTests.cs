@@ -22,7 +22,8 @@ public class MoteurSurveillanceTests
 
     private static InvoiceConversion Piece(
         EtatPiece etat, string empreinte = "abc", string piece = "1221",
-        EtatFne? auRegistre = null, params Constat[] constats)
+        EtatFne? auRegistre = null, string? empreinteAuRegistre = null,
+        params Constat[] constats)
     {
         var rapport = new CheckReport();
         foreach (var constat in constats)
@@ -53,7 +54,10 @@ public class MoteurSurveillanceTests
                     Identite = "0/6/" + piece,
                     Piece = piece,
                     Etat = inscrit,
-                    Empreinte = empreinte,
+                    // Par defaut celle du contenu : le registre porte ce que la
+                    // piece contient aujourd'hui. La donner differente decrit
+                    // une piece corrigee depuis la tentative.
+                    Empreinte = empreinteAuRegistre ?? empreinte,
                 }
                 : null,
         };
@@ -277,5 +281,57 @@ public class MoteurSurveillanceTests
         moteur.Decider(piece);
 
         Assert.False(moteur.Decider(piece).Envoyable);
+    }
+
+    [Fact]
+    public void Un_refus_sur_un_contenu_inchange_n_est_pas_retente()
+    {
+        // Sur le premier poste en Automatic, la pièce 1225 refusée en 400 est
+        // repartie à chaque tour, une fois par minute, indéfiniment. Le lecteur
+        // avait raison de la laisser repartir : un humain qui tape « envoyer »
+        // sait pourquoi il réessaie. Un agent qui relit toutes les minutes ne
+        // le sait pas.
+        var (moteur, _) = Moteur(ModeAgent.Automatic);
+        var refusee = Piece(EtatPiece.ACertifier, empreinte: "corps-refuse",
+            auRegistre: EtatFne.Error);
+
+        moteur.Decider(refusee);
+        var decision = moteur.Decider(refusee);
+
+        Assert.Equal(MotifAttente.RefusInchange, decision.Motif);
+        Assert.False(decision.Envoyable);
+        Assert.Contains("n'a pas changé depuis", decision.Explication);
+    }
+
+    [Fact]
+    public void Une_piece_corrigee_apres_un_refus_repart()
+    {
+        // Le pendant, et la raison pour laquelle la retenue porte sur
+        // l'empreinte et non sur l'état : dès que le corps change, l'issue peut
+        // changer. Sans cela, une facture refusée puis corrigée resterait
+        // bloquée pour toujours.
+        var (moteur, _) = Moteur(ModeAgent.Automatic, stabiliteMinutes: 0);
+        var corrigee = Piece(EtatPiece.ACertifier, empreinte: "corps-corrige",
+            auRegistre: EtatFne.Error, empreinteAuRegistre: "corps-refuse");
+
+        moteur.Decider(corrigee);
+        var decision = moteur.Decider(corrigee);
+
+        Assert.True(decision.Envoyable);
+    }
+
+    [Fact]
+    public void Une_piece_partie_sans_reponse_reste_en_suspens_et_non_en_refus()
+    {
+        // Sending et Error ne se confondent pas : le premier veut dire « on ne
+        // sait pas », et c'est le lecteur qui le retient. Y appliquer la
+        // retenue de l'agent masquerait le motif qui compte.
+        var (moteur, _) = Moteur(ModeAgent.Automatic);
+
+        var decision = moteur.Decider(
+            Piece(EtatPiece.EnSuspens, auRegistre: EtatFne.Sending));
+
+        Assert.Equal(MotifAttente.DejaTraitee, decision.Motif);
+        Assert.False(decision.Envoyable);
     }
 }

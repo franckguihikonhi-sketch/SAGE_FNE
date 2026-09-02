@@ -79,8 +79,29 @@ public sealed class FneApiClient(
             using var reponse = await http.SendAsync(requete, cancellation);
             var corps = await reponse.Content.ReadAsStringAsync(cancellation);
 
-            logger.LogInformation(
-                "FNE {Code} sur {Adresse}.", (int)reponse.StatusCode, options.AdresseSignature());
+            if (reponse.IsSuccessStatusCode)
+            {
+                logger.LogInformation(
+                    "FNE {Code} sur {Adresse}.", (int)reponse.StatusCode, options.AdresseSignature());
+            }
+            else
+            {
+                // Le corps de la réponse, et non le seul code. Sur le premier
+                // agent en Automatic, le journal a répété « FNE 400 » pendant
+                // dix minutes sans jamais dire ce que la plateforme reprochait
+                // à la facture : un refus dont on ne connaît pas le motif ne se
+                // corrige pas.
+                //
+                // Le corps d'une réponse d'erreur ne porte pas la clé — elle
+                // voyage dans l'en-tête de la requête, jamais dans la réponse —
+                // et il est tronqué : une page HTML d'erreur noierait le
+                // journal sans rien apprendre.
+                logger.LogWarning(
+                    "FNE {Code} sur {Adresse} — réponse : {Corps}",
+                    (int)reponse.StatusCode,
+                    options.AdresseSignature(),
+                    Tronquer(corps, 600));
+            }
 
             if (!reponse.IsSuccessStatusCode)
             {
@@ -178,5 +199,18 @@ public sealed class FneApiClient(
         }
 
         return null;
+    }
+
+    /// <summary>Ce qu'on garde d'un corps de réponse pour le journal.</summary>
+    /// <remarks>
+    /// Une plateforme qui rend une page HTML d'erreur remplirait le fichier
+    /// sans rien apprendre. Six cents caractères suffisent à tout message JSON
+    /// utile, et la coupure se dit.
+    /// </remarks>
+    private static string Tronquer(string corps, int maximum)
+    {
+        var nu = corps.Trim();
+        if (nu.Length == 0) return "— corps vide —";
+        return nu.Length <= maximum ? nu : nu[..maximum] + $"… (tronqué, {nu.Length} caractères)";
     }
 }

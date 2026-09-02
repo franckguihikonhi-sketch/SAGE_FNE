@@ -77,7 +77,24 @@ public sealed class MoteurSurveillance(
                 "dans Sage. Aucun second envoi : la correction passe par un avoir.");
         }
 
-        // 3. Le périmètre. Avant les contrôles métier : une facture de 2024
+        // 3. Un refus déjà essuyé sur ce contenu exact. Le lecteur laisse la
+        //    pièce repartir après un échec — c'est juste pour un humain qui
+        //    décide de réessayer. Un agent qui relit toutes les minutes
+        //    rejouerait le même envoi indéfiniment.
+        if (conversion.Certification is { } trace
+            && trace.Etat == EtatFne.Error
+            && conversion.Empreinte != ""
+            && string.Equals(trace.Empreinte, conversion.Empreinte, StringComparison.Ordinal))
+        {
+            stabilite.Oublier(identite);
+            return Retenir(MotifAttente.RefusInchange,
+                $"Pièce {piece} : refusée par la plateforme" +
+                $"{(trace.Erreur == "" ? "" : $" — {trace.Erreur}")}, et son contenu n'a pas " +
+                "changé depuis. Le même envoi donnerait le même refus : rien n'est retenté. " +
+                "Corrigez la pièce dans Sage, elle repartira d'elle-même.");
+        }
+
+        // 4. Le périmètre. Avant les contrôles métier : une facture de 2024
         //    n'a pas à être annoncée « bloquée » parce qu'il lui manque un NCC.
         //    On ne l'envoie pas, et ce n'est pas un défaut à corriger.
         if (conversion.Etat == EtatPiece.HorsPerimetre)
@@ -87,7 +104,7 @@ public sealed class MoteurSurveillance(
                 $"Pièce {piece} : {conversion.LibelleEtat}.");
         }
 
-        // 4. Les contrôles métier. Une pièce non conforme est bloquée, et le
+        // 5. Les contrôles métier. Une pièce non conforme est bloquée, et le
         //    reste tant que Sage n'a pas changé.
         if (conversion.Etat != EtatPiece.ACertifier)
         {
@@ -101,7 +118,7 @@ public sealed class MoteurSurveillance(
                 $"Pièce {piece} bloquée : {(causes.Count == 0 ? conversion.LibelleEtat : string.Join(", ", causes))}.");
         }
 
-        // 5. La stabilité. Elle vient après les contrôles : inutile d'observer
+        // 6. La stabilité. Elle vient après les contrôles : inutile d'observer
         //    deux fois une pièce que rien ne laissera partir.
         var attente = stabilite.Constater(identite, conversion.Empreinte);
         if (attente != MotifAttente.Aucun)
@@ -127,7 +144,7 @@ public sealed class MoteurSurveillance(
             });
         }
 
-        // 6. Enfin seulement, le mode. Il ne décide pas de la conformité — il
+        // 7. Enfin seulement, le mode. Il ne décide pas de la conformité — il
         //    décide de qui appuie sur le bouton.
         if (mode != ModeAgent.Automatic)
         {
