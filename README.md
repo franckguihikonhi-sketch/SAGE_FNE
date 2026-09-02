@@ -1434,9 +1434,16 @@ Toutes les factures partaient jusqu'ici avec `deferred`, valeur du paramétrage 
 facture certifiée déclarait « à terme »**, vrai ou faux. La DGI marque ce champ obligatoire, et
 Sage ne le porte pas dans les colonnes que nous lisons — c'est donc un choix humain.
 
-La fenêtre de confirmation porte désormais la liste, et **le bouton reste inactif tant que rien
-n'est choisi**. Le choix est retenu pour ce client et présélectionné la fois suivante — retenu,
-pas imposé : le même client peut payer comptant une fois et par virement la suivante.
+**La liste est sur la ligne**, avant le bouton, et **Certifier reste inactif tant que rien n'est
+choisi**. Elle a d'abord été placée dans la fenêtre de confirmation : elle n'apparaissait donc
+qu'après avoir cliqué, et rien ne se déroulait sur la liste des factures — l'inverse de ce qui
+avait été demandé. La fenêtre rappelle le mode retenu ; elle ne le redemande pas, deux endroits
+pour un même choix finissant par porter deux valeurs.
+
+Le choix est retenu pour ce client et présélectionné la fois suivante — retenu, pas imposé : le
+même client peut payer comptant une fois et par virement la suivante. Il survit aussi au
+redessin automatique de la liste, toutes les quinze secondes : sans cette mémoire, un choix fait
+dix secondes plus tôt disparaîtrait sous les doigts.
 
 Les six valeurs viennent de l'annexe « Lexique » de la
 [procédure d'interfaçage de la DGI](https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf),
@@ -1457,9 +1464,11 @@ envoyer le libellé ferait refuser la facture. La liste montre le libellé et tr
 et un libellé recopié à la main est traduit plutôt que refusé, parce qu'un texte du portail
 finit toujours par être collé quelque part.
 
-Chaque ligne affiche le mode qui partirait et **s'il a été choisi ou supposé** : un mode
-appliqué sans être visible est un mode qu'on découvre sur la facture certifiée, quand il est
-trop tard pour autre chose qu'un avoir.
+Une ligne qui ne porte pas de liste — bloquée, déjà certifiée, hors périmètre — affiche le mode
+qui partirait et **s'il a été choisi ou supposé** : un mode appliqué sans être visible est un
+mode qu'on découvre sur la facture certifiée, quand il est trop tard pour autre chose qu'un
+avoir. Là où la liste existe, elle seule l'affirme : répéter « À terme — supposé » à côté d'une
+liste affichant « Mobile money » ferait deux affirmations contraires sur le même fait.
 
 Le choix est retenu **avant** l'envoi, jamais après : c'est le lecteur qui relit la pièce et
 construit le corps, et il ne peut prendre en compte que ce qui est déjà écrit.

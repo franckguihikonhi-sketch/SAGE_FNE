@@ -106,6 +106,13 @@ public static class PageTableau
     font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
     word-break: break-word;
   }
+  select.enligne {
+    font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px;
+    border: 1px solid var(--trait); background: var(--carte); color: var(--texte);
+    min-width: 152px; margin-bottom: 6px;
+  }
+  select.enligne.vide { border-color: #d8b26a; background: #fffdf6; }
+  .action { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
   select {
     font: inherit; width: 100%; padding: 8px 10px; border-radius: 6px;
     border: 1px solid var(--trait); background: var(--carte); color: var(--texte);
@@ -149,16 +156,13 @@ public static class PageTableau
        possible ensuite est un avoir.</p>
     <p id="c-client" style="color:var(--doux)"></p>
 
-    <label class="champ" for="c-mode">Mode de paiement <span style="color:var(--rouge)">*</span></label>
-    <select id="c-mode">
-      <option value="">Sélectionner…</option>
-    </select>
-    <p class="mode" id="c-mode-aide">Sage ne porte pas cette information : elle part
-       telle quelle sur la facture certifiée.</p>
+    <p><b>Mode de paiement :</b> <span id="c-mode-libelle"></span><br>
+       <span class="mode">Sage ne porte pas cette information : elle part telle quelle
+       sur la facture certifiée.</span></p>
   </div>
   <div class="d-pied">
     <button class="discret" id="c-non">Annuler</button>
-    <button id="c-oui" disabled>Certifier</button>
+    <button id="c-oui">Certifier</button>
   </div>
 </dialog>
 
@@ -198,8 +202,17 @@ async function chargerModes() {
   // jamais recopiés dans la page. Une liste en double finirait par diverger de
   // ce que l'API accepte, et les factures seraient refusées.
   modes = await fetch('/api/modes-paiement').then((r) => r.json());
-  $('c-mode').innerHTML = '<option value="">Sélectionner…</option>'
-    + modes.map((m) => `<option value="${html(m.code)}">${html(m.libelle)}</option>`).join('');
+}
+
+// Ce que l'exploitant a choisi pendant cette session, par pièce. La liste se
+// redessine toutes les quinze secondes : sans cette mémoire, un choix fait dix
+// secondes plus tôt disparaîtrait sous les doigts.
+const choix = {};
+
+function optionsMode(valeur) {
+  return '<option value="">Sélectionner…</option>'
+    + modes.map((m) => `<option value="${html(m.code)}"`
+        + `${m.code === valeur ? ' selected' : ''}>${html(m.libelle)}</option>`).join('');
 }
 
 async function charger() {
@@ -279,8 +292,24 @@ function dessinerFactures(lignes) {
       `<code class="${c.bloquant ? 'bloquant' : ''}" title="${html(c.message)}">`
       + `${html(c.code)}</code>`).join('');
 
+    // Le mode se choisit AVANT le bouton, sur la ligne : c'est là qu'on regarde
+    // la facture. Il était d'abord dans la fenêtre de confirmation, donc
+    // invisible tant qu'on n'avait pas cliqué — l'inverse de ce qui était
+    // demandé, et rien ne se déroulait sur la liste.
+    //
+    // Présélectionné seulement s'il a déjà été choisi pour ce client : un mode
+    // venu du paramétrage n'est pas un choix, et le présélectionner ferait
+    // passer une supposition pour une décision.
+    const retenu = choix[l.piece]
+      ?? (l.modePaiementChoisi ? l.modePaiement : '');
+
     const action = l.certifiable
-      ? `<button data-piece="${html(l.piece)}"${occupe ? ' disabled' : ''}>Certifier</button>`
+      ? `<div class="action">
+           <select class="enligne ${retenu ? '' : 'vide'}" data-mode="${html(l.piece)}"
+                   title="Mode de paiement — obligatoire">${optionsMode(retenu)}</select>
+           <button data-piece="${html(l.piece)}"
+                   ${occupe || !retenu ? 'disabled' : ''}>Certifier</button>
+         </div>`
       : (l.referenceFne
           ? `<span class="ref">${html(l.referenceFne)}</span>`
           : '');
@@ -294,9 +323,13 @@ function dessinerFactures(lignes) {
       ? `<div class="conduite">Vous pouvez la certifier maintenant.</div>`
       : '';
 
-    // Ce qui partira réellement, et si quelqu'un l'a choisi. Un mode appliqué
-    // sans être visible est un mode qu'on découvre sur la facture certifiée.
-    const mode = `<div class="mode ${l.modePaiementChoisi ? '' : 'suppose'}">`
+    // Ce qui partira réellement — mais seulement là où aucune liste ne le dit
+    // déjà. Sur une ligne certifiable, la liste EST l'affirmation du mode ;
+    // répéter à côté « À terme — supposé » pendant qu'elle affiche « Mobile
+    // money » ferait deux affirmations contraires sur le même fait, à trois
+    // centimètres l'une de l'autre.
+    const mode = l.certifiable ? '' :
+      `<div class="mode ${l.modePaiementChoisi ? '' : 'suppose'}">`
       + `Paiement : ${html(l.modePaiementLibelle)}`
       + (l.modePaiementChoisi ? '' : ' — supposé, non choisi') + '</div>';
 
@@ -315,6 +348,16 @@ function dessinerFactures(lignes) {
     </tr>`;
   }).join('');
 
+  $('corps').querySelectorAll('select[data-mode]').forEach((s) =>
+    s.addEventListener('change', () => {
+      const piece = s.dataset.mode;
+      choix[piece] = s.value;
+      s.classList.toggle('vide', !s.value);
+
+      const bouton = $('corps').querySelector(`button[data-piece="${CSS.escape(piece)}"]`);
+      if (bouton) bouton.disabled = !s.value || !!occupe;
+    }));
+
   $('corps').querySelectorAll('button[data-piece]').forEach((b) =>
     b.addEventListener('click', () => demander(b.dataset.piece, lignes)));
 
@@ -329,20 +372,22 @@ function demander(piece, lignes) {
   $('c-client').textContent = ligne
     ? `${ligne.clientNom || ligne.client} — ${fcfa(ligne.totalTTC)}` : '';
 
-  // Présélectionné seulement si quelqu'un l'a déjà choisi pour ce client. Un
-  // mode venu du paramétrage n'est pas un choix : le présélectionner ferait
-  // passer une supposition pour une décision, et il suffirait de cliquer.
-  $('c-mode').value = ligne && ligne.modePaiementChoisi ? ligne.modePaiement : '';
-  $('c-oui').disabled = !$('c-mode').value;
-  $('c-mode').onchange = () => { $('c-oui').disabled = !$('c-mode').value; };
+  // Le mode a déjà été choisi sur la ligne : la fenêtre le rappelle, elle ne le
+  // redemande pas. Deux endroits pour un même choix, c'est deux valeurs qui
+  // finissent par différer.
+  const modeChoisi = choix[piece]
+    ?? (ligne && ligne.modePaiementChoisi ? ligne.modePaiement : '');
+
+  if (!modeChoisi) return;
+
+  const libelle = (modes.find((m) => m.code === modeChoisi) || {}).libelle || modeChoisi;
+  $('c-mode-libelle').textContent = libelle;
 
   $('confirmation').returnValue = '';
   $('confirmation').showModal();
   $('c-oui').onclick = () => {
-    if (!$('c-mode').value) return;
-    const choisi = $('c-mode').value;
     $('confirmation').close();
-    certifier(piece, choisi);
+    certifier(piece, modeChoisi);
   };
 }
 
