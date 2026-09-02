@@ -291,6 +291,26 @@ public class CampagneNccTests
     }
 
     [Fact]
+    public void Seuls_les_comptes_a_fiche_complete_sont_dits_prets()
+    {
+        // La liste courte des clients sur lesquels une facture peut partir. Y
+        // faire figurer un compte sans téléphone ferait saisir un essai sur un
+        // client bloqué, et l'échec serait mis sur le dos de l'envoi.
+        var etat = Analyser(
+            [Entete("1", "C1"), Entete("2", "C2"), Entete("3", "C3")],
+            [Ligne("1", 100m), Ligne("2", 100m), Ligne("3", 100m)],
+            Client("C1", "1010983N", "GEMS-CI", telephone: "0789787451"),
+            Client("C2", "1432262S", "Sans téléphone"),
+            Client("C3", telephone: "0700000000"));
+
+        var pret = Assert.Single(etat.Complets);
+
+        Assert.Equal("C1", pret.CtNum);
+        Assert.Equal("1010983N", pret.Ncc);
+        Assert.Equal("0789787451", pret.Telephone);
+    }
+
+    [Fact]
     public void Sans_manque_aucun_appel_n_est_a_passer()
     {
         var etat = Analyser(

@@ -887,6 +887,25 @@ if (ligneDeCommande.Verbe == Verbe.Ncc)
         }
     }
 
+    // La liste courte : les clients sur lesquels une facture peut partir
+    // aujourd'hui. Sans elle, un essai se saisit sur un client au hasard —
+    // c'est-à-dire, sur ce dossier, sur un client bloqué neuf fois sur dix.
+    if (campagne.Complets.Count > 0)
+    {
+        Titre("Clients prêts — fiche complète");
+        Console.WriteLine(
+            "  NCC et téléphone renseignés. Ce sont les seuls sur lesquels une\n" +
+            "  facture peut être certifiée en l'état.");
+        Console.WriteLine();
+        Console.WriteLine($"  {"CT_Num",-18} {"Intitulé",-30} {"NCC",-18} Téléphone");
+        foreach (var complet in campagne.Complets)
+        {
+            Console.WriteLine(
+                $"  {Tronquer(complet.CtNum, 18),-18} {Tronquer(complet.Intitule, 30),-30} " +
+                $"{Tronquer(complet.Ncc, 18),-18} {complet.Telephone}");
+        }
+    }
+
     // Ce que le dossier porte déjà. Aucune règle de format n'est affirmée : la
     // commande montre les formes observées, et c'est au lecteur de reconnaître
     // la sienne.

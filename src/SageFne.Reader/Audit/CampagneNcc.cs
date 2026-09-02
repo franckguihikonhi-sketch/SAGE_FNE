@@ -105,6 +105,16 @@ public sealed record NccDouteux(string CtNum, string Intitule, string Ncc, strin
 public sealed record NccEcart(string CtNum, string Intitule, string Ncc, string Observation);
 
 /// <summary>
+/// Un compte dont la fiche est complète : NCC et téléphone renseignés.
+/// </summary>
+/// <remarks>
+/// C'est la liste courte des clients sur lesquels une facture peut partir
+/// aujourd'hui. Sur ce dossier elle tient en trois lignes, et sans elle un
+/// essai se saisit sur un client au hasard — donc sur un client bloqué.
+/// </remarks>
+public sealed record CompteComplet(string CtNum, string Intitule, string Ncc, string Telephone);
+
+/// <summary>
 /// L'état de la campagne : ce qui manque, dans quel ordre le chercher, et ce
 /// que porte déjà le dossier.
 /// </summary>
@@ -154,6 +164,9 @@ public sealed record EtatCampagneNcc
     public IReadOnlyList<NccPartage> Partages { get; init; } = [];
     public IReadOnlyList<NccDouteux> Douteux { get; init; } = [];
     public IReadOnlyList<NccEcart> Ecarts { get; init; } = [];
+
+    /// <summary>Les comptes sur lesquels une facture peut partir aujourd'hui.</summary>
+    public IReadOnlyList<CompteComplet> Complets { get; init; } = [];
 
     /// <summary>
     /// Vrai quand <c>CT_TypeNIF</c> vaut la même chose partout.
@@ -316,6 +329,13 @@ public static class CampagneNcc
             Partages = Partages(facturesParCompte, renseignes),
             Douteux = Douteux(renseignes),
             Ecarts = Ecarts(renseignes),
+            Complets = renseignes
+                .Where(client => !string.IsNullOrWhiteSpace(client.Telephone))
+                .Select(client => new CompteComplet(
+                    client.CtNum, client.Intitule,
+                    client.Identifiant.Trim(), client.Telephone.Trim()))
+                .OrderBy(compte => compte.CtNum, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
         };
     }
 
