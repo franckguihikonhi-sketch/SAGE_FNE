@@ -60,13 +60,45 @@ public class GardeInstallationTests
     [InlineData(@"C:\Users\Samuel\AppData\Roaming\SageFne\certifications.json")]
     [InlineData(@"C:/Users/Samuel/Desktop/registre.json")]
     [InlineData(@"C:\Windows\System32\config\systemprofile\AppData\Roaming\SageFne\reg.json")]
-    public void Un_registre_dans_un_profil_empeche_le_demarrage(string chemin)
+    public void Un_registre_dans_un_profil_empeche_le_demarrage_du_service(string chemin)
     {
         // Y compris le profil système : c'est précisément là que LocalSystem
         // écrirait, et personne n'irait l'y chercher.
         var empechements = GardeInstallation.Empechements(Chaine, chemin, Cle);
 
         Assert.Contains(empechements, cause => cause.Contains("profil utilisateur"));
+    }
+
+    [Fact]
+    public void Un_registre_dans_un_profil_n_empeche_pas_une_verification()
+    {
+        // Lancée à la main par l'exploitant, une vérification lit ce
+        // registre-là sans difficulté — c'est même celui qu'il faut lire,
+        // puisqu'il porte les certifications faites en ligne de commande.
+        // Refuser ici découragerait l'épreuve avant installation.
+        var chemin = @"C:\Users\Samuel\AppData\Roaming\SageFne\certifications.json";
+
+        Assert.Empty(GardeInstallation.Empechements(Chaine, chemin, null, pourEnvoyer: false));
+    }
+
+    [Fact]
+    public void Mais_la_verification_le_signale()
+    {
+        // Ne pas bloquer n'est pas se taire : le chemin ne conviendra pas au
+        // service, et il faut le savoir avant de l'installer.
+        var chemin = @"C:\Users\Samuel\AppData\Roaming\SageFne\certifications.json";
+        var avertissements = GardeInstallation.Avertissements(Chaine, chemin);
+
+        Assert.Single(avertissements);
+        Assert.Contains("ProgramData", avertissements[0]);
+        Assert.Contains("CLI", avertissements[0]);
+    }
+
+    [Fact]
+    public void Un_registre_hors_profil_ne_se_signale_pas()
+    {
+        Assert.Empty(GardeInstallation.Avertissements(Chaine, RegistrePartage));
+        Assert.Empty(GardeInstallation.Avertissements("", @"C:\Users\X\reg.json"));
     }
 
     [Fact]

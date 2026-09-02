@@ -1384,9 +1384,18 @@ ne l'attend même pas**, il rend la main aussitôt. Le résultat est dans le jou
 Get-Content "$env:APPDATA\SageFne\journaux\agent-$(Get-Date -Format 'yyyy-MM-dd').log"
 ```
 
-`--verifier` n'exige pas la clé d'API : il ne contacte jamais la plateforme. Il exige en
-revanche le chemin de registre, car lire le mauvais registre lui ferait dire « à certifier »
-d'une facture déjà partie.
+`--verifier` est délibérément moins exigeant que le service, parce qu'il ne fait pas la même
+chose :
+
+| | `--verifier` | le service |
+| --- | --- | --- |
+| Clé d'API | pas exigée — rien n'est envoyé | exigée |
+| Registre absent ou relatif | **refusé** — la vérification mentirait | **refusé** |
+| Registre dans un profil | **signalé**, et il tourne | **refusé** |
+
+Un registre dans votre profil est le bon pour une vérification que vous lancez vous-même : il
+porte les certifications faites en ligne de commande. Il ne conviendra pas au service, qui
+tournera sous un autre compte — le journal vous le dit sans vous empêcher de tourner.
 
 Le journal dit d'abord **sur quoi il a lu** — votre dossier Sage ou le jeu d'essai. « 0 pièce
 lue » ne veut pas dire la même chose dans les deux cas, et sans cette ligne on chercherait une

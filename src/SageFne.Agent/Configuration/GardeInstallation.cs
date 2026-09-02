@@ -75,8 +75,12 @@ public static class GardeInstallation
                 "relatif. Un service ne démarre pas dans le dossier où vous croyez : donnez un " +
                 "chemin absolu.");
         }
-        else if (DansUnProfilUtilisateur(cheminRegistreConfigure))
+        else if (pourEnvoyer && DansUnProfilUtilisateur(cheminRegistreConfigure))
         {
+            // Blocage pour un service, et pour lui seul. Lancée à la main par
+            // l'exploitant, une vérification lit ce registre-là sans difficulté
+            // — c'est même celui qu'il faut lire, puisqu'il porte les
+            // certifications faites en ligne de commande.
             empechements.Add(
                 $"Fne:CertificationLedgerPath vaut « {cheminRegistreConfigure} », qui est dans " +
                 "un profil utilisateur. Le service tournera sous un autre compte et n'y aura pas " +
@@ -94,6 +98,31 @@ public static class GardeInstallation
         }
 
         return empechements;
+    }
+
+    /// <summary>
+    /// Ce qui mérite d'être dit sans empêcher de tourner.
+    /// </summary>
+    /// <remarks>
+    /// Un registre dans un profil convient à une vérification lancée à la main
+    /// — c'est même le bon, puisqu'il porte les certifications faites en ligne
+    /// de commande. Il ne conviendra pas au service. Le dire vaut mieux que de
+    /// refuser, et mieux que de se taire.
+    /// </remarks>
+    public static IReadOnlyList<string> Avertissements(
+        string chaineSage, string? cheminRegistreConfigure)
+    {
+        if (string.IsNullOrWhiteSpace(chaineSage)) return [];
+        if (string.IsNullOrWhiteSpace(cheminRegistreConfigure)) return [];
+        if (!DansUnProfilUtilisateur(cheminRegistreConfigure)) return [];
+
+        return
+        [
+            $"Le registre « {cheminRegistreConfigure} » est dans un profil utilisateur. Bon pour " +
+            "cette vérification, que vous lancez vous-même — mais un service tournant sous un " +
+            "autre compte ne le verra pas. Avant d'installer, déplacez-le hors des profils, par " +
+            "exemple sous C:\\ProgramData, et faites-y pointer le CLI aussi.",
+        ];
     }
 
     /// <summary>

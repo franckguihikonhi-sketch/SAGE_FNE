@@ -130,6 +130,12 @@ var empechements = GardeInstallation.Empechements(
     constructeur.Configuration["Fne:ApiKey"],
     pourEnvoyer: !verification);
 
+foreach (var avertissement in GardeInstallation.Avertissements(
+             chaineSage, constructeur.Configuration["Fne:CertificationLedgerPath"]))
+{
+    journalDemarrage.LogWarning("{Avertissement}", avertissement);
+}
+
 foreach (var empechement in empechements)
 {
     journalDemarrage.LogCritical("Démarrage refusé : {Empechement}", empechement);
