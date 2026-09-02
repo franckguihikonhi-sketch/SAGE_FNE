@@ -72,4 +72,55 @@ public class MotNuTests
 
         Assert.Contains("9999", requete.Describe());
     }
+
+    [Theory]
+    [InlineData("afficher")]
+    [InlineData("verifier")]
+    [InlineData("vérifier")]
+    [InlineData("revoquer")]
+    [InlineData("révoquer")]
+    [InlineData("article")]
+    [InlineData("famille")]
+    [InlineData("client")]
+    [InlineData("dossier")]
+    public void Un_sous_verbe_passe_malgre_l_absence_de_chiffre(string sousVerbe)
+    {
+        // Le refus des mots sans chiffre a rejeté « article » dans
+        // « zero-vat-regle article DN4 », et cassé la commande qui écrit les
+        // règles de TVA à 0 %. Ces mots-là sont des sous-verbes, pas des
+        // numéros de pièce mal tapés.
+        var ligne = CommandLine.Parse(["zero-vat-regle", sousVerbe]);
+
+        Assert.Empty(ligne.Erreurs);
+        Assert.Equal(Verbe.ZeroVatRegle, ligne.Verbe);
+        Assert.Equal([sousVerbe], ligne.Query.Pieces);
+    }
+
+    [Fact]
+    public void La_commande_complete_d_une_regle_d_article_passe()
+    {
+        // Celle que l'utilisateur a tapée, moins le marqueur de documentation
+        // que le garde refuse à juste titre.
+        var ligne = CommandLine.Parse([
+            "zero-vat-regle", "article", "DN4",
+            "--code", "Tvac", "--fondement", "Convention",
+            "--valide-par", "Franck", "--reference", "Convention DGI 42", "--confirmer",
+        ]);
+
+        Assert.Empty(ligne.Erreurs);
+        Assert.Equal(Verbe.ZeroVatRegle, ligne.Verbe);
+        Assert.Equal(["article", "DN4"], ligne.Query.Pieces);
+        Assert.True(ligne.Confirme);
+    }
+
+    [Fact]
+    public void Un_mot_qui_n_est_ni_sous_verbe_ni_numero_reste_refuse()
+    {
+        // Le trou que le garde bouche ne se rouvre pas : seuls les sous-verbes
+        // réellement reconnus sont exemptés.
+        var ligne = CommandLine.Parse(["zero-vat-regle", "artcile", "DN4"]);
+
+        Assert.NotEmpty(ligne.Erreurs);
+        Assert.Contains(ligne.Erreurs, e => e.Contains("artcile"));
+    }
 }

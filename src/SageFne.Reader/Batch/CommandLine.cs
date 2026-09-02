@@ -514,6 +514,12 @@ public sealed record CommandLine
                     {
                         erreurs.Add($"Option inconnue : {argument}");
                     }
+                    else if (SousVerbes.Contains(argument, StringComparer.OrdinalIgnoreCase))
+                    {
+                        // Un sous-verbe, pas un numéro. Program.cs le relit
+                        // dans Query.Pieces pour savoir quelle portée déclarer.
+                        pieces.Add(argument);
+                    }
                     else if (!argument.Any(char.IsDigit))
                     {
                         // Un mot nu sans le moindre chiffre n'est pas un numéro
@@ -594,6 +600,25 @@ public sealed record CommandLine
     /// exemples du dépôt, et doit le rester : y ajouter un mot chaque fois
     /// qu'un exemple en introduit un.
     /// </remarks>
+    /// <summary>
+    /// Les mots nus qui sont des sous-verbes, non des numéros de pièce.
+    /// </summary>
+    /// <remarks>
+    /// « zero-vat-regle article DN4 » porte deux mots nus : « article », qui dit
+    /// la portée de la règle, et « DN4 », la référence. Le refus des mots sans
+    /// chiffre - écrit pour empêcher « dry-run » de devenir un filtre - a rejeté
+    /// le premier, et cassé la commande qui écrit les règles de TVA à 0 %.
+    ///
+    /// La liste doit rester celle des sous-verbes réellement reconnus par
+    /// Program.cs : y ajouter un mot au hasard rouvrirait le trou qu'elle
+    /// contourne.
+    /// </remarks>
+    private static readonly string[] SousVerbes =
+    [
+        "afficher", "verifier", "vérifier", "revoquer", "révoquer",
+        "article", "famille", "client", "dossier",
+    ];
+
     private static readonly string[] MarqueursDeDocumentation =
     [
         "LA_REFERENCE", "TA_REFERENCE_FNE", "VOTRE_REFERENCE", "REFERENCE", "REF",

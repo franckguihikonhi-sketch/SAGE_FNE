@@ -33,6 +33,26 @@ public sealed class VerificateurStabilite(TimeSpan delai, TimeProvider? horloge 
     /// <summary>Combien de pièces sont en cours d'observation.</summary>
     public int EnObservation => _vues.Count;
 
+    /// <summary>Le délai appliqué, tel qu'il a été construit.</summary>
+    /// <remarks>
+    /// Public parce que le journal doit pouvoir l'écrire. Un service ne voit
+    /// pas toujours les variables machine posées après l'amorçage de Windows :
+    /// le délai réellement appliqué peut différer de celui qu'on croit avoir
+    /// réglé, et sans le dire on attendrait indéfiniment sans comprendre.
+    /// </remarks>
+    public TimeSpan Delai => delai;
+
+    /// <summary>
+    /// Ce qu'il reste à attendre pour une pièce, ou null si elle n'est pas
+    /// observée.
+    /// </summary>
+    public TimeSpan? Reste(string identite)
+    {
+        if (!_vues.TryGetValue(identite, out var vue)) return null;
+        var ecoule = _horloge.GetUtcNow() - vue.VueLe;
+        return ecoule >= delai ? TimeSpan.Zero : delai - ecoule;
+    }
+
     /// <summary>
     /// Constate l'état d'une pièce et dit si elle peut être considérée stable.
     /// </summary>

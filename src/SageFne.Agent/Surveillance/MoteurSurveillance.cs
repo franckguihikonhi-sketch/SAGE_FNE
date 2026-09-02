@@ -115,8 +115,14 @@ public sealed class MoteurSurveillance(
                     $"Pièce {piece} : le contenu a changé depuis la dernière lecture. " +
                     "La saisie n'est pas finie.",
                 MotifAttente.DelaiNonEcoule =>
-                    $"Pièce {piece} : contenu identique, mais le délai de stabilité n'est pas " +
-                    "écoulé.",
+                    // Le compte à rebours, en toutes lettres. « Le délai n'est
+                    // pas écoulé » ne dit ni combien il reste ni quel délai
+                    // s'applique : on ne peut pas distinguer une attente
+                    // normale d'un réglage qui n'est jamais arrivé jusqu'au
+                    // service.
+                    $"Pièce {piece} : contenu identique, il reste " +
+                    $"{stabilite.Reste(identite)?.TotalSeconds ?? 0:0} s sur les " +
+                    $"{stabilite.Delai.TotalMinutes:0.#} min de stabilité.",
                 _ => $"Pièce {piece} : non traduisible, rien à observer.",
             });
         }

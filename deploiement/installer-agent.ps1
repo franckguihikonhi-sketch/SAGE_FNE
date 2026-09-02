@@ -185,53 +185,29 @@ function Preparer-Poste {
     #    registre pour les deux, ce qui est exactement le but.
     Titre 'Variables machine'
 
-    $aPoser = [ordered]@{
-        'Fne__CertificationLedgerPath' = $Registre
-        'Agent__CheminJournal'         = $Journaux
-        'Agent__FenetreJours'          = '30'
-    }
+    # Les reglages non secrets ne passent plus par des variables machine. Le
+    # gestionnaire de services garde en cache l'environnement tel qu'il etait a
+    # l'amorcage de Windows : une variable posee cinq minutes plus tot peut
+    # rester invisible au service, qui tourne alors sur d'autres reglages que
+    # ceux qu'on croit avoir poses - et l'on attend un delai de 2 minutes qui en
+    # vaut 5 sans comprendre.
+    #
+    # Ils vont dans l'appsettings.json publie, que le service lit a coup sur.
+    # C'est deja par la que passe la date de demarrage, et elle a toujours
+    # fonctionne. Les variables machine qui les doublaient sont effacees : une
+    # seule source par reglage, sinon on ne sait plus laquelle s'applique.
+    $anciennes = @(
+        'Fne__CertificationLedgerPath', 'Agent__CheminJournal',
+        'Agent__FenetreJours', 'Agent__StabiliteMinutes', 'Agent__Mode')
 
-    if ($Stabilite -gt 0) {
-        $aPoser['Agent__StabiliteMinutes'] = "$Stabilite"
-    }
-
-    foreach ($nom in $aPoser.Keys) {
-        [Environment]::SetEnvironmentVariable($nom, $aPoser[$nom], 'Machine')
-        Set-Item "env:$nom" $aPoser[$nom]
-        Note "$nom = $($aPoser[$nom])"
-    }
-
-    if ($Stabilite -le 0) {
-        $existant = [Environment]::GetEnvironmentVariable('Agent__StabiliteMinutes', 'Machine')
-        if ($existant) {
-            Note "Agent__StabiliteMinutes = $existant (inchange). Pour le changer : -Stabilite <minutes>."
+    foreach ($nom in $anciennes) {
+        if ([Environment]::GetEnvironmentVariable($nom, 'Machine')) {
+            [Environment]::SetEnvironmentVariable($nom, $null, 'Machine')
+            Remove-Item "env:$nom" -ErrorAction SilentlyContinue
+            Note "$nom : variable machine retiree, le reglage vit dans appsettings.json."
         }
     }
 
-    # Le mode a part. Il ne se reecrit pas a chaque preparation : c'est un
-    # interrupteur d'exploitation, qu'on bascule sciemment et qu'une mise a jour
-    # de routine ne doit pas ramener en arriere.
-    $modeExistant = [Environment]::GetEnvironmentVariable('Agent__Mode', 'Machine')
-    if ($Mode) {
-        [Environment]::SetEnvironmentVariable('Agent__Mode', $Mode, 'Machine')
-        Set-Item 'env:Agent__Mode' $Mode
-        if ($Mode -eq 'Automatic') {
-            Alerte "Agent__Mode = Automatic. Les factures conformes et stables partiront"
-            Alerte "d'elles-memes, sans confirmation. Retour en arriere :"
-            Alerte "  -Preparer -Mode Manual, puis redemarrage du service."
-        }
-        else {
-            Note "Agent__Mode = $Mode."
-        }
-    }
-    elseif ($modeExistant) {
-        Note "Agent__Mode = $modeExistant (inchange). Pour le changer : -Mode Manual|Automatic."
-    }
-    else {
-        [Environment]::SetEnvironmentVariable('Agent__Mode', 'Manual', 'Machine')
-        Set-Item 'env:Agent__Mode' 'Manual'
-        Note "Agent__Mode = Manual (defaut). L'agent observe sans rien envoyer."
-    }
 
     # 3. Les secrets. Repris des secrets utilisateur du CLI s'ils s'y trouvent,
     #    sans jamais être affichés.
@@ -290,6 +266,21 @@ function Preparer-Poste {
     # Agent », et l'on repart avec l'ancien binaire en croyant avoir la nouvelle
     # version - la mise a jour la plus dangereuse qui soit : celle qu'on croit
     # faite.
+    # Ce que le poste applique aujourd'hui, lu AVANT que dotnet publish ne
+    # reecrive appsettings.json avec les valeurs versionnees. Sans cette
+    # memoire, un -Preparer de routine ramenerait le mode a Manual et le delai
+    # a sa valeur d'origine : une mise a jour desactiverait l'automatisme sans
+    # que personne ne l'ait demande. Le meme piege que les variables machine
+    # reecrites a chaque preparation, deplace dans le fichier.
+    $fichierAvant = Join-Path $Destination 'appsettings.json'
+    $modeEnPlace = $null
+    $stabiliteEnPlace = $null
+    if (Test-Path $fichierAvant) {
+        $ancien = Get-Content $fichierAvant -Raw -Encoding UTF8 | ConvertFrom-Json
+        $modeEnPlace = $ancien.Agent.Mode
+        $stabiliteEnPlace = $ancien.Agent.StabiliteMinutes
+    }
+
     $service = Get-Service $NomService -ErrorAction SilentlyContinue
     $tournait = $service -and $service.Status -eq 'Running'
 
@@ -337,6 +328,53 @@ function Preparer-Poste {
 
     if ($publication -ne 0) { throw "La publication a échoué." }
     Bien "Publié dans $Destination"
+
+    # Les reglages non secrets vont dans l'appsettings.json publie, apres la
+    # publication qui vient de le reecrire. Le service le lit a coup sur, la ou
+    # une variable machine posee apres l'amorcage de Windows peut lui rester
+    # invisible.
+    #
+    # Les secrets n'y entrent pas : chaine de connexion et cle d'API restent en
+    # variables machine, hors de tout fichier.
+    Titre 'Reglages du service'
+    $fichier = Join-Path $Destination 'appsettings.json'
+    if (-not (Test-Path $fichier)) {
+        throw "$fichier introuvable apres publication. Rien n'a ete regle."
+    }
+
+    $config = Get-Content $fichier -Raw -Encoding UTF8 | ConvertFrom-Json
+
+    $config.Agent.CheminJournal = $Journaux
+    $config.Fne.CertificationLedgerPath = $Registre
+
+    # Le parametre passe devant ; a defaut, ce que le poste appliquait deja ;
+    # a defaut encore, la valeur versionnee, qui est Manual.
+    if ($Mode) { $config.Agent.Mode = $Mode }
+    elseif ($modeEnPlace) { $config.Agent.Mode = $modeEnPlace }
+
+    if ($Stabilite -gt 0) { $config.Agent.StabiliteMinutes = $Stabilite }
+    elseif ($null -ne $stabiliteEnPlace) { $config.Agent.StabiliteMinutes = $stabiliteEnPlace }
+
+    $config | ConvertTo-Json -Depth 10 | Set-Content $fichier -Encoding UTF8
+
+    # Relu depuis le fichier, pas depuis les variables : afficher ce qu'on
+    # vient d'ecrire sans le relire serait annoncer une intention pour un fait.
+    $relu = Get-Content $fichier -Raw -Encoding UTF8 | ConvertFrom-Json
+    Note "Mode              $($relu.Agent.Mode)"
+    Note "Stabilite         $($relu.Agent.StabiliteMinutes) min"
+    Note "Fenetre           $($relu.Agent.FenetreJours) jours"
+    Note "Envois par tour   $($relu.Agent.LimiteEnvoisParTour) au plus"
+    Note "Journal           $($relu.Agent.CheminJournal)"
+    Note "Registre          $($relu.Fne.CertificationLedgerPath)"
+    Note ""
+    Note "Lu dans $fichier. Ces reglages prennent effet au prochain demarrage"
+    Note "du service, sans redemarrage de Windows."
+
+    if ($relu.Agent.Mode -eq 'Automatic') {
+        Alerte "Mode Automatic : les factures conformes et stables partiront"
+        Alerte "d'elles-memes, sans confirmation. Retour en arriere :"
+        Alerte "  -Preparer -Mode Manual"
+    }
 
     # Le perimetre, lu apres la publication : ce bloc affiche la date que le
     # binaire chargera reellement, et non celle qu'il devrait charger. Annoncer
@@ -472,8 +510,15 @@ function Installer-Service {
     # Manual » en dur : il aurait dit « il n'enverra rien » a un operateur qui
     # venait de poser Automatic, et l'aurait dit pendant que les factures
     # partaient. C'est le pire mensonge que ce projet puisse produire.
-    $modeReel = [Environment]::GetEnvironmentVariable('Agent__Mode', 'Machine')
-    if (-not $modeReel) { $modeReel = 'Manual' }
+    # Lu dans le fichier que le service chargera, non dans une variable machine :
+    # les reglages non secrets n'y vivent plus, precisement parce qu'elles
+    # n'atteignaient pas toujours le service.
+    $fichierRegle = Join-Path $Destination 'appsettings.json'
+    $modeReel = 'Manual'
+    if (Test-Path $fichierRegle) {
+        $lu = (Get-Content $fichierRegle -Raw -Encoding UTF8 | ConvertFrom-Json).Agent.Mode
+        if ($lu) { $modeReel = $lu }
+    }
 
     if ($modeReel -eq 'Automatic') {
         Alerte "MODE AUTOMATIC. Des le premier tour - une minute apres le demarrage - les"

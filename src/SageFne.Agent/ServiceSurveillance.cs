@@ -79,6 +79,29 @@ public sealed class ServiceSurveillance(
                 "pour l'autoriser.", _reglages.Mode);
         }
 
+        // Ce que la machine porte contre ce que ce processus applique. Sans
+        // cette comparaison, un réglage posé et jamais vu par le service reste
+        // indétectable : on attend un délai de 2 minutes qui en vaut 5, et l'on
+        // conclut que l'automatisme ne marche pas.
+        if (OperatingSystem.IsWindows())
+        {
+            var applique = new Dictionary<string, string>
+            {
+                ["Agent__Mode"] = _reglages.Mode.ToString(),
+                ["Agent__StabiliteMinutes"] = _reglages.StabiliteMinutes.ToString(),
+                ["Agent__FenetreJours"] = _reglages.FenetreJours.ToString(),
+                ["Agent__IntervalleSecondes"] = _reglages.IntervalleSecondes.ToString(),
+                ["Agent__LimiteEnvoisParTour"] = _reglages.LimiteEnvoisParTour.ToString(),
+            };
+
+            foreach (var ecart in EcartsEnvironnement.Detecter(
+                         applique,
+                         nom => Environment.GetEnvironmentVariable(nom, EnvironmentVariableTarget.Machine)))
+            {
+                logger.LogWarning("Réglage non appliqué : {Ecart}", ecart);
+            }
+        }
+
         // Sur quelles données il travaille, dit une fois au démarrage. Sans
         // cette ligne, un service qui tourne sur le jeu d'essai est
         // indiscernable d'un service qui certifie pour de vrai : même journal,
