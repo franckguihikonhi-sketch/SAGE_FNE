@@ -28,6 +28,9 @@ public class PerimetreDemarrageTests
 
     private sealed class Depot : ISageInvoiceRepository
     {
+        /// <summary>La doublure tient lieu de vrai dossier : elle peut envoyer.</summary>
+        public bool EstReel => true;
+
         public List<SageDocumentHeader> Entetes { get; init; } = [];
         public List<SageDocumentLine> Lignes { get; init; } = [];
         public List<SageCustomer> Clients { get; init; } = [];

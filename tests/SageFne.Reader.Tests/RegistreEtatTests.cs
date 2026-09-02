@@ -72,7 +72,7 @@ public class RegistreEtatTests
     {
         var reglages = Reglages();
         return new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
     }
 
     /// <summary>
@@ -421,7 +421,7 @@ public class IssueDouteuseTests
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
         var expediteur = new InvoiceSender(
             lecteur, registre, new ClientFige(reponse), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
@@ -520,7 +520,7 @@ public class DeblocageTests
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
             lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail), registre);
@@ -587,7 +587,7 @@ public class DeblocageTests
             PaymentMethod = "deferred",
         });
         var lot = await new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages)
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages)
             .ReadAsync(InvoiceQuery.Piece(Piece));
 
         Assert.Equal(EtatPiece.ACertifier, lot.Conversions[0].Etat);
@@ -789,7 +789,7 @@ public class RegistreIllisibleTests : IDisposable
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), Registre(), reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), Registre(), reglages);
 
         await Assert.ThrowsAsync<RegistreIllisibleException>(
             () => lecteur.ReadAsync(InvoiceQuery.Piece("1221")));
@@ -938,7 +938,7 @@ public class ReconciliationTests
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
             lecteur, registre, new ClientInterdit(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail), registre);
@@ -1163,7 +1163,7 @@ public class CertificationSansReferenceTests
         var client = new ClientTemoin();
         var reglages = Reglages();
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
             registre, client, lecteur);
@@ -1276,7 +1276,7 @@ public class CertificationSansReferenceTests
     {
         var reglages = Reglages();
         var lot = await new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages),
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages),
             new Registre(null), reglages).ReadAsync(InvoiceQuery.Piece(Piece));
         return lot.Conversions[0].Empreinte;
     }
@@ -1615,7 +1615,7 @@ public class SauvegardeDuRegistreTests : IDisposable
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
         var expediteur = new InvoiceSender(
             lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
@@ -1663,7 +1663,7 @@ public class SauvegardeDuRegistreTests : IDisposable
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         await new InvoiceSender(lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail)
             .CorrigerReferenceAsync("1221", "TA_REFERENCE_FNE", "motif", false, confirme: false);
@@ -1924,7 +1924,7 @@ public class ReparationSourceTests : IDisposable
         var registre = new JsonCertificationLedger(Chemin, NullLogger<JsonCertificationLedger>.Instance);
         var reglages = Reglages();
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         // L'empreinte réelle : la pièce doit ressortir « déjà certifiée ».
         var vide = await lecteur.ReadAsync(InvoiceQuery.Piece("1221"));
@@ -2097,7 +2097,7 @@ public class ReparationSourceTests : IDisposable
         var registre = new JsonCertificationLedger(Chemin, NullLogger<JsonCertificationLedger>.Instance);
         var reglages = Reglages();
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
         var expediteur = new InvoiceSender(
             lecteur, registre, new ClientMuet(), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
@@ -2148,7 +2148,7 @@ public class SourceToujoursExpliciteTests
             PaymentMethod = "deferred",
         });
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
             lecteur, registre, new ClientQuiRepond(reponse), NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
@@ -2309,7 +2309,7 @@ public class DoublonMilleSoixanteDouzeTests
         var client = new ClientQuiEchoue(code);
         var reglages = ReglagesDEssai.AvecDelai(delaiMinutes);
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
             lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages), registre, client);
@@ -2570,7 +2570,7 @@ public class JournalReconstitueTests
         var client = new ClientQuiEchoue();
         var reglages = ReglagesDEssai.SansDelaiPortail;
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(reglages), registre, reglages);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(reglages), registre, reglages);
 
         return (new InvoiceSender(
             lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages), registre, client);

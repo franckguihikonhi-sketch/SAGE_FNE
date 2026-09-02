@@ -29,6 +29,19 @@ public sealed class InvoiceBatchReader(
 {
     private readonly FneOptions _options = options.Value;
 
+    /// <summary>
+    /// Vrai quand la lecture porte sur un vrai dossier Sage, faux sur le jeu
+    /// d'essai.
+    /// </summary>
+    /// <remarks>
+    /// Exposé ici parce que <see cref="Fne.InvoiceSender"/> en a besoin et tient
+    /// déjà ce lecteur : le refus d'envoyer une facture fabriquée doit vivre
+    /// dans le composant qui envoie, et non chez chacun de ceux qui l'appellent.
+    /// Il vivait dans la commande « envoyer » du CLI, si bien que l'agent — le
+    /// deuxième appelant — ne l'a jamais eu.
+    /// </remarks>
+    public bool SurDonneesReelles => repository.EstReel;
+
     public async Task<InvoiceBatch> ReadAsync(InvoiceQuery query, CancellationToken cancellation = default)
     {
         var constats = new CheckReport();

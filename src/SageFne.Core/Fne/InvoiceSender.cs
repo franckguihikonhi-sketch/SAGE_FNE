@@ -58,6 +58,28 @@ public sealed class InvoiceSender(
         bool confirme,
         CancellationToken cancellation = default)
     {
+        // Avant la lecture, avant tout le reste : une facture fabriquée ne
+        // s'envoie pas à la DGI. Sans chaîne de connexion Sage, le middleware
+        // lit un jeu d'essai de quatre pièces inventées — et rien, dans le
+        // chemin d'envoi, ne les distinguait de vraies factures.
+        //
+        // Le refus existait dans la commande « envoyer » du CLI. L'agent ne l'a
+        // jamais eu : sur un poste où la variable ConnectionStrings__Sage
+        // n'arrive pas jusqu'au service — ce qui est arrivé, le gestionnaire de
+        // services ne voyant pas les variables posées après l'amorçage — un
+        // agent en Automatic aurait certifié ces quatre pièces auprès de la
+        // DGI. Elles ne se seraient annulées que par des avoirs.
+        if (!lecteur.SurDonneesReelles)
+        {
+            return new EnvoiResultat(
+                EtatFne.Error,
+                "Refus : la lecture porte sur le JEU D'ESSAI, pas sur votre dossier Sage. " +
+                "Une facture inventée ne s'envoie pas à la DGI. Renseignez " +
+                "ConnectionStrings__Sage — et si elle est déjà posée en variable machine, " +
+                "redémarrez le poste : un service ne voit pas les variables posées après " +
+                "l'amorçage de Windows.");
+        }
+
         var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
         var conversion = lot.Conversions.FirstOrDefault();
 

@@ -7,6 +7,26 @@ namespace SageFne.Core.Data;
 /// </summary>
 public interface ISageInvoiceRepository
 {
+    /// <summary>
+    /// Vrai quand les documents lus viennent d'un vrai dossier Sage.
+    /// </summary>
+    /// <remarks>
+    /// Faux pour le jeu d'essai, et c'est <see cref="Fne.InvoiceSender"/> qui
+    /// s'en sert : une facture inventée ne s'envoie pas à la DGI.
+    ///
+    /// Ce refus existait, mais dans la commande <c>envoyer</c> du CLI — chez
+    /// l'appelant, pas dans le composant qui envoie. L'agent, deuxième appelant,
+    /// ne l'a donc jamais eu : sur un poste sans chaîne de connexion Sage, il
+    /// aurait certifié à la DGI les quatre factures fabriquées du jeu d'essai,
+    /// et le tableau de bord offrait le même chemin d'un clic. Le défaut a été
+    /// constaté en cliquant : un POST est réellement parti, et seule une clé
+    /// d'API invalide l'a arrêté.
+    ///
+    /// La règle vit donc là où l'envoi se fait, et non là où on le demande.
+    /// C'est le même principe que <see cref="Fne.IFneApiClient.Reel"/>.
+    /// </remarks>
+    bool EstReel { get; }
+
     /// <summary>Entête d'une pièce de vente (DO_Domaine = 0).</summary>
     Task<SageDocumentHeader?> GetInvoiceAsync(string piece, CancellationToken cancellation = default);
 

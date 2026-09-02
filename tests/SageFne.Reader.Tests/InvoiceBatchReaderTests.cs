@@ -16,6 +16,9 @@ public class InvoiceBatchReaderTests
     /// </summary>
     private sealed class DepotCompteur : ISageInvoiceRepository
     {
+        /// <summary>La doublure tient lieu de vrai dossier : elle peut envoyer.</summary>
+        public bool EstReel => true;
+
         public int AppelsEntetes { get; private set; }
         public int AppelsLignes { get; private set; }
         public int AppelsClients { get; private set; }

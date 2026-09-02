@@ -16,9 +16,23 @@ namespace SageFne.Core.Data;
 /// existent pour montrer une TVA à 18 %, une TVA à 9 % avec prélèvement, et un
 /// client sans NCC — le cas qui doit bloquer sans arrêter le lot.
 /// </remarks>
-public sealed class DemoSageInvoiceRepository : ISageInvoiceRepository, ISageTaxInspector
+public sealed class DemoSageInvoiceRepository(bool estReel = false)
+    : ISageInvoiceRepository, ISageTaxInspector
 {
     public const string PieceDemonstration = "1219";
+
+    /// <summary>
+    /// Non : ces factures sont fabriquées, et n'ont rien à faire chez la DGI.
+    /// </summary>
+    /// <remarks>
+    /// Le paramètre existe pour les tests d'envoi, qui se servent de ce jeu
+    /// comme d'un dossier : ils doivent pouvoir déclarer qu'ils tiennent lieu de
+    /// données réelles. Le défaut est <c>false</c>, et le câblage de production
+    /// ne passe jamais rien — un test le vérifie sur le conteneur réel, parce
+    /// qu'un jour où il vaudrait <c>true</c>, l'agent certifierait à la DGI des
+    /// factures inventées.
+    /// </remarks>
+    public bool EstReel => estReel;
 
     private static readonly SageCustomer[] Clients =
     [

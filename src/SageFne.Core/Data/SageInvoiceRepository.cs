@@ -17,6 +17,9 @@ namespace SageFne.Core.Data;
 public sealed class SageInvoiceRepository(string connectionString, ILogger<SageInvoiceRepository> logger)
     : ISageInvoiceRepository, ISageTaxInspector
 {
+    /// <summary>Oui : les documents viennent du dossier Sage, en lecture seule.</summary>
+    public bool EstReel => true;
+
     /// <summary>Domaine 0 = ventes.</summary>
     private const short DomaineVente = 0;
 

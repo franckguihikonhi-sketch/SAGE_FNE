@@ -161,7 +161,7 @@ public class InvoiceSenderTests
         });
 
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(options), registre, options);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(options), registre, options);
 
         return (new InvoiceSender(lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail),
             registre, client);
@@ -349,7 +349,7 @@ public class RegistreIndisponibleTests
         });
         var registre = new RegistreEnPanne();
         var lecteur = new InvoiceBatchReader(
-            new DemoSageInvoiceRepository(), new FneInvoiceMapper(options), registre, options);
+            new DemoSageInvoiceRepository(estReel: true), new FneInvoiceMapper(options), registre, options);
         var expediteur = new InvoiceSender(
             lecteur, registre, client, NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
 
