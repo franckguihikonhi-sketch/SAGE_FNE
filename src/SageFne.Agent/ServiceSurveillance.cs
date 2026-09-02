@@ -153,6 +153,15 @@ public sealed class ServiceSurveillance(
         await moteur.ExaminerAsync(requete, arret);
         var decisions = await moteur.ExaminerAsync(requete, arret);
 
+        // Les compteurs du battement doivent dire la même chose que la ligne
+        // qui les précède. Sur le premier essai réel, le journal annonçait
+        // « 200 pièces examinées » et le battement « examinees=0 » deux lignes
+        // plus bas : deux nombres pour un même fait, et l'on ne sait plus
+        // lequel croire.
+        _examinees += decisions.Count;
+        _enAttente = decisions.Count(decision =>
+            decision.Motif is MotifAttente.ModeNonAutomatique or MotifAttente.NonConforme);
+
         foreach (var decision in decisions)
         {
             logger.LogInformation("{Explication}", decision.Explication);
@@ -175,6 +184,16 @@ public sealed class ServiceSurveillance(
             logger.LogWarning(
                 "Aucune pièce sur les {Jours} derniers jours. Ce n'est pas forcément une panne : " +
                 "élargissez Agent:FenetreJours pour en lire davantage.", _reglages.FenetreJours);
+        }
+        else if (decisions.Count >= requete.Limite)
+        {
+            // « 200 pièces lues » quand la limite vaut 200 ne dit pas qu'il n'y
+            // en a que 200 : il n'y en a pas eu davantage de lues. Sans cette
+            // ligne, on croit avoir vu tout le dossier.
+            logger.LogWarning(
+                "La limite de {Limite} pièces par tour est atteinte : le dossier en contient " +
+                "probablement d'autres sur cette fenêtre. Agent:LimiteParTour les découvrira.",
+                requete.Limite);
         }
 
         await BattreAsync(arret);

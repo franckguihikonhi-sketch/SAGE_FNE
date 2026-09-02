@@ -118,6 +118,25 @@ public class ServiceSansInterfaceTests
     }
 
     [Fact]
+    public void Le_heartbeat_compte_ce_qu_il_annonce()
+    {
+        // Sur le premier essai réel, le journal annonçait « 200 pièces
+        // examinées » et le battement « examinees=0 » deux lignes plus bas.
+        // Deux nombres pour un même fait, et l'on ne sait plus lequel croire —
+        // c'est le défaut qui revient le plus souvent dans ce projet.
+        var battement = new Heartbeat(
+            "POSTE-01", "F", "1.0.0", DateTimeOffset.Now,
+            EtatLien.Disponible, EtatLien.Disponible, "TEST", "Manual")
+        {
+            PiecesExaminees = 200,
+            EnAttente = 200,
+        };
+
+        Assert.Contains("examinees=200", battement.ToString());
+        Assert.Contains("attente=200", battement.ToString());
+    }
+
+    [Fact]
     public void Le_heartbeat_ne_porte_ni_cle_ni_adresse()
     {
         // Il finira dans un fichier, un Event Log, puis une télémétrie SaaS. Ce
