@@ -140,6 +140,138 @@ public class RegistreEtatTests
         Assert.Equal(EtatPiece.ModifieeDepuis, conversion.Etat);
     }
 
+    // --- Transmise : arrivée au portail, en attente du clic ------------------
+
+    [Fact]
+    public async Task Une_piece_transmise_ne_repart_pas()
+    {
+        // Le test qui compte. La règle « tout ce qui n'est pas Certified peut
+        // repartir » rendrait renvoyable une facture déjà déposée chez la DGI,
+        // et fabriquerait le doublon que cette règle existe pour empêcher.
+        var registre = new RegistreSeme(Trace(EtatFne.Transmise, await EmpreinteReelle()));
+        var client = new ClientTemoin(new FneSignResult(true, 200, "REF"));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, client, NullLogger<InvoiceSender>.Instance,
+            ReglagesDEssai.SansDelaiPortail);
+
+        var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.False(client.Appele, "une pièce déjà au portail ne doit jamais y repartir");
+        Assert.NotEqual(EtatFne.Certified, resultat.Etat);
+    }
+
+    [Fact]
+    public async Task Une_piece_transmise_se_lit_comme_telle()
+    {
+        var conversion = await Lire(Trace(EtatFne.Transmise, await EmpreinteReelle()));
+
+        Assert.Equal(EtatPiece.Transmise, conversion.Etat);
+        Assert.Contains(conversion.Report.Constats,
+            constat => constat.Code == "TRANSMISE_ATTENTE_CLIC");
+
+        // Et surtout pas comme une tentative ratée, qui l'aurait fait repartir.
+        Assert.DoesNotContain(conversion.Report.Constats,
+            constat => constat.Code == "TENTATIVE_PRECEDENTE");
+    }
+
+    [Fact]
+    public async Task Une_transmise_ne_se_confond_pas_avec_un_suspens()
+    {
+        // « En suspens » veut dire « issue inconnue ». Ici l'issue est connue :
+        // la facture est arrivée. Les confondre effacerait ce qu'un opérateur
+        // est allé constater au portail.
+        var transmise = await Lire(Trace(EtatFne.Transmise, await EmpreinteReelle()));
+        var suspens = await Lire(Trace(EtatFne.Sending, await EmpreinteReelle()));
+
+        Assert.NotEqual(suspens.Etat, transmise.Etat);
+        Assert.Contains("portail", transmise.LibelleEtat);
+    }
+
+    [Fact]
+    public async Task Constater_au_portail_inscrit_transmise_sans_reference()
+    {
+        // Aucune référence n'existe encore : en inventer une est précisément la
+        // faute que ce projet a déjà eu à réparer.
+        var registre = new RegistreSeme(Trace(EtatFne.Sending, await EmpreinteReelle()));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, new ClientTemoin(new FneSignResult(true, 200, "REF")),
+            NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, reference: null, nonCertifiee: false, confirme: true, transmise: true);
+
+        Assert.True(resultat.Applique);
+        Assert.Equal(EtatFne.Transmise, registre.Ecritures[^1].Etat);
+        Assert.Equal("", registre.Ecritures[^1].ReferenceFne);
+        Assert.Equal(SourceCertification.ReconciliationManuelle, registre.Ecritures[^1].Source);
+    }
+
+    [Fact]
+    public async Task Une_transmise_devient_certifiee_une_fois_le_clic_passe()
+    {
+        var registre = new RegistreSeme(Trace(EtatFne.Transmise, await EmpreinteReelle()));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, new ClientTemoin(new FneSignResult(true, 200, "REF")),
+            NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, reference: "FNE-2026-000123", nonCertifiee: false, confirme: true);
+
+        Assert.True(resultat.Applique);
+        Assert.Equal(EtatFne.Certified, registre.Ecritures[^1].Etat);
+        Assert.Equal("FNE-2026-000123", registre.Ecritures[^1].ReferenceFne);
+    }
+
+    [Fact]
+    public async Task Redeclarer_transmise_une_pièce_qui_l_est_deja_est_refuse()
+    {
+        // La même observation deux fois n'apprend rien, et masquerait la
+        // première au journal.
+        var registre = new RegistreSeme(Trace(EtatFne.Transmise, await EmpreinteReelle()));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, new ClientTemoin(new FneSignResult(true, 200, "REF")),
+            NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, reference: null, nonCertifiee: false, confirme: true, transmise: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("déjà inscrite au portail", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Deux_constats_a_la_fois_sont_refuses()
+    {
+        var registre = new RegistreSeme(Trace(EtatFne.Sending, await EmpreinteReelle()));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, new ClientTemoin(new FneSignResult(true, 200, "REF")),
+            NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, reference: null, nonCertifiee: false, confirme: true,
+            sansReference: true, transmise: true);
+
+        Assert.False(resultat.Applique);
+        Assert.Contains("une chose et une seule", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Dedire_un_constat_de_portail_se_signale()
+    {
+        // Déclarer absente une pièce constatée présente : l'un des deux constats
+        // est faux, et passer sans bruit laisserait fabriquer le doublon.
+        var registre = new RegistreSeme(Trace(EtatFne.Transmise, await EmpreinteReelle()));
+        var expediteur = new InvoiceSender(
+            Lecteur(registre), registre, new ClientTemoin(new FneSignResult(true, 200, "REF")),
+            NullLogger<InvoiceSender>.Instance, ReglagesDEssai.SansDelaiPortail);
+
+        var resultat = await expediteur.DebloquerAsync(
+            Piece, reference: null, nonCertifiee: true, confirme: false,
+            motif: "portail vide au second passage");
+
+        Assert.Contains("contredit ce constat", resultat.Message);
+    }
+
     [Fact]
     public async Task Une_piece_en_suspens_ne_repart_pas()
     {

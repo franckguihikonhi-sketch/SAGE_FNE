@@ -665,6 +665,49 @@ Seul `--confirmer` déclenche l'appel.
 Trois refus avant même la requête : le jeu d'essai (une facture inventée ne s'envoie pas à
 la DGI), un accès non configuré, une pièce qui n'est pas « à certifier ».
 
+### Un POST ne certifie pas : il dépose
+
+Sur la plateforme d'essai, `POST /external/invoices/sign` **ne certifie pas la facture**. Il la
+dépose au portail de la DGI, et c'est un **clic sur le portail** qui la certifie et lui donne
+sa référence.
+
+Constaté sur la pièce 1221 : la plateforme a répondu `500`, et la facture est apparue au
+portail avec l'horodatage **exact de cette réponse 500** — elle est créée, puis l'erreur est
+renvoyée. Trois envois, trois `500`, trois dépôts réussis :
+
+| Pièce | Réponse HTTP | Arrivée au portail |
+| --- | --- | --- |
+| 1052 | 500 | oui |
+| 1072 | 500, puis 500 | oui — **deux fois**, d'où le doublon |
+| 1221 | 500 | oui |
+
+**Sur cette plateforme, le code HTTP ne dit rien.** Seul le portail tranche.
+
+D'où l'état **`Transmise`** — « au portail, en attente de clic ». Entre le dépôt et le clic, la
+pièce n'est ni `Sending` (l'issue est connue : elle est arrivée) ni `Certified` (personne ne
+l'a encore certifiée). Sans ce mot, une facture déposée restait indéfiniment « en suspens », et
+un avertissement qui crie au loup à chaque exécution finit par ne plus être lu.
+
+**Il ne s'atteint jamais automatiquement.** Aucun code de retour ne le prouve. Seul un
+opérateur qui a vu la pièce au portail l'inscrit :
+
+```powershell
+dotnet run --project src\SageFne.Reader -- debloquer 1221 --transmise --confirmer
+```
+
+Aucune référence n'est écrite — il n'y en a pas encore, et en inventer une est la faute que ce
+projet a déjà eu à réparer. Une fois le clic passé :
+
+```powershell
+dotnet run --project src\SageFne.Reader -- debloquer 1221 --reference "FNE-…" --confirmer
+```
+
+`Transmise` **bloque le renvoi aussi fermement que `Sending`** : la facture est déjà là-bas,
+l'y renvoyer l'y mettrait deux fois. Un test le vérifie en réintroduisant le défaut.
+
+Déclarer non certifiée une pièce constatée au portail reste possible — un opérateur peut
+s'être trompé de facture — mais la commande le signale : l'un des deux constats est faux.
+
 ### Ce que le registre autorise à repartir
 
 L'état inscrit au registre décide, autant que l'empreinte :
@@ -674,6 +717,7 @@ L'état inscrit au registre décide, autant que l'empreinte :
 | *aucune trace* | part | jamais envoyée |
 | `Error` | repart | la plateforme a refusé : rien n'a été certifié |
 | `Sending` | **bloquée** | l'envoi est parti, son issue est inconnue |
+| `Transmise` | **bloquée** | déposée au portail, en attente du clic : elle y est déjà |
 | `Certified`, empreinte identique | bloquée | déjà certifiée, inchangée |
 | `Certified`, empreinte différente | bloquée | certifiée puis modifiée dans Sage : un avoir s'impose |
 

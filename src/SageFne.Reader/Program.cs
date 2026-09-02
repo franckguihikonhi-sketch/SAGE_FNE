@@ -1573,8 +1573,15 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
             "  Elle ne repartira pas : certifiée puis modifiée. La correction passe par un avoir.",
         EtatPiece.EnSuspens =>
             "  Elle ne repartira pas seule. Cherchez-la sur le portail DGI, puis :\n" +
-            $"    debloquer {numeroStatut} --non-certifiee --confirmer   (le portail ne la connaît pas)\n" +
-            $"    debloquer {numeroStatut} --reference REF --confirmer   (le portail la porte)",
+            $"    debloquer {numeroStatut} --transmise --confirmer      (elle y est, pas encore certifiée)\n" +
+            $"    debloquer {numeroStatut} --reference REF --confirmer  (elle y est, certifiée sous ce numéro)\n" +
+            $"    debloquer {numeroStatut} --sans-reference --confirmer (elle y est, certifiée sans numéro)\n" +
+            $"    debloquer {numeroStatut} --non-certifiee --confirmer  (le portail ne la connaît pas)",
+        EtatPiece.Transmise =>
+            "  Elle est déjà au portail : la renvoyer l'y mettrait deux fois.\n" +
+            "  Une fois le clic passé et la référence en main :\n" +
+            $"    debloquer {numeroStatut} --reference REF --confirmer\n" +
+            $"    debloquer {numeroStatut} --sans-reference --confirmer (si le clic ne publie aucun numéro)",
         _ => "  Elle ne peut pas partir : des contrôles la bloquent.",
     });
 
@@ -1587,7 +1594,7 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
     Console.WriteLine();
     Console.WriteLine("Aucune API n'a été contactée, rien n'a été écrit — ni dans Sage, ni au registre.");
 
-    return suivie.Etat is EtatPiece.Bloquee or EtatPiece.EnSuspens ? 1 : 0;
+    return suivie.Etat is EtatPiece.Bloquee or EtatPiece.EnSuspens or EtatPiece.Transmise ? 1 : 0;
 }
 
 // Trancher le sort d'une pièce restée « en suspens ». Aucune API n'est
@@ -1614,7 +1621,8 @@ if (ligneDeCommande.Verbe == Verbe.Debloquer)
         ligneDeCommande.NonCertifiee,
         ligneDeCommande.Confirme,
         ligneDeCommande.SansReference,
-        ligneDeCommande.Motif);
+        ligneDeCommande.Motif,
+        ligneDeCommande.Transmise);
 
     Console.WriteLine($"  {deblocage.Message}");
 

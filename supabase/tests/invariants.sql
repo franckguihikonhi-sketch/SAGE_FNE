@@ -251,6 +251,47 @@ select attendre_echec($$
    where certification_id = '33333333-3333-3333-3333-333333333333'$$,
   'la suppression du lien entre une facture et sa règle');
 
+\echo '--- Transmise : arrivée au portail, en attente de clic ---'
+insert into certifications (id, dossier_id, identite, piece, etat)
+values ('66666666-6666-6666-6666-666666666666',
+        '22222222-2222-2222-2222-222222222222', '0/6/1221', '1221', 'sending');
+
+update certifications set etat = 'transmise'
+ where id = '66666666-6666-6666-6666-666666666666';
+
+select case when count(*) = 1 then 'OK     une pièce en suspens peut être constatée au portail'
+            else 'ÉCHEC — le passage en transmise a été refusé' end
+  from certifications
+ where id = '66666666-6666-6666-6666-666666666666' and etat = 'transmise';
+
+-- Le mur qui compte : renvoyable, elle ferait un doublon au portail.
+select attendre_echec($$
+  update certifications set etat = 'ready'
+   where id = '66666666-6666-6666-6666-666666666666'$$,
+  'le retour d''une pièce transmise en « prête »');
+
+select attendre_echec($$
+  update certifications set etat = 'pending'
+   where id = '66666666-6666-6666-6666-666666666666'$$,
+  'le retour d''une pièce transmise en « en attente »');
+
+select case when count(*) = 1 then 'OK     la vue liste les pièces au portail'
+            else format('ÉCHEC — %s ligne(s) dans la vue', count(*)) end
+  from certifications_au_portail;
+
+-- Le clic passé, elle se certifie.
+update certifications set etat = 'certified', reference_fne = 'FNE-2026-1221'
+ where id = '66666666-6666-6666-6666-666666666666';
+
+select case when count(*) = 1 then 'OK     le clic passé, elle devient certifiée'
+            else 'ÉCHEC — la certification a été refusée' end
+  from certifications
+ where id = '66666666-6666-6666-6666-666666666666' and etat = 'certified';
+
+select case when count(*) = 0 then 'OK     la vue se vide quand le clic est passé'
+            else 'ÉCHEC — la pièce certifiée reste listée au portail' end
+  from certifications_au_portail;
+
 \echo '--- RLS ---'
 -- Aucune table sans RLS, plutôt qu'un compte figé : une table ajoutée sans
 -- politique doit faire échouer ce test, pas seulement décaler un nombre.

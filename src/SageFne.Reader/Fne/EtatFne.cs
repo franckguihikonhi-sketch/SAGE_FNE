@@ -32,4 +32,28 @@ public enum EtatFne
 
     /// <summary>Bloquée par un contrôle, ou refusée par la plateforme.</summary>
     Error,
+
+    /// <summary>
+    /// Parvenue au portail de la DGI, en attente du clic qui la certifiera.
+    /// </summary>
+    /// <remarks>
+    /// Sur la plateforme d'essai, le POST dépose la facture au portail ; c'est
+    /// un clic sur le portail qui la certifie et lui donne sa référence. Entre
+    /// les deux, la pièce n'est ni <see cref="Sending"/> — son issue est connue,
+    /// elle est arrivée — ni <see cref="Certified"/> — personne ne l'a encore
+    /// certifiée.
+    ///
+    /// Cet état <b>bloque le renvoi</b> aussi fermement que <see cref="Sending"/> :
+    /// la facture est déjà au portail, un second envoi l'y mettrait deux fois.
+    ///
+    /// Il ne s'atteint <b>jamais</b> automatiquement. Aucun code HTTP ne le
+    /// prouve — la plateforme a répondu 500 sur les trois factures qu'elle a
+    /// déposées. Seul un opérateur qui a vu la pièce au portail peut l'inscrire.
+    ///
+    /// Sa place en fin d'énumération n'engage rien : le registre écrit ces
+    /// valeurs par leur nom. Ce qui compte, en revanche, c'est que la place zéro
+    /// reste occupée par l'état le moins affirmatif — un champ absent s'y relit,
+    /// quel que soit le format d'écriture, et « Pending » ne prétend rien.
+    /// </remarks>
+    Transmise,
 }

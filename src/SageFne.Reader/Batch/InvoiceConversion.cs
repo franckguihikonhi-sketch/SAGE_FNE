@@ -28,6 +28,15 @@ public enum EtatPiece
     /// irrattrapable : il faut vérifier sur le portail avant tout.
     /// </remarks>
     EnSuspens,
+
+    /// <summary>
+    /// Déposée au portail de la DGI, en attente du clic qui la certifiera.
+    /// </summary>
+    /// <remarks>
+    /// Ce n'est pas un suspens : on sait où elle est. Elle ne repart pas pour
+    /// autant — elle est déjà là-bas.
+    /// </remarks>
+    Transmise,
 }
 
 /// <summary>
@@ -59,6 +68,7 @@ public sealed class InvoiceConversion
         EtatPiece.DejaCertifiee => "déjà certifiée",
         EtatPiece.ModifieeDepuis => "modifiée depuis",
         EtatPiece.EnSuspens => "envoi en suspens",
+        EtatPiece.Transmise => "au portail, en attente de clic",
         _ => "bloquée",
     };
 
@@ -80,6 +90,7 @@ public sealed class InvoiceBatch
     public int DejaCertifiees => Compte(EtatPiece.DejaCertifiee);
     public int ModifieesDepuis => Compte(EtatPiece.ModifieeDepuis);
     public int EnSuspens => Compte(EtatPiece.EnSuspens);
+    public int Transmises => Compte(EtatPiece.Transmise);
 
     private int Compte(EtatPiece etat) => Conversions.Count(conversion => conversion.Etat == etat);
     public decimal TotalHT => Conversions.Sum(conversion => conversion.TotalHT);

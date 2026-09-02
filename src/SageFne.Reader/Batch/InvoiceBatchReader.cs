@@ -173,6 +173,21 @@ public sealed class InvoiceBatchReader(
             return EtatPiece.EnSuspens;
         }
 
+        // Déposée au portail, en attente du clic. Ce test doit rester AVANT
+        // celui qui suit : « tout ce qui n'est pas Certified peut repartir »
+        // rendrait renvoyable une facture déjà présente chez la DGI, et le
+        // doublon serait fabriqué par la règle même qui existe pour l'empêcher.
+        if (certification.Etat == Fne.EtatFne.Transmise)
+        {
+            rapport.Erreur(
+                "TRANSMISE_ATTENTE_CLIC",
+                $"Pièce {entete.Piece} : déposée au portail DGI le {certifieeLe}, en attente du " +
+                "clic qui la certifiera. Elle y est déjà — la renvoyer l'y mettrait deux fois. " +
+                "Une fois certifiée au portail, inscrivez-la : debloquer " +
+                $"{entete.Piece} --reference … (ou --sans-reference).");
+            return EtatPiece.Transmise;
+        }
+
         // Une tentative qui a échoué n'a rien certifié : la pièce redevient
         // candidate. Sans cela, un refus de la plateforme bloquerait à jamais
         // le renvoi de la facture corrigée.

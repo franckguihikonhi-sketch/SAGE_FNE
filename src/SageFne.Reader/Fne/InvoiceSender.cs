@@ -196,10 +196,12 @@ public sealed class InvoiceSender(
         bool confirme,
         bool sansReference = false,
         string? motif = null,
+        bool transmise = false,
         CancellationToken cancellation = default)
     {
         var avecReference = !string.IsNullOrWhiteSpace(reference);
-        var constats = (avecReference ? 1 : 0) + (nonCertifiee ? 1 : 0) + (sansReference ? 1 : 0);
+        var constats = (avecReference ? 1 : 0) + (nonCertifiee ? 1 : 0)
+                       + (sansReference ? 1 : 0) + (transmise ? 1 : 0);
 
         if (constats != 1)
         {
@@ -207,8 +209,9 @@ public sealed class InvoiceSender(
                 false,
                 "Cherchez d'abord la pièce sur le portail de la DGI, puis dites ce que vous y " +
                 "avez vu, une chose et une seule :\n" +
-                "    --reference REF    elle y figure, sous ce numéro\n" +
-                "    --sans-reference   elle y figure, sans numéro publié\n" +
+                "    --transmise        elle y figure, pas encore certifiée — le clic reste à faire\n" +
+                "    --reference REF    elle y figure, certifiée sous ce numéro\n" +
+                "    --sans-reference   elle y figure, certifiée sans numéro publié\n" +
                 "    --non-certifiee    elle n'y figure pas\n" +
                 "  Ce choix ne peut pas être deviné, et il ne se répare pas.");
         }
@@ -240,12 +243,23 @@ public sealed class InvoiceSender(
                 "par un avoir.");
         }
 
-        if (trace.Etat != EtatFne.Sending)
+        if (trace.Etat is not (EtatFne.Sending or EtatFne.Transmise))
         {
             return new DeblocageResultat(
                 false,
                 $"La pièce {piece} est au registre en « {trace.Etat} », pas en suspens : " +
                 "elle peut déjà repartir, rien ne la bloque.");
+        }
+
+        // Une pièce déjà constatée au portail ne s'y redéclare pas : la même
+        // observation deux fois n'apprend rien, et masquerait la première.
+        if (trace.Etat == EtatFne.Transmise && transmise)
+        {
+            return new DeblocageResultat(
+                false,
+                $"La pièce {piece} est déjà inscrite au portail, en attente de clic. " +
+                "Quand le clic sera passé : --reference REF, ou --sans-reference si aucun " +
+                "numéro n'est publié.");
         }
 
         // Déclarer « non certifiée » est la seule décision irréversible d'ici :
@@ -285,7 +299,12 @@ public sealed class InvoiceSender(
         var partiLe = (trace.DernierEnvoi?.Quand ?? trace.CertifieeLe)
             .ToLocalTime().ToString("dd/MM/yyyy à HH:mm");
 
-        var decision = nonCertifiee
+        var decision = transmise
+            ? $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} : la pièce y " +
+              $"figure, pas encore certifiée — le clic reste à faire. L'envoi du {partiLe} " +
+              "avait abouti." +
+              (string.IsNullOrWhiteSpace(motif) ? "" : $" Motif : {motif.Trim()}")
+            : nonCertifiee
             ? $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} : la pièce n'y " +
               $"figure pas. L'envoi du {partiLe} n'a rien certifié. Motif : {motif!.Trim()}"
             : sansReference
@@ -295,11 +314,20 @@ public sealed class InvoiceSender(
                 : $"Portail DGI consulté le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} : la pièce y " +
                   $"figure sous {reference}. L'envoi du {partiLe} avait abouti.";
 
-        var avertissement = trace.NombreEnvois > 1
+        // Déclarer absente une pièce qu'on avait constatée présente se dit, plutôt
+        // que de passer sans bruit : l'un des deux constats est faux.
+        var contradiction = nonCertifiee && trace.Etat == EtatFne.Transmise
+            ? "\n  ATTENTION : cette pièce a été constatée AU PORTAIL le " +
+              $"{trace.CertifieeLe.ToLocalTime():dd/MM/yyyy à HH:mm}. La déclarer absente " +
+              "contredit ce constat — l'un des deux est faux. Si elle y est toujours, " +
+              "un renvoi la mettrait deux fois."
+            : "";
+
+        var avertissement = contradiction + (trace.NombreEnvois > 1
             ? $"\n  ATTENTION : {trace.NombreEnvois} envois sont déjà partis pour cette pièce. " +
               "Comptez les factures au portail, pas seulement leur présence — un doublon s'y " +
               "verrait."
-            : "";
+            : "");
 
         if (!confirme)
         {
@@ -311,7 +339,16 @@ public sealed class InvoiceSender(
 
         // L'entrée en suspens laisse place à la décision : l'état change, le
         // journal, la réponse d'origine et l'empreinte restent.
-        var classee = (nonCertifiee
+        var classee = (transmise
+                // Ni certifiée, ni en suspens : arrivée. Aucune référence n'est
+                // inscrite — il n'y en a pas encore, et en inventer une était
+                // précisément la faute que ce projet a déjà eu à réparer.
+                ? trace with
+                {
+                    Etat = EtatFne.Transmise,
+                    Source = SourceCertification.ReconciliationManuelle,
+                }
+                : nonCertifiee
                 ? trace with { Etat = EtatFne.Error }
                 : trace with
                 {
@@ -328,7 +365,11 @@ public sealed class InvoiceSender(
 
         return new DeblocageResultat(
             true,
-            nonCertifiee
+            transmise
+                ? $"La pièce {piece} est inscrite au portail, en attente de clic. Elle ne " +
+                  "repartira pas — elle y est déjà. Une fois certifiée au portail : " +
+                  $"debloquer {piece} --reference … (ou --sans-reference)."
+                : nonCertifiee
                 ? $"La pièce {piece} redevient à certifier. Relancez « envoyer {piece} » quand elle " +
                   "sera prête." + avertissement
                 : sansReference

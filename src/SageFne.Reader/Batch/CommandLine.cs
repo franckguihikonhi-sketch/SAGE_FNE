@@ -151,6 +151,12 @@ public sealed record CommandLine
     /// </remarks>
     public bool SansReference { get; init; }
 
+    /// <summary>
+    /// La pièce figure au portail mais n'y est pas encore certifiée : le clic
+    /// reste à faire.
+    /// </summary>
+    public bool Transmise { get; init; }
+
     /// <summary>Retirer la référence d'une certification, pour <c>corriger-reconciliation</c>.</summary>
     public bool SupprimerReference { get; init; }
 
@@ -256,6 +262,7 @@ public sealed record CommandLine
         DateTimeOffset? valideDu = null;
         DateTimeOffset? valideAu = null;
         var brouillon = false;
+        var transmise = false;
         DateTimeOffset? quand = null;
         int? codeHttp = null;
         var nonCertifiee = false;
@@ -420,6 +427,10 @@ public sealed record CommandLine
                     if (int.TryParse(Valeur(), out var http) && http is >= 100 and <= 599) codeHttp = http;
                     else erreurs.Add("--code-http attend un code entre 100 et 599.");
                     break;
+                case "--transmise":
+                case "--au-portail":
+                    transmise = true;
+                    break;
                 case "--sans-reference":
                 case "--sans-référence":
                     sansReference = true;
@@ -507,6 +518,7 @@ public sealed record CommandLine
             CodeHttp = codeHttp,
             NonCertifiee = nonCertifiee,
             SansReference = sansReference,
+            Transmise = transmise,
             SupprimerReference = supprimerReference,
             SupprimerJeton = supprimerJeton,
             AfficherJson = afficherJson,
