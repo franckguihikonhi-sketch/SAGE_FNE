@@ -1583,6 +1583,10 @@ if (ligneDeCommande.Verbe == Verbe.Statut)
             "  Une fois le clic passé et la référence en main :\n" +
             $"    debloquer {numeroStatut} --reference REF --confirmer\n" +
             $"    debloquer {numeroStatut} --sans-reference --confirmer (si le clic ne publie aucun numéro)",
+        EtatPiece.HorsPerimetre =>
+            "  Elle est hors du périmètre : antérieure à la date de démarrage FNE.\n" +
+            "  Rien ne cloche sur elle — le middleware ne reprend pas l'historique.\n" +
+            "  Pour l'y ramener malgré tout, avancez ou retirez Fne:DemarrageLe.",
         _ => "  Elle ne peut pas partir : des contrôles la bloquent.",
     });
 
@@ -2553,6 +2557,17 @@ if (ligneDeCommande.Sortie is { } dossier)
 }
 
 Console.WriteLine();
+
+// Écartées par décision, pas par défaut. Sans cette ligne, un lot de deux cents
+// pièces dont cent quatre-vingt-dix-huit sont anciennes afficherait « rien ne
+// bloque » sur deux factures, et l'on se demanderait où sont passées les autres.
+if (lot.HorsPerimetre > 0)
+{
+    Console.WriteLine(
+        $"{Pluriel(lot.HorsPerimetre, "pièce")} antérieure(s) au démarrage FNE : " +
+        "hors périmètre, écartée(s) sans examen. Ce n'est pas un blocage.");
+}
+
 Console.WriteLine(lot.Bloquees > 0 || lot.ModifieesDepuis > 0
     ? $"{Pluriel(lot.Bloquees + lot.ModifieesDepuis, "pièce")} " +
       $"ne peu{(lot.Bloquees + lot.ModifieesDepuis > 1 ? "vent" : "t")} pas partir en l'état. " +

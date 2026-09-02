@@ -177,11 +177,22 @@ public sealed class ServiceSurveillance(
         _sage = EtatLien.Disponible;
         _reseau = essai.Joignable ? EtatLien.Disponible : EtatLien.Indisponible;
 
+        // Les pièces hors périmètre comptent dans « lues » mais pas dans le
+        // reste : sans cette distinction, un dossier dont l'historique est
+        // écarté afficherait « 200 pièces lues, 0 prête » et ressemblerait à
+        // une panne. Elles ne sont mentionnées que s'il y en a — une ligne qui
+        // dit « dont 0 hors périmètre » n'apprend rien.
+        var horsPerimetre = decisions.Count(
+            decision => decision.Motif == MotifAttente.HorsPerimetre);
+
         logger.LogInformation(
-            "Source {Source} : {Total} pièce(s) lues sur la fenêtre, dont {Prets} que seul le " +
-            "mode retient — en Automatic, elles partiraient.",
+            "Source {Source} : {Total} pièce(s) lues sur la fenêtre{Ecartees}, dont {Prets} que " +
+            "seul le mode retient — en Automatic, elles partiraient.",
             surDonneesReelles ? "SAGE" : "jeu d'essai",
             decisions.Count,
+            horsPerimetre == 0
+                ? ""
+                : $", dont {horsPerimetre} antérieure(s) au démarrage FNE et écartée(s)",
             decisions.Count(decision => decision.Motif == MotifAttente.ModeNonAutomatique));
 
         // Sur sa propre ligne, et en disant ce qui a été éprouvé. « Plateforme

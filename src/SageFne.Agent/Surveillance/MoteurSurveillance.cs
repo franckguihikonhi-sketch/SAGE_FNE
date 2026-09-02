@@ -77,7 +77,17 @@ public sealed class MoteurSurveillance(
                 "dans Sage. Aucun second envoi : la correction passe par un avoir.");
         }
 
-        // 3. Les contrôles métier. Une pièce non conforme est bloquée, et le
+        // 3. Le périmètre. Avant les contrôles métier : une facture de 2024
+        //    n'a pas à être annoncée « bloquée » parce qu'il lui manque un NCC.
+        //    On ne l'envoie pas, et ce n'est pas un défaut à corriger.
+        if (conversion.Etat == EtatPiece.HorsPerimetre)
+        {
+            stabilite.Oublier(identite);
+            return Retenir(MotifAttente.HorsPerimetre,
+                $"Pièce {piece} : {conversion.LibelleEtat}.");
+        }
+
+        // 4. Les contrôles métier. Une pièce non conforme est bloquée, et le
         //    reste tant que Sage n'a pas changé.
         if (conversion.Etat != EtatPiece.ACertifier)
         {
@@ -91,7 +101,7 @@ public sealed class MoteurSurveillance(
                 $"Pièce {piece} bloquée : {(causes.Count == 0 ? conversion.LibelleEtat : string.Join(", ", causes))}.");
         }
 
-        // 4. La stabilité. Elle vient après les contrôles : inutile d'observer
+        // 5. La stabilité. Elle vient après les contrôles : inutile d'observer
         //    deux fois une pièce que rien ne laissera partir.
         var attente = stabilite.Constater(identite, conversion.Empreinte);
         if (attente != MotifAttente.Aucun)
@@ -111,7 +121,7 @@ public sealed class MoteurSurveillance(
             });
         }
 
-        // 5. Enfin seulement, le mode. Il ne décide pas de la conformité — il
+        // 6. Enfin seulement, le mode. Il ne décide pas de la conformité — il
         //    décide de qui appuie sur le bouton.
         if (mode != ModeAgent.Automatic)
         {

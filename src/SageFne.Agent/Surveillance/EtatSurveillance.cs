@@ -57,6 +57,15 @@ public enum MotifAttente
     /// <summary>Déjà certifiée, déjà partie, ou déposée au portail.</summary>
     DejaTraitee,
 
+    /// <summary>Antérieure à la date de démarrage FNE.</summary>
+    /// <remarks>
+    /// Distinct de <see cref="NonConforme"/> : rien ne cloche sur cette pièce,
+    /// elle n'est simplement pas du ressort du middleware. Les compter ensemble
+    /// ferait passer un historique délibérément écarté pour un lot de factures
+    /// à réparer.
+    /// </remarks>
+    HorsPerimetre,
+
     /// <summary>Le mode courant n'autorise pas l'envoi automatique.</summary>
     ModeNonAutomatique,
 

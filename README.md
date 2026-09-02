@@ -1392,6 +1392,37 @@ l'autre a envoyé — et le doublon suivrait. Donnez un chemin absolu, hors de t
 { "Fne": { "CertificationLedgerPath": "C:\\ProgramData\\SageFne\\certifications.json" } }
 ```
 
+### Le périmètre : à partir de quand
+
+`Fne:DemarrageLe` fixe le jour où le middleware commence à se sentir concerné.
+Rien de daté avant lui n'est jamais candidat.
+
+Un dossier en service depuis des années porte un historique que la FNE n'a
+jamais vu et n'a pas à voir : ces factures ont été émises sous un autre régime,
+et beaucoup ne passeraient pas les contrôles — NCC absent, téléphone absent,
+quantité nulle. Une fenêtre glissante les écarte aussi, mais **par accident** :
+il suffit d'élargir `Agent:FenetreJours` pour que mille factures anciennes
+redeviennent candidates et que le journal annonce mille pièces bloquées. Cette
+date-ci les écarte **par décision**, et l'inscrit.
+
+Elles restent lues et affichées, sous l'état « hors périmètre » — jamais
+« bloquée ». La nuance porte : une pièce bloquée est une pièce qu'on voudrait
+envoyer et qui ne passe pas ; celle-ci, on ne veut pas l'envoyer.
+
+Deux choses qu'elle ne fait pas : elle ne touche pas au registre — une pièce
+certifiée, déposée au portail ou partie sans réponse garde son état quelle que
+soit sa date, parce que son sort est un fait et non une candidature ; et laissée
+nulle, elle ne change rien — tout le dossier reste dans le périmètre, comme
+avant.
+
+`installer-agent.ps1 -Preparer` la pose sur le jour de l'installation, une seule
+fois : la relancer ne déplace pas une frontière déjà retenue. Pour une autre
+date :
+
+```powershell
+.\deploiement\installer-agent.ps1 -Preparer -DemarrageLe 2026-08-01
+```
+
 Un script fait tout cela et s'arrête à la moindre incertitude. Windows refuse par défaut
 d'exécuter le moindre script : autorisez-le **pour cette fenêtre seulement**, ce qui n'écrit
 rien dans le registre Windows et disparaît à la fermeture. Sans `-Force`, Windows pose une

@@ -137,7 +137,7 @@ public sealed class InvoiceBatchReader(
 
         var empreinte = facture is null ? "" : InvoiceFingerprint.Compute(facture);
         deja.TryGetValue(entete.Identite, out var certification);
-        var etat = Etat(entete, facture, rapport, empreinte, certification);
+        var etat = Etat(entete, facture, rapport, empreinte, certification, _options.DemarrageLe);
 
         return new InvoiceConversion
         {
@@ -163,8 +163,27 @@ public sealed class InvoiceBatchReader(
         Models.Fne.FneInvoice? facture,
         CheckReport rapport,
         string empreinte,
-        CertifiedInvoice? certification)
+        CertifiedInvoice? certification,
+        DateTime? demarrage)
     {
+        // Hors périmètre, et cela se décide avant tout le reste — mais
+        // seulement pour une pièce dont le registre ne dit rien. Ce qui est
+        // déjà parti, déposé ou certifié garde son état quelle que soit sa
+        // date : c'est un fait, pas une candidature, et le masquer ferait
+        // disparaître du journal une pièce réellement présente chez la DGI.
+        if (certification is null && demarrage is not null && entete.Date.Date < demarrage.Value.Date)
+        {
+            // Avertissement et non erreur : rien ne cloche. Une erreur la
+            // rangerait parmi les pièces à corriger, et l'on chercherait
+            // indéfiniment ce qu'il y a à réparer sur une facture de 2024.
+            rapport.Avertir(
+                "ANTERIEURE_AU_DEMARRAGE",
+                $"Pièce {entete.Piece} du {entete.Date:dd/MM/yyyy} : antérieure au démarrage " +
+                $"FNE du {demarrage.Value:dd/MM/yyyy}. Elle n'est pas candidate, et ce n'est " +
+                "pas un défaut — le middleware ne reprend pas l'historique.");
+            return EtatPiece.HorsPerimetre;
+        }
+
         if (certification is null)
         {
             return facture is not null && !rapport.ContientDesErreurs ? EtatPiece.ACertifier : EtatPiece.Bloquee;

@@ -67,5 +67,30 @@ public sealed class FneOptions
     /// compilation — et une certification réelle y a été perdue. Voir
     /// <see cref="ServicesMiddleware.CheminDurable"/>.
     /// </remarks>
+    /// <summary>
+    /// Date de démarrage : rien de daté avant elle n'est jamais candidat.
+    /// </summary>
+    /// <remarks>
+    /// Un dossier qui existe depuis des années porte un historique que la FNE
+    /// n'a jamais vu et n'a pas à voir. Le certifier rétroactivement n'est ni
+    /// demandé ni souhaitable : ces pièces ont été facturées sous un autre
+    /// régime, et beaucoup ne passeraient pas les contrôles - NCC absent,
+    /// téléphone absent, quantité nulle.
+    ///
+    /// Une fenêtre glissante les écarte aussi, mais par accident : il suffit
+    /// d'élargir Agent:FenetreJours pour que mille factures anciennes
+    /// redeviennent candidates. Cette date-ci les écarte par décision, et le
+    /// dit.
+    ///
+    /// Nulle : aucun plancher, tout le dossier est dans le périmètre. C'est le
+    /// comportement d'origine, conservé par défaut - poser un plancher est un
+    /// choix qui se fait sciemment.
+    ///
+    /// Ce qui est déjà au registre n'est pas concerné : une pièce certifiée,
+    /// déposée au portail ou partie sans réponse garde son état, quelle que
+    /// soit sa date. Son sort est un fait, pas une candidature.
+    /// </remarks>
+    public DateTime? DemarrageLe { get; set; }
+
     public string CertificationLedgerPath { get; set; } = "";
 }

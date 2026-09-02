@@ -55,7 +55,12 @@ param(
     [string]$Registre = 'C:\ProgramData\SageFne\certifications.json',
     [string]$Journaux = 'C:\ProgramData\SageFne\journaux',
     [string]$Destination = 'C:\SageFne\agent',
-    [string]$NomService = 'SageFneAgent'
+    [string]$NomService = 'SageFneAgent',
+
+    # Le jour a partir duquel le middleware se sent concerne. Rien de date
+    # avant lui ne sera jamais candidat. Par defaut, aujourd'hui : on demarre
+    # sur ce que l'on va emettre, pas sur l'historique du dossier.
+    [string]$DemarrageLe = (Get-Date -Format 'yyyy-MM-dd')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -178,6 +183,30 @@ function Preparer-Poste {
     # défaut, celle que la DGI publie pour son environnement d'essai. Sans elle,
     # la sonde réseau répond « injoignable » et l'agent n'enverrait rien même
     # une fois passé en Automatic.
+    # Le perimetre. Pose une seule fois : le relancer ne doit pas deplacer une
+    # frontiere deja retenue, sans quoi un -Preparer de routine rouvrirait
+    # l'historique sans que personne ne l'ait demande.
+    Titre 'Perimetre FNE'
+    $demarrageExistant = [Environment]::GetEnvironmentVariable('Fne__DemarrageLe', 'Machine')
+    if ($demarrageExistant) {
+        Note "Demarrage deja pose au $demarrageExistant. Inchange."
+        Note "Pour le deplacer, effacez d'abord la variable machine Fne__DemarrageLe."
+    }
+    else {
+        if ($DemarrageLe -notmatch '^\d{4}-\d{2}-\d{2}$') {
+            throw "-DemarrageLe attend une date au format AAAA-MM-JJ, pas « $DemarrageLe »."
+        }
+
+        [Environment]::SetEnvironmentVariable('Fne__DemarrageLe', $DemarrageLe, 'Machine')
+        Set-Item 'env:Fne__DemarrageLe' $DemarrageLe
+        Note "Demarrage pose au $DemarrageLe."
+        Note "Aucune facture anterieure ne sera candidate. Elles restent lues et"
+        Note "affichees, mais classees « hors perimetre » - jamais « bloquees »."
+        Note "Pour une autre date, relancez avec : -Preparer -DemarrageLe AAAA-MM-JJ"
+        Alerte "Verifiez cette date avant d'installer : une facture datee de la veille"
+        Alerte "ne partira jamais toute seule."
+    }
+
     if (-not [Environment]::GetEnvironmentVariable('Fne__BaseUrl', 'Machine')) {
         [Environment]::SetEnvironmentVariable('Fne__BaseUrl', 'http://54.247.95.108/ws', 'Machine')
         Set-Item 'env:Fne__BaseUrl' 'http://54.247.95.108/ws'

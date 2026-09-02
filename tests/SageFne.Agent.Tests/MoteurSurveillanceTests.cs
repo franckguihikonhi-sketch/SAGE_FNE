@@ -248,4 +248,34 @@ public class MoteurSurveillanceTests
         Assert.Equal(ModeAgent.Manual, new SageFne.Agent.Configuration.AgentOptions().Mode);
         Assert.Equal(ModeAgent.Manual, (ModeAgent)0);
     }
+
+    [Fact]
+    public void Une_piece_hors_perimetre_n_est_pas_annoncee_bloquee()
+    {
+        // Le motif porte la nuance, et il la porte parce que le journal la
+        // perdrait sinon : une facture de 2024 écartée par décision serait
+        // annoncée « bloquée », et l'on chercherait le NCC manquant d'une pièce
+        // que personne n'a l'intention d'envoyer.
+        var (moteur, _) = Moteur(ModeAgent.Automatic);
+
+        var decision = moteur.Decider(Piece(EtatPiece.HorsPerimetre));
+
+        Assert.Equal(MotifAttente.HorsPerimetre, decision.Motif);
+        Assert.NotEqual(MotifAttente.NonConforme, decision.Motif);
+        Assert.False(decision.Envoyable);
+        Assert.DoesNotContain("bloquée", decision.Explication);
+    }
+
+    [Fact]
+    public void Le_perimetre_l_emporte_meme_en_mode_automatique()
+    {
+        // Rien ne doit pouvoir faire partir une pièce antérieure au démarrage :
+        // ni le mode, ni la stabilité, ni un second passage.
+        var (moteur, _) = Moteur(ModeAgent.Automatic);
+        var piece = Piece(EtatPiece.HorsPerimetre);
+
+        moteur.Decider(piece);
+
+        Assert.False(moteur.Decider(piece).Envoyable);
+    }
 }

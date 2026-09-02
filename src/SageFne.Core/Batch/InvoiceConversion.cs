@@ -37,6 +37,17 @@ public enum EtatPiece
     /// autant — elle est déjà là-bas.
     /// </remarks>
     Transmise,
+
+    /// <summary>
+    /// Antérieure à la date de démarrage : hors du périmètre du middleware.
+    /// </summary>
+    /// <remarks>
+    /// Ce n'est pas un blocage. Une pièce bloquée est une pièce que l'on
+    /// voudrait envoyer et qui ne passe pas ; celle-ci, on ne veut pas
+    /// l'envoyer. Les confondre remplirait le journal de « bloquée » pour des
+    /// factures dont personne n'attend rien.
+    /// </remarks>
+    HorsPerimetre,
 }
 
 /// <summary>
@@ -69,6 +80,7 @@ public sealed class InvoiceConversion
         EtatPiece.ModifieeDepuis => "modifiée depuis",
         EtatPiece.EnSuspens => "envoi en suspens",
         EtatPiece.Transmise => "au portail, en attente de clic",
+        EtatPiece.HorsPerimetre => "hors périmètre, antérieure au démarrage",
         _ => "bloquée",
     };
 
@@ -91,6 +103,9 @@ public sealed class InvoiceBatch
     public int ModifieesDepuis => Compte(EtatPiece.ModifieeDepuis);
     public int EnSuspens => Compte(EtatPiece.EnSuspens);
     public int Transmises => Compte(EtatPiece.Transmise);
+
+    /// <summary>Antérieures au démarrage FNE : lues, jamais candidates.</summary>
+    public int HorsPerimetre => Compte(EtatPiece.HorsPerimetre);
 
     private int Compte(EtatPiece etat) => Conversions.Count(conversion => conversion.Etat == etat);
     public decimal TotalHT => Conversions.Sum(conversion => conversion.TotalHT);
