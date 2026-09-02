@@ -19,7 +19,7 @@
     commandes à recopier :
 
     Un service Windows ne tourne pas sous le compte qui l'installe. Deux choses
-    que le CLI utilise sans y penser lui échappent — les secrets utilisateur,
+    que le CLI utilise sans y penser lui échappent - les secrets utilisateur,
     liés au profil, et le registre des certifications, dont le chemin par défaut
     passe par %APPDATA%. Le second est le pire : l'agent tiendrait son registre
     ailleurs que le CLI, chacun ignorant ce que l'autre a envoyé, et la DGI
@@ -30,7 +30,7 @@
 
 .NOTES
     Windows refuse par défaut d'exécuter le moindre script. Autorisez-le pour
-    cette fenêtre seulement — rien n'est écrit dans le registre Windows, et tout
+    cette fenêtre seulement - rien n'est écrit dans le registre Windows, et tout
     revient à la normale à la fermeture :
 
         Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -56,18 +56,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Sans paramètre, on fait tout — mais l'installation demandera confirmation.
+# Sans paramètre, on fait tout - mais l'installation demandera confirmation.
 $tout = -not ($Preparer -or $Verifier -or $Installer)
 
 function Titre($texte) {
     Write-Host ''
     Write-Host $texte -ForegroundColor Cyan
-    Write-Host ('─' * $texte.Length) -ForegroundColor Cyan
+    Write-Host ('-' * $texte.Length) -ForegroundColor Cyan
 }
 
 function Note($texte) { Write-Host "  $texte" }
 function Bien($texte) { Write-Host "  $texte" -ForegroundColor Green }
 function Alerte($texte) { Write-Host "  $texte" -ForegroundColor Yellow }
+
+# Aucun tiret cadratin ni caractère de filet dans ce fichier, et c'est
+# délibéré : « - » vaut E2 80 94 en UTF-8, et Windows PowerShell 5.1, qui lit un
+# fichier sans BOM en cp1252, y voit le caractère 0x94 - le guillemet fermant
+# typographique, qu'il traite comme un vrai délimiteur de chaîne. Les accolades
+# se déséquilibrent alors et l'erreur est annoncée cent lignes plus loin.
+#
+# Le BOM ci-dessus suffit en principe. Mais un BOM se perd - un éditeur, un
+# copier-coller, un outil qui réécrit le fichier - et ce script doit survivre à
+# cela. Les accents, eux, ne risquent rien : « é » vaut C3 A9, et 0xA9 est « © ».
+# Un test du dépôt vérifie les deux.
 
 function EstAdministrateur {
     # Hors de Windows, la question n'a pas de sens et l'appel lève une exception
@@ -199,7 +210,7 @@ function Preparer-Poste {
             Bien "$($secret.Nom) : reprise des secrets du CLI, sans être affichée."
         }
         else {
-            Alerte "$($secret.Nom) : absente. Posez-la vous-même —"
+            Alerte "$($secret.Nom) : absente. Posez-la vous-même -"
             Alerte "  [Environment]::SetEnvironmentVariable('$($secret.Variable)', '…', 'Machine')"
         }
     }
@@ -230,7 +241,7 @@ function Verifier-Poste {
         Get-Content $journal -Encoding UTF8 | Select-Object -Last 25
     }
     else {
-        Alerte "Aucun journal dans $Journaux — l'agent n'a rien pu écrire."
+        Alerte "Aucun journal dans $Journaux - l'agent n'a rien pu écrire."
     }
 
     if ($processus.ExitCode -ne 0) {

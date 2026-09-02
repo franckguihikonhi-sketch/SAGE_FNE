@@ -62,24 +62,29 @@ public class ScriptsWindowsTests
     [Fact]
     public void Aucun_script_ne_se_relit_en_guillemet_sous_cp1252()
     {
-        // Le contrôle qui décrit vraiment la panne. Un BOM suffit aujourd'hui,
-        // mais si quelqu'un le retire, mieux vaut nommer la conséquence que
-        // constater une absence de préambule.
+        // Le contrôle qui décrit vraiment la panne, et il n'accepte pas le BOM
+        // comme excuse. Un BOM se perd — un éditeur, un copier-coller, un outil
+        // qui réécrit le fichier — et le script doit survivre à cela.
+        //
+        // Les accents ne risquent rien : « é » vaut C3 A9, et 0xA9 est « © ».
+        // Seuls les tirets cadratins et les caractères de filet portent l'octet
+        // 0x94, qui devient un guillemet fermant.
         var cp1252 = CodePagesEncodingProvider.Instance.GetEncoding(1252);
         Assert.NotNull(cp1252);
 
         foreach (var script in Scripts())
         {
             var octets = File.ReadAllBytes(script);
-            var sansBom = octets.Skip(3).ToArray();
+            var sansBom = octets[0] == 0xEF ? octets.Skip(3).ToArray() : octets;
             var relu = cp1252!.GetString(sansBom);
 
             var fantomes = relu.Count(caractere => caractere is '“' or '”' or '‘' or '’');
 
-            Assert.True(
-                fantomes == 0 || (octets.Length >= 3 && octets[0] == 0xEF),
+            Assert.True(fantomes == 0,
                 $"{Path.GetFileName(script)} produirait {fantomes} guillemet(s) fantôme(s) " +
-                "sous cp1252, sans BOM pour l'en empêcher.");
+                "relu en cp1252. Remplacez les tirets cadratins par des traits d'union : " +
+                "PowerShell traite ces guillemets comme de vrais délimiteurs de chaîne, et " +
+                "toutes les accolades se déséquilibrent.");
         }
     }
 }
