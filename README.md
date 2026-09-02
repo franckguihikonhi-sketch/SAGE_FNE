@@ -1347,6 +1347,53 @@ Event Log, puis une télémétrie SaaS, et ce qui n'y entre pas n'en fuitera pas
 la place zéro des états de lien, pour la même raison que dans le registre — un champ absent ne
 doit pas se relire comme « tout va bien ».
 
+### Installer le service
+
+**Avant tout, deux pièges dus au compte sous lequel un service tourne.** L'agent refuse de
+démarrer si l'un des deux n'est pas réglé, plutôt que de le laisser arriver en silence.
+
+**Les secrets utilisateur ne suivent pas.** `dotnet user-secrets` écrit dans le profil de celui
+qui tape la commande ; un service sous `LocalSystem` lit `systemprofile` et n'y trouve rien.
+Passez par des variables d'environnement **machine** :
+
+```powershell
+[Environment]::SetEnvironmentVariable("Fne__ApiKey", "…", "Machine")
+[Environment]::SetEnvironmentVariable("ConnectionStrings__Sage", "…", "Machine")
+```
+
+**Le registre doit être partagé avec le CLI.** Son chemin par défaut passe par `%APPDATA%`, qui
+dépend du compte : l'agent écrirait son registre **ailleurs** que le CLI, chacun ignorant ce que
+l'autre a envoyé — et le doublon suivrait. Donnez un chemin absolu, hors de tout profil :
+
+```json
+{ "Fne": { "CertificationLedgerPath": "C:\\ProgramData\\SageFne\\certifications.json" } }
+```
+
+Puis éprouvez le paramétrage **sans rien installer** :
+
+```powershell
+dotnet publish src\SageFne.Agent -c Release -o C:\SageFne\agent
+C:\SageFne\agent\SageFne.Agent.exe --verifier
+```
+
+`--verifier` fait un tour, écrit ce qu'il a vu au journal, et s'arrête. C'est le seul moyen
+d'éprouver la configuration : le binaire est compilé sans console, lancé à la main il ne dirait
+rien à l'écran. Lisez `%APPDATA%\SageFne\journaux` — ou le chemin que vous avez configuré.
+
+Quand le journal est propre :
+
+```powershell
+sc.exe create "SageFneAgent" binPath= "C:\SageFne\agent\SageFne.Agent.exe" start= auto
+sc.exe description "SageFneAgent" "Certification FNE des factures Sage"
+sc.exe start "SageFneAgent"
+```
+
+`start= auto` démarre le service avec Windows, sans qu'aucun utilisateur ait à ouvrir de session.
+
+**Le mode reste `Manual` tant que vous ne le changez pas** : le service observera et
+journalisera sans rien envoyer. C'est dans cet état qu'il faut le laisser tourner quelques
+jours avant d'envisager `Automatic`.
+
 ## Arborescence
 
 ```

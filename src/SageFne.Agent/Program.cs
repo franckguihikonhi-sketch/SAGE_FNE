@@ -94,4 +94,57 @@ constructeur.Services.AddSingleton<ISondeReseau>(services =>
 
 constructeur.Services.AddHostedService<ServiceSurveillance>();
 
-await constructeur.Build().RunAsync();
+var hote = constructeur.Build();
+
+// --- Le garde-fou d'installation -------------------------------------------
+//
+// Un service ne tourne pas sous le compte de celui qui l'installe. Deux
+// mécanismes que le CLI utilise sans y penser s'en trouvent cassés : les
+// secrets utilisateur, liés au profil, et le registre des certifications, dont
+// le chemin par défaut passe par %APPDATA%. Le second est le pire : l'agent
+// écrirait son registre ailleurs que le CLI, et deux mémoires pour une seule
+// vérité finissent en doublon chez la DGI.
+//
+// Mieux vaut refuser de démarrer que de le laisser arriver en silence.
+var journalDemarrage = hote.Services
+    .GetRequiredService<ILoggerFactory>()
+    .CreateLogger("Installation");
+
+var empechements = GardeInstallation.Empechements(
+    chaineSage,
+    constructeur.Configuration["Fne:CertificationLedgerPath"],
+    constructeur.Configuration["Fne:ApiKey"]);
+
+foreach (var empechement in empechements)
+{
+    journalDemarrage.LogCritical("Démarrage refusé : {Empechement}", empechement);
+}
+
+if (empechements.Count > 0)
+{
+    journalDemarrage.LogCritical(
+        "L'agent ne démarre pas. Le journal se trouve dans {Dossier}.", dossierJournal);
+    return 1;
+}
+
+// --- Vérification, sans installer quoi que ce soit --------------------------
+//
+// « --verifier » fait un tour, écrit ce qu'il a vu au journal, et s'arrête.
+// Sans lui, il n'y aurait aucun moyen d'éprouver le paramétrage : sous Windows
+// le binaire est compilé sans console, et lancé à la main il ne dirait rien.
+if (args.Contains("--verifier"))
+{
+    journalDemarrage.LogInformation(
+        "Vérification : un tour, puis arrêt. Aucun service n'est installé.");
+
+    await hote.StartAsync();
+    await Task.Delay(TimeSpan.FromSeconds(20));
+    await hote.StopAsync();
+
+    journalDemarrage.LogInformation(
+        "Vérification terminée. Lisez {Dossier} pour ce qui a été constaté.", dossierJournal);
+    return 0;
+}
+
+await hote.RunAsync();
+return 0;
