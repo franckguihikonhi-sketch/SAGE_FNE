@@ -109,21 +109,27 @@ courriel. L'installeur le demande sans l'afficher.
 
 ## 4. Le poste qui portera l'agent
 
-### Un seul agent par dossier Sage
-
-**C'est la règle la plus importante de ce document.** Deux agents sur la même
-base tiennent deux registres qui s'ignorent : chacun lit les mêmes factures,
-chacun croit qu'elles ne sont pas parties, et **chacun les envoie**.
-
-Ce n'est pas théorique. Sur le dossier d'essai, une facture a été certifiée
-deux fois pour cette raison exacte — deux mémoires qui se croyaient toutes deux
-vraies. Il a fallu émettre un avoir.
+### Combien d'agents
 
 Les autres postes du client **n'ont pas besoin d'agent** : ils ouvrent l'écran
-distant dans un navigateur. Dix comptables, un seul agent.
+distant dans un navigateur. Dix comptables, un seul agent. C'est le montage
+normal, et le plus simple à exploiter.
 
-> Rien ne l'empêche encore techniquement. C'est une consigne d'installation,
-> pas une garantie du produit, et c'est le prochain chantier.
+Plusieurs agents sur le même dossier sont **permis**, et ils peuvent traiter
+des factures différentes en parallèle. Ce qui ne doit jamais arriver, c'est que
+la même pièce parte deux fois — c'est arrivé sur le dossier d'essai, entre le
+CLI et le service, et il a fallu émettre un avoir.
+
+> **Avec plusieurs agents, l'écran distant n'est plus facultatif.** La mémoire
+> anti-doublon partagée vit dans la base d'audit : sans elle, chaque poste ne
+> connaît que ses propres envois. Un agent qui ne s'est pas constaté seul sur
+> son dossier refuse d'envoyer tant que la base ne répond pas.
+
+On objecte parfois que Sage empêche déjà deux personnes de travailler sur la
+même facture. C'est vrai de la **saisie**, et c'est ce qui rend l'empreinte
+fiable. Mais l'agent ne saisit pas : il **lit**, et un verrou de saisie ne
+protège pas d'une lecture. La pièce qui est partie deux fois était finie depuis
+des heures, et personne ne l'éditait.
 
 ### Le bon poste
 
@@ -245,10 +251,6 @@ Registre au plan de sauvegarde   oui / non    validé par ____________
 
 Dit ici plutôt que découvert chez un client :
 
-- **Rien n'empêche deux agents** sur le même dossier Sage. Consigne, pas
-  garantie.
-- **Aucune supervision centrale.** Le battement de cœur de l'agent va dans son
-  journal local : avec vingt clients, vous ne savez pas lequel est tombé.
 - **L'exécutable n'est pas signé.** SmartScreen avertira à chaque installation.
 - **Le registre ne se restaure pas** depuis la base d'audit, qui en garde
   pourtant une copie.

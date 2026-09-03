@@ -80,7 +80,7 @@ public class ReservationTests
     }
 
     private static (InvoiceSender Expediteur, ClientTemoin Client, Registre Registre) Monter(
-        IReservationClient? reservation, FneSignResult? reponse = null)
+        IReservationClient? reservation, FneSignResult? reponse = null, SuiviAgents? agents = null)
     {
         var registre = new Registre();
 
@@ -102,7 +102,8 @@ public class ReservationTests
             reponse ?? new FneSignResult(true, 201, "2304903U26000000099"));
 
         return (new InvoiceSender(
-            lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages, reservation),
+            lecteur, registre, client, NullLogger<InvoiceSender>.Instance, reglages,
+            reservation, agents),
             client, registre);
     }
 
@@ -122,18 +123,63 @@ public class ReservationTests
     }
 
     [Fact]
-    public async Task Une_base_muette_arrete_l_envoi_plutot_que_de_supposer()
+    public async Task Une_base_muette_arrete_un_agent_qui_ignore_s_il_est_seul()
     {
-        // Ne pas pouvoir prouver qu'une pièce est libre n'autorise pas à la
-        // croire libre. Un retard se rattrape au tour suivant ; un doublon
-        // certifié ne se reprend que par un avoir.
-        var (expediteur, client, _) = Monter(new ReservationFeinte(SortReservation.Indisponible));
+        // Constat « inconnu » : la base n'a jamais répondu à cet agent. Il ne
+        // peut donc rien affirmer sur ses semblables, et ne suppose pas.
+        var (expediteur, client, _) = Monter(
+            new ReservationFeinte(SortReservation.Indisponible), agents: new SuiviAgents());
 
         var resultat = await expediteur.EnvoyerAsync(Piece, confirme: true);
 
         Assert.False(resultat.Reussi);
         Assert.False(client.Appele);
-        Assert.Contains("repassera au tour suivant", resultat.Message);
+        Assert.Contains("ne s'est pas constaté seul", resultat.Message);
+    }
+
+    [Fact]
+    public async Task Une_base_muette_arrete_un_agent_qui_se_sait_accompagne()
+    {
+        var accompagne = new SuiviAgents();
+        accompagne.Noter(autres: 1);
+
+        var (expediteur, client, _) = Monter(
+            new ReservationFeinte(SortReservation.Indisponible), agents: accompagne);
+
+        Assert.False((await expediteur.EnvoyerAsync(Piece, confirme: true)).Reussi);
+        Assert.False(client.Appele);
+    }
+
+    [Fact]
+    public async Task Une_base_muette_n_arrete_pas_un_agent_constate_seul()
+    {
+        // Le point qui rend la conception défendable : un poste isolé — le cas
+        // de l'immense majorité des installations — ne cesse pas de certifier
+        // parce qu'un service distant est en panne. Son registre fichier est la
+        // mémoire complète de tout ce qu'il a envoyé.
+        var seul = new SuiviAgents();
+        seul.Noter(autres: 0);
+
+        var (expediteur, client, _) = Monter(
+            new ReservationFeinte(SortReservation.Indisponible), agents: seul);
+
+        Assert.True((await expediteur.EnvoyerAsync(Piece, confirme: true)).Reussi);
+        Assert.True(client.Appele);
+    }
+
+    [Fact]
+    public async Task Une_piece_refusee_reste_refusee_meme_pour_un_agent_seul()
+    {
+        // « Seul » n'autorise que le silence de la base. Un refus explicite —
+        // la pièce est déjà partie — reste un refus, quoi qu'il arrive.
+        var seul = new SuiviAgents();
+        seul.Noter(autres: 0);
+
+        var (expediteur, client, _) = Monter(
+            new ReservationFeinte(SortReservation.Refusee), agents: seul);
+
+        Assert.False((await expediteur.EnvoyerAsync(Piece, confirme: true)).Reussi);
+        Assert.False(client.Appele);
     }
 
     // --- Ce qu'elle n'empêche pas -------------------------------------------
@@ -228,5 +274,70 @@ public class ReservationTests
         Assert.True(clientA.Appele);
         Assert.True(clientB.Appele);
         Assert.Equal(2, reservation.Reservees.Distinct().Count());
+    }
+
+    // --- Le constat, et la panne pendant laquelle un poste s'ajoute ---------
+
+    [Fact]
+    public void Un_agent_qui_n_a_jamais_joint_la_base_ne_suppose_rien()
+    {
+        var suivi = new SuiviAgents();
+
+        Assert.Equal(ConstatAgents.Inconnu, suivi.Dernier);
+        Assert.False(suivi.PeutSePasserDeLaBase);
+        Assert.Null(suivi.VuLe);
+    }
+
+    [Fact]
+    public void Le_constat_suit_ce_que_la_base_a_dit()
+    {
+        var suivi = new SuiviAgents();
+
+        suivi.Noter(autres: 0);
+        Assert.Equal(ConstatAgents.Seul, suivi.Dernier);
+        Assert.True(suivi.PeutSePasserDeLaBase);
+
+        suivi.Noter(autres: 2);
+        Assert.Equal(ConstatAgents.Accompagne, suivi.Dernier);
+        Assert.False(suivi.PeutSePasserDeLaBase);
+    }
+
+    [Fact]
+    public async Task Un_second_poste_installe_pendant_une_panne_n_envoie_rien()
+    {
+        // Le scénario qui décide de tout. L'ancien s'est constaté seul avant la
+        // panne et continue ; le nouveau n'a jamais joint la base et s'arrête.
+        // L'ordre d'apparition rend la chose sûre : un agent qui démarre voit
+        // toujours celui qui était là avant lui, alors que l'inverse prend un
+        // tour. Les deux ne peuvent donc pas envoyer la même pièce.
+        var ancien = new SuiviAgents();
+        ancien.Noter(autres: 0);
+
+        var nouveau = new SuiviAgents();
+
+        var muette = new ReservationFeinte(SortReservation.Indisponible);
+        var (premier, clientAncien, _) = Monter(muette, agents: ancien);
+        var (second, clientNouveau, _) = Monter(muette, agents: nouveau);
+
+        var a = await premier.EnvoyerAsync(Piece, confirme: true);
+        var b = await second.EnvoyerAsync(Piece, confirme: true);
+
+        Assert.True(a.Reussi);
+        Assert.True(clientAncien.Appele);
+
+        Assert.False(b.Reussi);
+        Assert.False(clientNouveau.Appele);
+    }
+
+    [Fact]
+    public void Le_constat_se_perd_au_redemarrage_et_c_est_voulu()
+    {
+        // Un agent qui redémarre repart d'« inconnu », c'est-à-dire du
+        // comportement prudent, jusqu'à ce que la base lui réponde. Persister
+        // ce constat le ferait survivre à une situation qui a changé.
+        var suivi = new SuiviAgents();
+        suivi.Noter(autres: 0);
+
+        Assert.Equal(ConstatAgents.Inconnu, new SuiviAgents().Dernier);
     }
 }

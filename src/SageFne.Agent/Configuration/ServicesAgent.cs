@@ -48,7 +48,18 @@ public static class ServicesAgent
     public static IServiceCollection AjouterSante(
         this IServiceCollection services, TimeSpan delaiSonde)
     {
-        services.AddSingleton<IPublicationHeartbeat, HeartbeatJournal>();
+        // Deux destinations, et le service n'en connaît aucune : il publie, et
+        // ce qui est branché reçoit. Le journal du poste répond à « l'agent
+        // tourne-t-il ? » depuis la machine ; la base d'audit y répond à
+        // distance, pour vingt clients à la fois.
+        services.AddSingleton<HeartbeatJournal>();
+        services.AddHttpClient<HeartbeatSaas>();
+        services.AddSingleton<IPublicationHeartbeat>(fournisseur => new HeartbeatPartout(
+            [
+                fournisseur.GetRequiredService<HeartbeatJournal>(),
+                fournisseur.GetRequiredService<HeartbeatSaas>(),
+            ],
+            fournisseur.GetRequiredService<ILogger<HeartbeatPartout>>()));
 
         // FneApiOptions, l'instance liée par AjouterMiddlewareFne — la même que
         // lit le CLI. Pas un IOptions<> : rien ne l'alimente.

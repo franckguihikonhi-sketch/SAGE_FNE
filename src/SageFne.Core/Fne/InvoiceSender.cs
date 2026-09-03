@@ -69,7 +69,8 @@ public sealed class InvoiceSender(
     // Facultatif, et avec une valeur par défaut : les doublures de test qui
     // construisent un expéditeur continuent de compiler. Ajouter un paramètre
     // obligatoire ici a déjà cassé vingt sites d'appel d'un coup.
-    Saas.IReservationClient? reservation = null)
+    Saas.IReservationClient? reservation = null,
+    Saas.SuiviAgents? agents = null)
 {
     private readonly Configuration.FneOptions _options = options.Value;
 
@@ -198,15 +199,31 @@ public sealed class InvoiceSender(
 
             if (sort is Saas.SortReservation.Indisponible)
             {
-                // Ne pas pouvoir prouver qu'une pièce est libre n'autorise pas
-                // à la croire libre. Elle repassera au tour suivant : un retard
-                // se rattrape, un doublon certifié non.
-                return new EnvoiResultat(
-                    EtatFne.Error,
-                    $"La base d'audit n'a pas répondu : impossible de vérifier que la pièce " +
-                    $"{piece} n'est pas déjà partie depuis un autre poste. Rien n'a été envoyé, " +
-                    "et elle repassera au tour suivant.",
-                    conversion);
+                // La base ne répond pas. Bloquer systématiquement ferait
+                // dépendre la certification d'un service qui n'y participe
+                // pas : un poste isolé, dont le registre fichier est la mémoire
+                // complète, cesserait de travailler pour une panne distante.
+                //
+                // Ce qui décide, c'est un fait relevé et non un réglage coché :
+                // cet agent s'est-il constaté SEUL sur son dossier ? Un
+                // nouveau venu, lui, n'a jamais contacté la base et reste au
+                // constat « inconnu » — il n'enverra rien. Aucun des deux ne
+                // peut donc envoyer la même pièce.
+                if (agents is not { PeutSePasserDeLaBase: true })
+                {
+                    return new EnvoiResultat(
+                        EtatFne.Error,
+                        $"La base d'audit n'a pas répondu, et cet agent ne s'est pas constaté " +
+                        $"seul sur son dossier : impossible de vérifier que la pièce {piece} " +
+                        "n'est pas déjà partie depuis un autre poste. Rien n'a été envoyé, et " +
+                        "elle repassera au tour suivant.",
+                        conversion);
+                }
+
+                logger.LogWarning(
+                    "Base d'audit muette : la pièce {Piece} part sur la foi du registre local. " +
+                    "Cet agent s'est constaté seul sur son dossier le {Vu}.",
+                    piece, agents.VuLe);
             }
         }
 

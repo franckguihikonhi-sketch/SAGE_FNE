@@ -62,6 +62,10 @@ public static class ServicesMiddleware
         {
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
         });
+        // Ce que l'agent sait de ses semblables. Un seul exemplaire : deux
+        // suivis, ce serait deux constats, dont un périmé.
+        services.AddSingleton<SuiviAgents>();
+
         // La réservation partagée : elle DÉCIDE, là où le miroir se contente de
         // refléter. C'est pourquoi elle entre dans le chemin d'envoi et que le
         // miroir n'y entre pas.
