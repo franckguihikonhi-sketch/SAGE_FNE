@@ -76,6 +76,18 @@ public sealed class DemoSageInvoiceRepository(bool estReel = false)
         },
         new()
         {
+            CtNum = "4011COOP",
+            Intitule = "COOPERATIVE DU GRAND OUEST (jeu d'essai)",
+            // Un producteur n'a pas de NCC : c'est précisément pourquoi le
+            // bordereau d'achat existe, et pourquoi son tableau de paramètres
+            // n'en porte aucun.
+            Identifiant = "",
+            Pays = "COTE D'IVOIRE",
+            Telephone = "0709080765",
+            Email = "coop@example.test",
+        },
+        new()
+        {
             CtNum = "4111SANSNCC",
             Intitule = "CLIENT SANS NCC (jeu d'essai)",
             Identifiant = "",
@@ -94,6 +106,12 @@ public sealed class DemoSageInvoiceRepository(bool estReel = false)
         // du dossier réel — 913 documents sur 1 008 relevés.
         Entete("1224", new DateTime(2025, 12, 10), "4111DEMOSA", totalHT: 80000m, totalTTC: 94400m,
             type: SageDocumentTypes.FactureComptabilisee),
+
+        // Domaine 1 : les achats. Deux pièces, dont une comptabilisée, comme
+        // 6 et 7 côté ventes.
+        Achat("AC001", new DateTime(2025, 12, 11), "4011COOP", totalHT: 450000m),
+        Achat("AC002", new DateTime(2025, 12, 12), "4011COOP", totalHT: 120000m,
+            type: SagePurchaseTypes.FactureComptabilisee),
     ];
 
     private static readonly SageDocumentLine[] Lignes =
@@ -128,6 +146,12 @@ public sealed class DemoSageInvoiceRepository(bool estReel = false)
         // La ligne d'une facture comptabilisée se lit comme les autres.
         Ligne("1224", 1, "13110001", "Tenderloin chain off", 8m, 10000m, "KG",
             montantHT: 80000m, montantTTC: 94400m, taxe1: 18m, code1: "TVA"),
+
+        // Domaine 1 : les achats. Aucune taxe — le bordereau d'achat n'en porte
+        // pas, et c'est ce que le chemin d'achat doit savoir traiter.
+        LigneAchat("AC001", 1, "CACAO01", "Cacao brut premier choix", 200m, 2000m, "SAC"),
+        LigneAchat("AC001", 2, "CAFE01", "Café vert", 50m, 1000m, "SAC"),
+        LigneAchat("AC002", 1, "HEVEA01", "Fond de tasse hévéa", 300m, 400m, "KG"),
     ];
 
     /// <summary>
@@ -379,9 +403,44 @@ public sealed class DemoSageInvoiceRepository(bool estReel = false)
             .ToList());
 
     private static bool Retenue(InvoiceQuery query, SageDocumentHeader entete) =>
-        (query.Pieces.Count == 0 || query.Pieces.Contains(entete.Piece))
+        // Le domaine d'abord, et il manquait : le jeu d'essai rendait ses
+        // achats à une lecture de ventes, ce que le dépôt SQL ne fait pas — sa
+        // requête porte « where e.DO_Domaine = @domaine ». Une doublure qui se
+        // comporte autrement que ce qu'elle double ne prouve rien.
+        entete.Domaine == query.Domaine
+        && (query.Pieces.Count == 0 || query.Pieces.Contains(entete.Piece))
         && (query.Depuis is null || entete.Date >= query.Depuis)
         && (query.Jusqua is null || entete.Date < query.Jusqua);
+
+    /// <summary>
+    /// Un bordereau d'achat, pour que le chemin des achats soit exercé et non
+    /// supposé.
+    /// </summary>
+    /// <remarks>
+    /// Domaine 1, types 16 et 17 : ce que <c>domaines</c> a relevé sur le
+    /// dossier réel. Sans pièce d'achat dans le jeu d'essai, tout le chemin
+    /// d'achat — lecture, mapping sans TVA, contrôles — ne serait éprouvé par
+    /// rien du tout.
+    /// </remarks>
+    private static SageDocumentHeader Achat(
+        string piece,
+        DateTime date,
+        string tiers,
+        decimal totalHT,
+        short type = SagePurchaseTypes.Facture) => new()
+    {
+        Domaine = SageDomaines.Achat,
+        Type = type,
+        DocType = SagePurchaseTypes.Facture,
+        Piece = piece,
+        Date = date,
+        Tiers = tiers,
+        TotalHT = totalHT,
+        // Un bordereau d'achat ne porte pas de TVA : le TTC vaut le HT.
+        TotalTTC = totalHT,
+        NetAPayer = totalHT,
+        Statut = 0,
+    };
 
     private static SageDocumentHeader Entete(
         string piece,
@@ -419,6 +478,31 @@ public sealed class DemoSageInvoiceRepository(bool estReel = false)
         Tiers = tiers,
         TotalTTC = totalTTC,
         NetAPayer = totalTTC,
+    };
+
+    /// <summary>Une ligne de bordereau d'achat : aucune taxe, par nature.</summary>
+    private static SageDocumentLine LigneAchat(
+        string piece,
+        int rang,
+        string article,
+        string designation,
+        decimal quantite,
+        decimal prixUnitaire,
+        string unite) => new()
+    {
+        Domaine = SageDomaines.Achat,
+        Type = Entetes.First(entete => entete.Piece == piece).Type,
+        Piece = piece,
+        Ligne = rang,
+        CtNum = Entetes.First(entete => entete.Piece == piece).Tiers,
+        Date = Entetes.First(entete => entete.Piece == piece).Date,
+        ArticleReference = article,
+        Designation = designation,
+        Quantite = quantite,
+        PrixUnitaire = prixUnitaire,
+        Unite = unite,
+        MontantHT = quantite * prixUnitaire,
+        MontantTTC = quantite * prixUnitaire,
     };
 
     private static SageDocumentLine Ligne(

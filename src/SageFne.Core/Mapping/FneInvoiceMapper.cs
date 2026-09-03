@@ -42,7 +42,55 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
     {
         var items = new List<FneInvoiceItem>(lines.Count);
 
-        foreach (var ligne in lines.OrderBy(ligne => ligne.Ligne))
+        // Le bordereau d'achat ne porte pas de TVA : le tableau des paramètres
+        // de la DGI ne mentionne ni « taxes » ni « customTaxes » pour lui,
+        // contrairement à la vente. Un achat à un producteur n'en a pas.
+        //
+        // Chemin distinct, et non une branche dans la boucle des ventes : les
+        // ventes certifient en production, et leur chemin ne doit pas bouger
+        // d'un octet pour accueillir l'achat. Le peu qui se répète — la remise,
+        // le prix unitaire — se paie moins cher qu'une régression sur ce qui
+        // marche.
+        var estAchat = header.Domaine == SageDomaines.Achat;
+
+        if (estAchat)
+        {
+            foreach (var ligne in lines.OrderBy(ligne => ligne.Ligne))
+            {
+                var remiseAchat = RemiseMapping.Read(ligne);
+                foreach (var avertissement in remiseAchat.Avertissements)
+                {
+                    report?.Avertir("REMISE_NON_CONCORDANTE", $"ligne {ligne.Ligne} : {avertissement}");
+                }
+
+                if (string.IsNullOrWhiteSpace(ligne.Designation))
+                {
+                    report?.Erreur(
+                        "LIGNE_SANS_DESIGNATION",
+                        $"ligne {ligne.Ligne} : DL_Design est vide — la DGI l'exige.");
+                }
+
+                items.Add(new FneInvoiceItem
+                {
+                    Taxes = null,
+                    CustomTaxes = null,
+                    Reference = ligne.ArticleReference,
+                    Description = ligne.Designation,
+                    Quantity = ligne.Quantite,
+                    Amount = remiseAchat.PrixUnitaireNet,
+                    Discount = 0m,
+                    MeasurementUnit = ligne.Unite,
+                });
+            }
+        }
+
+        // Les ventes : la boucle d'origine, inchangée. Vide sur un achat, que
+        // la boucle précédente a déjà traité.
+        var lignesVente = estAchat
+            ? Enumerable.Empty<SageDocumentLine>()
+            : lines.OrderBy(ligne => ligne.Ligne);
+
+        foreach (var ligne in lignesVente)
         {
             var famille = famillesParArticle is not null
                 && famillesParArticle.TryGetValue(ligne.ArticleReference, out var trouvee)
@@ -209,13 +257,30 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
             }
         }
 
+        if (estAchat)
+        {
+            // Ce que la DGI appelle « purchase » est le bordereau d'achat de
+            // produits agricoles, pas la facture d'un fournisseur. La distinction
+            // n'est pas vérifiable ici : c'est l'exploitant qui l'affirme en
+            // certifiant, et l'écran le lui dit avant qu'il ne clique.
+            report?.Avertir(
+                "ACHAT_BORDEREAU_DECLARE",
+                "Cette pièce partirait en « purchase » : la DGI n'accepte sous ce type que le " +
+                "bordereau d'achat de produits agricoles. Une facture fournisseur ordinaire " +
+                "n'a pas à être certifiée par l'acheteur — c'est le fournisseur qui certifie " +
+                "sa vente.");
+        }
+
         return new FneInvoice
         {
-            InvoiceType = "sale",
+            InvoiceType = estAchat ? "purchase" : "sale",
             PaymentMethod = modeEnvoye,
             Template = _options.Template,
             IsRne = _options.IsRne,
-            ClientNcc = customer.Identifiant,
+            // Le tableau des paramètres du bordereau d'achat ne porte aucun
+            // clientNcc : un producteur n'en a pas. La réponse de la DGI le
+            // rend vide sur son propre exemple d'achat.
+            ClientNcc = estAchat ? "" : customer.Identifiant,
             ClientCompanyName = customer.Intitule,
             ClientPhone = customer.Telephone,
             ClientEmail = customer.Email,

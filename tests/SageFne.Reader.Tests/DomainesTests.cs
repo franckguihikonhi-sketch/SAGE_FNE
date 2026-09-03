@@ -22,14 +22,19 @@ public class DomainesTests
 
         Assert.NotEmpty(domaines);
 
-        // Le jeu d'essai ne porte que des ventes : il le dit plutôt que de
-        // fabriquer des achats qu'aucun dossier réel ne confirmerait.
-        Assert.All(domaines, d => Assert.Equal(0, d.Domaine));
+        // Les deux domaines, désormais : le jeu d'essai porte des ventes et des
+        // achats, si bien que le chemin d'achat est exercé et non supposé.
+        Assert.Contains(domaines, d => d.Domaine == SageDomaines.Vente);
+        Assert.Contains(domaines, d => d.Domaine == SageDomaines.Achat);
 
         // Les deux états d'une facture, comptés séparément parce qu'ils le sont
         // dans la table — c'est justement ce que l'inventaire doit montrer.
-        Assert.Contains(domaines, d => d.Type == SageDocumentTypes.Facture);
-        Assert.Contains(domaines, d => d.Type == SageDocumentTypes.FactureComptabilisee);
+        Assert.Contains(domaines, d =>
+            d.Domaine == SageDomaines.Vente && d.Type == SageDocumentTypes.Facture);
+        Assert.Contains(domaines, d =>
+            d.Domaine == SageDomaines.Vente && d.Type == SageDocumentTypes.FactureComptabilisee);
+        Assert.Contains(domaines, d =>
+            d.Domaine == SageDomaines.Achat && d.Type == SagePurchaseTypes.Facture);
     }
 
     [Fact]

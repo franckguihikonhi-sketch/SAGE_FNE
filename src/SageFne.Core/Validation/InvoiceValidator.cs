@@ -15,6 +15,8 @@ public static class InvoiceValidator
         string template,
         CheckReport rapport)
     {
+        var estAchat = entete?.Domaine == SageDomaines.Achat;
+
         if (entete is null)
         {
             rapport.Erreur("PIECE_INTROUVABLE", "Aucune pièce trouvée pour ce numéro.");
@@ -86,7 +88,13 @@ public static class InvoiceValidator
 
             // Le NCC identifie le client auprès de la DGI : une facture B2B
             // sans NCC sera refusée à la certification.
-            if (GabaritFne.ExigeNcc(template)
+            //
+            // Sauf sur un bordereau d'achat : son tableau de paramètres n'en
+            // porte aucun, et pour cause — le fournisseur y est un producteur,
+            // qui n'a pas de NCC. L'exiger bloquerait tous les achats sur une
+            // règle qui ne les concerne pas.
+            if (!estAchat
+                && GabaritFne.ExigeNcc(template)
                 && string.IsNullOrWhiteSpace(client.Identifiant))
             {
                 rapport.Erreur(

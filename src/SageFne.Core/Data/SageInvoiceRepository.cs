@@ -182,8 +182,8 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
                 """;
 
             await using var commande = Commande(connexion, sql);
-            Ajouter(commande, "@domaine", DomaineVente);
-            AjouterTypes(commande);
+            Ajouter(commande, "@domaine", query.Domaine);
+            AjouterTypes(commande, query.Domaine);
             Ajouter(commande, "@limite", query.Limite);
             criteres.Appliquer(commande, tranche);
 
@@ -210,8 +210,8 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             await using var commande = Commande(
                 connexion,
                 SqlLignes(criteres, tranche, colonnes.Selection("l", SouhaiteesLignes)));
-            Ajouter(commande, "@domaine", DomaineVente);
-            AjouterTypes(commande);
+            Ajouter(commande, "@domaine", query.Domaine);
+            AjouterTypes(commande, query.Domaine);
             criteres.Appliquer(commande, tranche);
 
             lignes.AddRange(await LireLignesAsync(commande, colonnes, cancellation));
@@ -1046,9 +1046,28 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
         commande.Parameters.Add(nom, SqlDbType.Int).Value = valeur;
 
     /// <summary>Les deux états d'une facture, liés d'un seul geste.</summary>
-    private static void AjouterTypes(SqlCommand commande)
+    private static void AjouterTypes(SqlCommand commande) =>
+        AjouterTypes(commande, SageDomaines.Vente);
+
+    /// <summary>
+    /// Les deux états d'une facture, dans le domaine demandé.
+    /// </summary>
+    /// <remarks>
+    /// Vente : 6 et 7. Achat : 16 et 17. Dans les deux cas, deux états d'un même
+    /// document que la comptabilisation fait passer de l'un à l'autre — relevés
+    /// sur le dossier réel, pas devinés.
+    ///
+    /// Un domaine inconnu retombe sur la vente plutôt que de lire n'importe
+    /// quoi : c'est le domaine que le middleware a toujours lu, et le seul dont
+    /// les règles fiscales sont écrites.
+    /// </remarks>
+    private static void AjouterTypes(SqlCommand commande, short domaine)
     {
-        Ajouter(commande, "@typeFacture", TypeFacture);
-        Ajouter(commande, "@typeComptabilisee", TypeComptabilisee);
+        var (facture, comptabilisee) = domaine == SageDomaines.Achat
+            ? (SagePurchaseTypes.Facture, SagePurchaseTypes.FactureComptabilisee)
+            : (TypeFacture, TypeComptabilisee);
+
+        Ajouter(commande, "@typeFacture", facture);
+        Ajouter(commande, "@typeComptabilisee", comptabilisee);
     }
 }
