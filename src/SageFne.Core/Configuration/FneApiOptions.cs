@@ -38,6 +38,12 @@ public sealed class FneApiOptions
     /// <summary>Chemin de la certification, relatif à <see cref="BaseUrl"/>.</summary>
     public string SignPath { get; set; } = "/external/invoices/sign";
 
+    /// <summary>
+    /// Le chemin de l'avoir, où <c>{id}</c> est l'identifiant rendu par la
+    /// certification.
+    /// </summary>
+    public string RefundPath { get; set; } = "/external/invoices/{id}/refund";
+
     public string AuthenticationHeader { get; set; } = "Authorization";
 
     /// <summary>Préfixe de la valeur d'en-tête. Vide pour une clé nue.</summary>
@@ -96,6 +102,15 @@ public sealed class FneApiOptions
     /// <summary>L'adresse complète de la certification.</summary>
     public Uri AdresseSignature() =>
         new(new Uri(BaseUrlEffective.TrimEnd('/') + "/"), SignPath.TrimStart('/'));
+
+    /// <summary>L'adresse complète de l'avoir d'une facture certifiée.</summary>
+    /// <remarks>
+    /// L'identifiant est encodé : il vient de la plateforme, pas de nous, et
+    /// une valeur inattendue ne doit pas pouvoir déformer l'URL.
+    /// </remarks>
+    public Uri AdresseAvoir(string idFacture) =>
+        new(new Uri(BaseUrlEffective.TrimEnd('/') + "/"),
+            RefundPath.TrimStart('/').Replace("{id}", Uri.EscapeDataString(idFacture)));
 
     /// <summary>
     /// L'adresse retenue après normalisation, ou celle configurée telle quelle.

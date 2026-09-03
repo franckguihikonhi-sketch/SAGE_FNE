@@ -33,3 +33,26 @@ public interface IFneApiClient
 
     Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken cancellation = default);
 }
+
+/// <summary>
+/// L'annulation d'une facture certifiée, par un avoir.
+/// </summary>
+/// <remarks>
+/// Interface distincte de <see cref="IFneApiClient"/>, et non une méthode de
+/// plus sur celle-ci : seize doublures de test l'implémentent, et aucune n'a
+/// affaire aux avoirs. Ajouter la méthode là-bas les aurait toutes cassées, ou
+/// — pire — forcé une implémentation par défaut qui aurait fait croire à un
+/// avoir là où rien ne serait parti.
+///
+/// L'avoir est d'ailleurs une capacité distincte : le service ne l'a pas et ne
+/// doit pas l'avoir. Annuler une facture certifiée est une décision, jamais un
+/// automatisme.
+/// </remarks>
+public interface IFneAvoirClient
+{
+    /// <summary>La requête qui partirait, pour la montrer avant de l'envoyer.</summary>
+    string DecrireAvoir(string idFacture, CorpsAvoir corps);
+
+    Task<FneSignResult> RembourserAsync(
+        string idFacture, CorpsAvoir corps, CancellationToken cancellation = default);
+}

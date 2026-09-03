@@ -34,6 +34,19 @@ public sealed record DeblocageResultat(
     bool ConfirmationManque = false);
 
 /// <summary>
+/// Ce qu'un avoir a donné.
+/// </summary>
+/// <param name="Requete">La requête formée, montrée en simulation comme après coup.</param>
+/// <param name="Lecture">Les lignes certifiées relues dans la réponse de la DGI.</param>
+public sealed record AvoirResultat(
+    bool Applique,
+    string Message,
+    string Requete = "",
+    LectureAvoir? Lecture = null,
+    bool ConfirmationManque = false,
+    FneSignResult? Reponse = null);
+
+/// <summary>
 /// Envoie une facture à la certification, et n'oublie jamais qu'elle est partie.
 /// </summary>
 /// <remarks>
@@ -247,6 +260,161 @@ public sealed class InvoiceSender(
     /// Le registre n'oublie rien : l'entrée en suspens est remplacée par une
     /// entrée qui porte la décision et sa date, jamais effacée.
     /// </remarks>
+    /// <summary>
+    /// Annule une facture certifiée par un avoir, et n'oublie jamais qu'il est
+    /// parti.
+    /// </summary>
+    /// <remarks>
+    /// Même discipline que l'envoi, pour la même raison : la trace est écrite
+    /// <b>avant</b> l'appel. Un avoir perdu en route serait un second avoir
+    /// envoyé plus tard, c'est-à-dire deux annulations pour une facture.
+    ///
+    /// L'état de la pièce ne bouge pas. Elle reste <c>Certified</c> et ne
+    /// repartira pas : un avoir ne défait pas la certification, il lui répond.
+    /// Et <see cref="CertifiedInvoice.Reponse"/> n'est jamais réécrite — c'est
+    /// elle qui porte les identifiants DGI, et un second avoir en aurait besoin.
+    /// </remarks>
+    public async Task<AvoirResultat> AvoirAsync(
+        string piece,
+        bool confirme,
+        IReadOnlyDictionary<string, decimal>? quantites = null,
+        string? motif = null,
+        CancellationToken cancellation = default,
+        short domaine = SageDomaines.Vente)
+    {
+        // Le client réel porte les deux capacités. Une doublure de test qui ne
+        // fait que signer n'en porte qu'une, et le dire vaut mieux que de la
+        // faire échouer sur un cast.
+        if (client is not IFneAvoirClient clientAvoir)
+        {
+            return new AvoirResultat(false,
+                "Ce client ne sait pas émettre d'avoir : aucune requête n'a été formée.");
+        }
+
+        var lot = await lecteur.ReadAsync(
+            InvoiceQuery.Piece(piece) with { Domaine = domaine }, cancellation);
+        var conversion = lot.Conversions.FirstOrDefault();
+
+        if (conversion is null)
+        {
+            return new AvoirResultat(false, $"Aucune facture au numéro {piece}.");
+        }
+
+        var trace = conversion.Certification;
+
+        if (trace is null || trace.Etat != EtatFne.Certified)
+        {
+            return new AvoirResultat(false,
+                $"La pièce {piece} n'est pas certifiée au registre" +
+                (trace is null ? "." : $" : elle y figure en « {trace.Etat} ».") +
+                " Un avoir n'annule que ce qui existe chez la DGI.");
+        }
+
+        var lecture = AvoirFne.Lire(trace.Reponse);
+
+        if (!lecture.Possible)
+        {
+            return new AvoirResultat(false,
+                $"L'avoir de la pièce {piece} ne peut pas être construit : {lecture.Empechement}");
+        }
+
+        if (quantites is not null)
+        {
+            var connues = lecture.Lignes.Select(l => l.Reference).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var inconnues = quantites.Keys.Where(reference => !connues.Contains(reference)).ToList();
+
+            if (inconnues.Count > 0)
+            {
+                return new AvoirResultat(false,
+                    $"Ces références ne figurent pas dans la facture certifiée : " +
+                    $"{string.Join(", ", inconnues)}. Rien n'est envoyé — un avoir sur une " +
+                    "ligne qu'on croit désigner en annulerait une autre.");
+            }
+
+            var excessives = lecture.Lignes
+                .Where(ligne => quantites.TryGetValue(ligne.Reference, out var voulue)
+                                && voulue > ligne.Quantite)
+                .Select(ligne => $"{ligne.Reference} ({quantites[ligne.Reference]} > {ligne.Quantite})")
+                .ToList();
+
+            if (excessives.Count > 0)
+            {
+                return new AvoirResultat(false,
+                    $"Quantités supérieures à ce qui a été certifié : {string.Join(", ", excessives)}.");
+            }
+        }
+
+        var corps = AvoirFne.Corps(lecture.Lignes, quantites);
+
+        if (corps.Items.Count == 0)
+        {
+            return new AvoirResultat(false, "L'avoir ne porterait aucune ligne : rien n'est envoyé.");
+        }
+
+        var requete = clientAvoir.DecrireAvoir(lecture.IdFacture, corps);
+
+        if (!confirme)
+        {
+            return new AvoirResultat(false, "Simulation : rien n'est parti.", requete, lecture,
+                ConfirmationManque: true);
+        }
+
+        var avant = trace.AvecTentative(
+            GenreTentative.Avoir,
+            $"POST d'avoir sur {lecture.IdFacture} — {corps.Items.Count} ligne(s). Issue inconnue.");
+
+        try
+        {
+            await registre.RecordAsync(avant, cancellation);
+        }
+        catch (Exception erreur) when (erreur is not OperationCanceledException)
+        {
+            logger.LogError(erreur, "Registre inaccessible : avoir abandonné avant tout appel.");
+            return new AvoirResultat(false,
+                $"Le registre n'a pas pu être écrit : {erreur.Message} Rien n'a été envoyé.");
+        }
+
+        var reponse = await clientAvoir.RembourserAsync(lecture.IdFacture, corps, cancellation);
+
+        var note = string.IsNullOrWhiteSpace(motif) ? "" : $" Motif : {motif}";
+
+        if (!reponse.Reussi)
+        {
+            var douteux = reponse.CodeHttp is null or >= 500;
+
+            await registre.RecordAsync(
+                avant.AvecTentative(
+                    GenreTentative.Avoir,
+                    douteux
+                        ? $"{reponse.Erreur} Issue INCONNUE : la plateforme a pu enregistrer l'avoir.{note}"
+                        : $"{reponse.Erreur} Refus net : aucun avoir n'a été créé.{note}",
+                    reponse.CodeHttp),
+                cancellation);
+
+            return new AvoirResultat(false,
+                douteux
+                    ? $"Issue inconnue : {reponse.Erreur} Vérifiez au portail avant tout second avoir."
+                    : $"Refusé : {reponse.Erreur}",
+                requete, lecture, Reponse: reponse);
+        }
+
+        await registre.RecordAsync(
+            avant
+                .AvecTentative(
+                    GenreTentative.Avoir,
+                    $"Avoir certifié sous {reponse.ReferenceFne}.",
+                    reponse.CodeHttp)
+                .AvecMotif(
+                    $"Avoir {reponse.ReferenceFne} émis le {DateTimeOffset.Now:dd/MM/yyyy HH:mm} " +
+                    $"contre la certification {trace.ReferenceFne}.{note}"),
+            cancellation);
+
+        return new AvoirResultat(true,
+            $"Avoir certifié sous {reponse.ReferenceFne}. La pièce {piece} reste « Certified » : " +
+            "l'avoir répond à la facture, il ne l'efface pas.",
+            requete, lecture, Reponse: reponse);
+    }
+
     public async Task<DeblocageResultat> DebloquerAsync(
         string piece,
         string? reference,

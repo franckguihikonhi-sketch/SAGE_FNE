@@ -24,6 +24,15 @@ public enum GenreTentative
     /// existe pour que la différence reste lisible à jamais.
     /// </remarks>
     Reconstitue,
+
+    /// <summary>Un avoir est parti pour annuler cette certification.</summary>
+    /// <remarks>
+    /// L'état de la pièce ne change pas : elle reste certifiée, et ne repartira
+    /// pas. Un avoir n'efface pas la facture, il la contrebalance — deux
+    /// documents chez la DGI, pas zéro. Le confondre avec une annulation
+    /// rouvrirait la porte au renvoi, c'est-à-dire au doublon.
+    /// </remarks>
+    Avoir,
 }
 
 /// <summary>

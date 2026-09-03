@@ -103,6 +103,15 @@ public enum Verbe
     /// compte commencer. Lecture seule, et le NCC se saisit dans Sage.
     /// </summary>
     Ncc,
+
+    /// <summary>
+    /// Annuler une facture certifiée par un avoir.
+    /// </summary>
+    /// <remarks>
+    /// Simule par défaut, comme <see cref="Envoyer"/> : un avoir ne s'annule
+    /// pas davantage qu'une certification.
+    /// </remarks>
+    Avoir,
 }
 
 /// <summary>
@@ -121,7 +130,8 @@ public static class Verbes
         or Verbe.Debloquer
         or Verbe.Reconcilier
         or Verbe.CorrigerReconciliation
-        or Verbe.ReparerSource;
+        or Verbe.ReparerSource
+        or Verbe.Avoir;
 }
 
 /// <summary>
@@ -152,6 +162,17 @@ public sealed record CommandLine
     public bool AfficherJson { get; init; }
     /// <summary>Registre des certifications à consulter, à la place de celui configuré.</summary>
     public string? Registre { get; init; }
+
+    /// <summary>
+    /// Quantités à rendre par référence d'article, pour un avoir partiel.
+    /// </summary>
+    /// <remarks>
+    /// Vide vaut « tout » : l'annulation complète est le cas courant, et la
+    /// demander ne doit rien coûter. Une référence inconnue de la facture
+    /// certifiée fait échouer la commande plutôt que d'être ignorée.
+    /// </remarks>
+    public IReadOnlyDictionary<string, decimal> Articles { get; init; } =
+        new Dictionary<string, decimal>();
 
     /// <summary>Référence lue sur le portail DGI, pour <c>debloquer</c>.</summary>
     public string? Reference { get; init; }
@@ -271,6 +292,7 @@ public sealed record CommandLine
         var limite = LimiteParDefaut;
         string? sortie = null;
         string? registre = null;
+        var articles = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         var afficherJson = false;
         var verbe = Verbe.DryRun;
         var confirme = false;
@@ -359,6 +381,9 @@ public sealed record CommandLine
                     break;
                 case "envoyer":
                     verbe = Verbe.Envoyer;
+                    break;
+                case "avoir":
+                    verbe = Verbe.Avoir;
                     break;
                 case "debloquer":
                 case "débloquer":
@@ -503,6 +528,30 @@ public sealed record CommandLine
                     if (referenceActuelle is "")
                         erreurs.Add("--reference-actuelle attend la référence que porte le registre aujourd'hui.");
                     break;
+                case "--ligne":
+                {
+                    var couple = Valeur() ?? "";
+                    var coupure = couple.LastIndexOf('=');
+                    if (coupure <= 0)
+                    {
+                        erreurs.Add("--ligne attend « REFERENCE=QUANTITE », par exemple --ligne ART1=3.");
+                    }
+                    else if (!decimal.TryParse(
+                                 couple[(coupure + 1)..],
+                                 System.Globalization.NumberStyles.Number,
+                                 System.Globalization.CultureInfo.InvariantCulture,
+                                 out var quantite)
+                             || quantite < 0m)
+                    {
+                        erreurs.Add($"« {couple[(coupure + 1)..]} » n'est pas une quantité positive.");
+                    }
+                    else
+                    {
+                        articles[couple[..coupure]] = quantite;
+                    }
+
+                    break;
+                }
                 case "--motif":
                     motif = Valeur() ?? "";
                     if (motif is "") erreurs.Add("--motif attend une phrase expliquant la décision.");
@@ -577,6 +626,7 @@ public sealed record CommandLine
             },
             Sortie = sortie,
             Registre = registre,
+            Articles = articles,
             Reference = reference,
             SansReferenceActuelle = sansReferenceActuelle,
             Jeton = jeton,
@@ -705,6 +755,7 @@ public sealed record CommandLine
           dotnet run --project src/SageFne.Reader -- envoyer 1052 --confirmer   envoie pour de vrai
           dotnet run --project src/SageFne.Reader -- statut 1052        ce que le registre sait d'une pièce
           dotnet run --project src/SageFne.Reader -- registre-info      où vit le registre, ce qu'il contient
+          dotnet run --project src/SageFne.Reader -- avoir 1225         annuler une certification par un avoir
           dotnet run --project src/SageFne.Reader -- reconcilier 1052 --reference REF --confirmer
           dotnet run --project src/SageFne.Reader -- reparer-source 1052   origine d'une entrée ancienne
           dotnet run --project src/SageFne.Reader -- journal 1072 --ajouter "..." --quand "..." --confirmer
@@ -717,6 +768,7 @@ public sealed record CommandLine
           --limite N     nombre maximal de pièces (500 par défaut)
           --sortie DOS   écrit un fichier JSON par pièce dans ce dossier
           --registre F   registre des certifications à consulter
+          --ligne R=Q    avoir partiel : ne rendre que Q de la référence R (répétable)
           --json         affiche le JSON de chaque pièce, pas seulement le résumé
           --confirmer    autorise l'envoi réel à la DGI ; sans lui, tout est simulé
 

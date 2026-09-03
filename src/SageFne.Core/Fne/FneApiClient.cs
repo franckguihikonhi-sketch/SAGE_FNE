@@ -21,7 +21,7 @@ namespace SageFne.Core.Fne;
 public sealed class FneApiClient(
     HttpClient http,
     FneApiOptions options,
-    ILogger<FneApiClient> logger) : IFneApiClient
+    ILogger<FneApiClient> logger) : IFneApiClient, IFneAvoirClient
 {
     private static readonly JsonSerializerOptions Corps = new()
     {
@@ -45,27 +45,57 @@ public sealed class FneApiClient(
 
     public bool Reel => true;
 
-    public string DecrireRequete(FneInvoice facture)
+    public string DecrireRequete(FneInvoice facture) =>
+        Decrire(options.AdresseSignature(), JsonSerializer.Serialize(facture, Lisible));
+
+    /// <summary>
+    /// La requête telle qu'elle partirait, clé masquée.
+    /// </summary>
+    /// <remarks>
+    /// La clé n'apparaît jamais en clair, ici pas plus qu'ailleurs : cette
+    /// sortie est faite pour être collée dans un rapport.
+    /// </remarks>
+    private string Decrire(Uri adresse, string corpsJson)
     {
         var entete = string.IsNullOrWhiteSpace(options.AuthenticationScheme)
             ? options.CleMasquee()
             : $"{options.AuthenticationScheme} {options.CleMasquee()}";
 
         return $"""
-            POST {options.AdresseSignature()}
+            POST {adresse}
             {options.AuthenticationHeader}: {entete}
             Content-Type: application/json
 
-            {JsonSerializer.Serialize(facture, Lisible)}
+            {corpsJson}
             """;
     }
 
-    public async Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken cancellation = default)
+    public async Task<FneSignResult> SignAsync(FneInvoice facture, CancellationToken cancellation = default) =>
+        await PosterAsync(options.AdresseSignature(), JsonSerializer.Serialize(facture, Corps), cancellation);
+
+    public string DecrireAvoir(string idFacture, CorpsAvoir corps) =>
+        Decrire(options.AdresseAvoir(idFacture), JsonSerializer.Serialize(corps, Lisible));
+
+    public async Task<FneSignResult> RembourserAsync(
+        string idFacture, CorpsAvoir corps, CancellationToken cancellation = default) =>
+        await PosterAsync(
+            options.AdresseAvoir(idFacture), JsonSerializer.Serialize(corps, Corps), cancellation);
+
+    /// <summary>
+    /// Le POST, son en-tête d'authentification, sa lecture et ses échecs.
+    /// </summary>
+    /// <remarks>
+    /// Partagé par la certification et l'avoir. Les deux ont la même
+    /// authentification, la même façon d'échouer et la même réponse — ncc,
+    /// reference, token. Deux copies auraient fini par diverger sur le
+    /// traitement d'un 500, et c'est précisément là que se jouent les doublons.
+    /// </remarks>
+    private async Task<FneSignResult> PosterAsync(
+        Uri adresse, string corpsJson, CancellationToken cancellation)
     {
-        using var requete = new HttpRequestMessage(HttpMethod.Post, options.AdresseSignature())
+        using var requete = new HttpRequestMessage(HttpMethod.Post, adresse)
         {
-            Content = new StringContent(
-                JsonSerializer.Serialize(facture, Corps), Encoding.UTF8, "application/json"),
+            Content = new StringContent(corpsJson, Encoding.UTF8, "application/json"),
         };
 
         var valeur = string.IsNullOrWhiteSpace(options.AuthenticationScheme)
@@ -82,7 +112,7 @@ public sealed class FneApiClient(
             if (reponse.IsSuccessStatusCode)
             {
                 logger.LogInformation(
-                    "FNE {Code} sur {Adresse}.", (int)reponse.StatusCode, options.AdresseSignature());
+                    "FNE {Code} sur {Adresse}.", (int)reponse.StatusCode, adresse);
             }
             else
             {
@@ -99,7 +129,7 @@ public sealed class FneApiClient(
                 logger.LogWarning(
                     "FNE {Code} sur {Adresse} — réponse : {Corps}",
                     (int)reponse.StatusCode,
-                    options.AdresseSignature(),
+                    adresse,
                     Tronquer(corps, 600));
             }
 

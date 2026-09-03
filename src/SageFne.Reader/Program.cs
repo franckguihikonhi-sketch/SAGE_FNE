@@ -1783,6 +1783,77 @@ if (ligneDeCommande.Verbe == Verbe.Debloquer)
     return deblocage.Applique ? 0 : 1;
 }
 
+// L'avoir : la seule réponse à une facture certifiée à tort. Rien ici ne vient
+// de Sage — les identifiants que la DGI réclame sont ceux qu'elle a elle-même
+// attribués, relus dans la réponse conservée au registre.
+//
+// Simule par défaut, comme l'envoi, et pour la même raison : un avoir ne
+// s'annule pas non plus.
+if (ligneDeCommande.Verbe == Verbe.Avoir)
+{
+    if (ligneDeCommande.Query.Pieces.Count != 1)
+    {
+        Console.Error.WriteLine("avoir attend un numéro de pièce, par exemple : avoir 1225");
+        return 2;
+    }
+
+    var numeroAvoir = ligneDeCommande.Query.Pieces[0];
+    Titre($"Avoir FNE — pièce {numeroAvoir}");
+
+    var resultatAvoir = await hote.Services.GetRequiredService<InvoiceSender>().AvoirAsync(
+        numeroAvoir,
+        ligneDeCommande.Confirme,
+        ligneDeCommande.Articles.Count > 0 ? ligneDeCommande.Articles : null,
+        ligneDeCommande.Motif);
+
+    if (resultatAvoir.Lecture is { Possible: true } lecture)
+    {
+        Titre("Ce que la DGI a certifié");
+        Console.WriteLine($"  Facture DGI  {lecture.IdFacture}");
+        Console.WriteLine($"  {"Référence",-16} {"Quantité",12}  Désignation");
+        foreach (var ligne in lecture.Lignes)
+        {
+            Console.WriteLine(
+                $"  {(ligne.Reference == "" ? "—" : ligne.Reference),-16} " +
+                $"{Nombre(ligne.Quantite),12}  {ligne.Designation}");
+        }
+    }
+
+    if (resultatAvoir.Requete != "")
+    {
+        Titre("Requête qui serait envoyée");
+        Console.WriteLine(resultatAvoir.Requete);
+    }
+
+    Console.WriteLine();
+
+    if (resultatAvoir.ConfirmationManque)
+    {
+        Titre("Simulation");
+        Console.WriteLine($"""
+              Rien n'a été envoyé.
+
+              Vérifiez ligne par ligne : un avoir annule ce qu'il désigne, et rien
+              ne le défait ensuite. Pour n'en rendre qu'une partie :
+                --ligne REFERENCE=QUANTITE, autant de fois que nécessaire.
+
+              Pour émettre réellement :
+                dotnet run --project src\SageFne.Reader -- avoir {numeroAvoir} --confirmer
+              """);
+        return 0;
+    }
+
+    Console.WriteLine($"  {resultatAvoir.Message}");
+
+    if (resultatAvoir.Reponse is { CorpsBrut.Length: > 0 } corpsAvoir)
+    {
+        Titre("Réponse de la plateforme");
+        Console.WriteLine($"  {corpsAvoir.CorpsBrut}");
+    }
+
+    return resultatAvoir.Applique ? 0 : 1;
+}
+
 // Envoi à la certification. Par défaut la commande montre la requête et
 // s'arrête : une facture certifiée ne s'annule pas, elle se corrige par un
 // avoir. Seul --confirmer déclenche l'appel.
