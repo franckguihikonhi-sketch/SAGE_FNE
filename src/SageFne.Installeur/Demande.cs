@@ -42,6 +42,15 @@ public sealed record Demande
     /// <summary>Ne rien demander : échouer si une valeur manque.</summary>
     public bool Silencieux { get; init; }
 
+    /// <summary>Retirer le service et les fichiers de ce poste.</summary>
+    /// <remarks>
+    /// Un produit livré chez un client doit savoir partir. Ce qu'il ne retire
+    /// jamais, en revanche, c'est le registre des certifications : il est la
+    /// seule preuve de ce qui a été déclaré à la DGI, et sa suppression n'est
+    /// pas une décision d'installateur.
+    /// </remarks>
+    public bool Desinstaller { get; init; }
+
     public bool SaasDemande =>
         !MarqueurGabarit.Absent(SupabaseUrl)
         || !MarqueurGabarit.Absent(Dossier)

@@ -36,6 +36,19 @@ if (!OperatingSystem.IsWindows())
 var charge = Charge();
 var demande = analyse.Demande;
 
+if (demande.Desinstaller)
+{
+    if (!EstAdministrateur())
+    {
+        TitreErreur("Rien n'a été retiré");
+        Console.Error.WriteLine(
+            "  Retirer un service Windows demande les droits d'administrateur.");
+        return 1;
+    }
+
+    return Desinstaller(demande);
+}
+
 if (!demande.Silencieux)
 {
     demande = Demander(demande);
@@ -223,6 +236,74 @@ int Installer(Demande demande, byte[] charge)
     Console.WriteLine();
     Console.WriteLine("  SAUVEGARDEZ le registre. Il est la seule mémoire des certifications :");
     Console.WriteLine("  le perdre ferait repartir à la DGI des factures déjà certifiées.");
+    return 0;
+}
+
+/// <summary>
+/// Retire le service et les fichiers, et laisse ce qui fait preuve.
+/// </summary>
+/// <remarks>
+/// Le registre des certifications et les journaux restent. Ils disent ce qui a
+/// été déclaré à la DGI, et une facture certifiée ne s'annule que par un avoir :
+/// effacer sa trace parce qu'on désinstalle un logiciel serait perdre la seule
+/// mémoire d'un fait fiscal. Leur sort revient au client, pas à l'installateur.
+/// </remarks>
+[SupportedOSPlatform("windows")]
+int Desinstaller(Demande demande)
+{
+    Titre("Désinstallation");
+
+    if (demande.Simulation)
+    {
+        Console.WriteLine($"  Le service {demande.NomService} serait arrêté puis retiré.");
+        Console.WriteLine($"  {demande.Destination} serait supprimé.");
+        Console.WriteLine("  Le registre et les journaux seraient conservés.");
+        Console.WriteLine("  Rien n'a été fait. Retirez --simulation pour désinstaller.");
+        return 0;
+    }
+
+    if (ServiceExiste(demande.NomService))
+    {
+        Executer("sc.exe", $"stop \"{demande.NomService}\"", tolere: true);
+        Thread.Sleep(TimeSpan.FromSeconds(3));
+        Executer("sc.exe", $"delete \"{demande.NomService}\"", tolere: true);
+        Console.WriteLine($"  Service {demande.NomService} retiré.");
+    }
+    else
+    {
+        Console.WriteLine($"  Aucun service {demande.NomService} sur ce poste.");
+    }
+
+    foreach (var variable in new[] { "ConnectionStrings__Sage", "Fne__ApiKey", "Saas__CleService" })
+    {
+        Environment.SetEnvironmentVariable(variable, null, EnvironmentVariableTarget.Machine);
+    }
+
+    Console.WriteLine("  Secrets retirés des variables machine.");
+
+    if (Directory.Exists(demande.Destination))
+    {
+        try
+        {
+            Directory.Delete(demande.Destination, recursive: true);
+            Console.WriteLine($"  {demande.Destination} supprimé.");
+        }
+        catch (IOException erreur)
+        {
+            // Un fichier verrouillé n'annule pas la désinstallation : le
+            // service est parti, c'est l'essentiel. Le dire vaut mieux que de
+            // laisser croire que tout est propre.
+            Console.WriteLine($"  {demande.Destination} n'a pas pu être supprimé : {erreur.Message}");
+        }
+    }
+
+    Titre("Conservés, à dessein");
+    Console.WriteLine($"  Registre   {demande.Registre}");
+    Console.WriteLine($"  Journaux   {demande.Journaux}");
+    Console.WriteLine();
+    Console.WriteLine("  Le registre est la seule mémoire des certifications déjà faites.");
+    Console.WriteLine("  Ne l'effacez qu'en connaissance de cause, et gardez-en une copie :");
+    Console.WriteLine("  une facture certifiée ne s'annule que par un avoir.");
     return 0;
 }
 

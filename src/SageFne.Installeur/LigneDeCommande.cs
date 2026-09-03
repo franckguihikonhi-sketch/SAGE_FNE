@@ -86,6 +86,9 @@ public static class LigneDeCommande
                 case "--silencieux":
                     demande = demande with { Silencieux = true };
                     break;
+                case "--desinstaller":
+                    demande = demande with { Desinstaller = true };
+                    break;
 
                 default:
                     erreurs.Add($"Option inconnue : {mot}");
@@ -130,6 +133,12 @@ public static class LigneDeCommande
 
           --simulation             montrer ce qui serait fait, sans rien ecrire
           --silencieux             ne rien demander ; echouer si une valeur manque
+          --desinstaller           retirer le service et les fichiers de ce poste
+
+        La desinstallation ne touche NI le registre des certifications, NI les
+        journaux : ils sont la seule trace de ce qui a ete declare a la DGI, et
+        les effacer n'est pas une decision d'installateur. Le chemin du registre
+        est rappele a la fin.
 
         Le service demarre en mode Manual : il observe et n'envoie rien tant
         qu'un humain n'a pas clique. Le passer en Automatic est une decision

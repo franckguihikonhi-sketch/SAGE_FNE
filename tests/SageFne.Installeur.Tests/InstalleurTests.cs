@@ -191,4 +191,25 @@ public class InstalleurTests
         // pire surprise possible chez un client.
         Assert.Contains("Manual", LigneDeCommande.Aide);
     }
+
+    // --- La désinstallation -------------------------------------------------
+
+    [Fact]
+    public void La_desinstallation_se_demande_explicitement()
+    {
+        Assert.False(LigneDeCommande.Lire([]).Demande.Desinstaller);
+        Assert.True(LigneDeCommande.Lire(["--desinstaller"]).Demande.Desinstaller);
+    }
+
+    [Fact]
+    public void L_aide_dit_que_le_registre_survit_a_la_desinstallation()
+    {
+        // Il est la seule mémoire de ce qui a été déclaré à la DGI. L'effacer
+        // parce qu'on retire un logiciel serait perdre la trace d'un fait
+        // fiscal, et une facture certifiée ne s'annule que par un avoir.
+        var aide = LigneDeCommande.Aide;
+
+        Assert.Contains("--desinstaller", aide);
+        Assert.Contains("NI le registre", aide);
+    }
 }
