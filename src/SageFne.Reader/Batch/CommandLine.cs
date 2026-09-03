@@ -536,14 +536,20 @@ public sealed record CommandLine
                     {
                         erreurs.Add("--ligne attend « REFERENCE=QUANTITE », par exemple --ligne ART1=3.");
                     }
+                    // AllowDecimalPoint seul, et non NumberStyles.Number : ce
+                    // dernier accepte la virgule comme séparateur de milliers,
+                    // si bien que « FN001=2,5 » — la forme française, celle que
+                    // nos propres sorties affichent — se lisait 25. Une
+                    // quantité fausse dans un avoir annule ce qu'on n'a pas
+                    // voulu annuler ; mieux vaut refuser.
                     else if (!decimal.TryParse(
                                  couple[(coupure + 1)..],
-                                 System.Globalization.NumberStyles.Number,
+                                 System.Globalization.NumberStyles.AllowDecimalPoint,
                                  System.Globalization.CultureInfo.InvariantCulture,
                                  out var quantite)
                              || quantite < 0m)
                     {
-                        erreurs.Add($"« {couple[(coupure + 1)..]} » n'est pas une quantité positive.");
+                        erreurs.Add($"« {couple[(coupure + 1)..]} » n'est pas une quantité positive. Le séparateur décimal est le point : --ligne FN001=2.5");
                     }
                     else
                     {

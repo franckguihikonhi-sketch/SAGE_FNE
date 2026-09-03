@@ -1829,6 +1829,21 @@ if (ligneDeCommande.Verbe == Verbe.Avoir)
 
     if (resultatAvoir.ConfirmationManque)
     {
+        // La commande à taper reprend les options réellement données. Une
+        // ligne d'exemple qui perd --registre ferait viser un autre fichier
+        // que celui qu'on vient de lire — et c'est l'écart entre deux
+        // registres qui a produit le doublon que cet avoir vient annuler.
+        var rappel = new StringBuilder($"avoir {numeroAvoir}");
+        if (ligneDeCommande.Registre is { } fichier) rappel.Append($" --registre \"{fichier}\"");
+        foreach (var (reference, quantite) in ligneDeCommande.Articles)
+        {
+            // Point décimal, jamais la virgule : c'est ce que l'analyseur lit,
+            // et une ligne de commande recopiée doit fonctionner telle quelle.
+            rappel.Append($" --ligne {reference}={quantite.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (ligneDeCommande.Motif is { Length: > 0 } pourquoi) rappel.Append($" --motif \"{pourquoi}\"");
+
         Titre("Simulation");
         Console.WriteLine($"""
               Rien n'a été envoyé.
@@ -1838,7 +1853,7 @@ if (ligneDeCommande.Verbe == Verbe.Avoir)
                 --ligne REFERENCE=QUANTITE, autant de fois que nécessaire.
 
               Pour émettre réellement :
-                dotnet run --project src\SageFne.Reader -- avoir {numeroAvoir} --confirmer
+                dotnet run --project src\SageFne.Reader -- {rappel} --confirmer
               """);
         return 0;
     }

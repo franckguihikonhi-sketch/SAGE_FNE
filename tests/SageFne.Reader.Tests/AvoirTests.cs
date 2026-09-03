@@ -288,6 +288,37 @@ public class AvoirTests
     }
 
     [Fact]
+    public void La_commande_a_retaper_se_relit_telle_quelle()
+    {
+        // La ligne « pour émettre réellement » est une commande, pas un
+        // exemple : elle sera copiée-collée. Qu'elle perde --registre ferait
+        // viser un autre fichier que celui qu'on vient de lire — et c'est
+        // justement l'écart entre deux registres qui a produit le doublon que
+        // cet avoir annule. Cinquième fois qu'un exemple passe pour une valeur.
+        var relue = CommandLine.Parse([
+            "avoir", "1225",
+            "--registre", @"C:\ProgramData\SageFne\certifications.json",
+            "--ligne", "FN001=2.5",
+            "--confirmer",
+        ]);
+
+        Assert.Empty(relue.Erreurs);
+        Assert.Equal(Verbe.Avoir, relue.Verbe);
+        Assert.Equal(@"C:\ProgramData\SageFne\certifications.json", relue.Registre);
+        Assert.Equal(2.5m, relue.Articles["FN001"]);
+        Assert.True(relue.Confirme);
+    }
+
+    [Fact]
+    public void Une_quantite_decimale_se_relit_avec_un_point()
+    {
+        // La sortie française écrit « 2,50 ». Recopié tel quel, l'analyseur
+        // lirait autre chose — ou rien.
+        Assert.Empty(CommandLine.Parse(["avoir", "1", "--ligne", "A=2.5"]).Erreurs);
+        Assert.NotEmpty(CommandLine.Parse(["avoir", "1", "--ligne", "A=2,5"]).Erreurs);
+    }
+
+    [Fact]
     public async Task Sans_confirmer_aucune_requete_ne_part()
     {
         var client = new ClientAvoir(new FneSignResult(true, 201, "AVOIR-1"));
