@@ -94,10 +94,18 @@ jobs:
 
           # Une simulation ne doit rien écrire, et refuser ce qui manque.
           & $exe --simulation --silencieux
-          if ($LASTEXITCODE -eq 0) { throw "Une demande vide aurait dû être refusée." }
+          $refus = $LASTEXITCODE
+          if ($refus -eq 0) { throw "Une demande vide aurait dû être refusée." }
 
           $taille = [math]::Round((Get-Item $exe).Length / 1MB, 1)
           Write-Host "  SageFneSetup.exe : $taille Mo, autonome."
+          Write-Host "  Une demande vide est refusée ($refus), comme attendu."
+
+          # Sans cette ligne, l'étape échoue alors que tout s'est bien passé :
+          # le lanceur d'Actions termine par « exit $LASTEXITCODE », et
+          # Write-Host ne remet pas ce code à zéro. Le dernier refus attendu,
+          # qui vaut 1, deviendrait donc le verdict de l'étape.
+          exit 0
 
       - uses: actions/upload-artifact@v4
         with:

@@ -47,14 +47,14 @@ if (empechements.Count > 0)
 {
     // Avant la première écriture, toujours. Une installation qui s'arrête au
     // milieu laisse un poste dans un état que personne n'a voulu.
-    Titre("Rien n'a été installé");
+    TitreErreur("Rien n'a été installé");
     foreach (var manque in empechements) Console.Error.WriteLine($"  - {manque}");
     return 1;
 }
 
 if (!EstAdministrateur())
 {
-    Titre("Rien n'a été installé");
+    TitreErreur("Rien n'a été installé");
     Console.Error.WriteLine(
         "  Cette installation pose un service Windows et des variables machine :\n" +
         "  elle demande les droits d'administrateur. Relancez cet exécutable par\n" +
@@ -84,7 +84,7 @@ try
 }
 catch (Exception erreur)
 {
-    Titre("L'installation s'est interrompue");
+    TitreErreur("L'installation s'est interrompue");
     Console.Error.WriteLine($"  {erreur.Message}");
     Console.Error.WriteLine();
     Console.Error.WriteLine("  Le service a pu rester arrêté. Relancez cet exécutable une fois la");
@@ -349,4 +349,19 @@ void Titre(string texte)
     Console.WriteLine();
     Console.WriteLine(texte);
     Console.WriteLine(new string('-', texte.Length));
+}
+
+/// <summary>
+/// Un titre sur la sortie d'erreur, avec ce qui le suit.
+/// </summary>
+/// <remarks>
+/// Mélanger les deux flux entrelace leur affichage : le filet d'un titre écrit
+/// sur la sortie standard s'est retrouvé au milieu d'une liste de motifs écrits
+/// sur la sortie d'erreur. Ce qui explique un échec doit sortir d'un seul flux.
+/// </remarks>
+void TitreErreur(string texte)
+{
+    Console.Error.WriteLine();
+    Console.Error.WriteLine(texte);
+    Console.Error.WriteLine(new string('-', texte.Length));
 }
