@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FNE — certifications</title>
+<style>
+  :root {
+    --fond: #f6f7f9; --carte: #fff; --trait: #dfe3e8; --texte: #1b1f24;
+    --doux: #5b6470; --vert: #0d7a3e; --rouge: #b3261e; --ambre: #8a6100;
+    --accent: #14487a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fond: #14171b; --carte: #1b1f24; --trait: #2c333b; --texte: #e6e9ed;
+      --doux: #9aa4b0; --vert: #4ec27f; --rouge: #ef8279; --ambre: #d9a13a;
+      --accent: #6fa8dc;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--fond); color: var(--texte);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    padding: 1rem 1.5rem; border-bottom: 1px solid var(--trait); background: var(--carte);
+  }
+  h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
+  .doux { color: var(--doux); font-size: .9rem; }
+  main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+  .carte {
+    background: var(--carte); border: 1px solid var(--trait);
+    border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem;
+  }
+  label { display: block; margin: .75rem 0 .25rem; font-size: .9rem; color: var(--doux); }
+  input, select, button {
+    font: inherit; padding: .5rem .6rem; border-radius: 6px;
+    border: 1px solid var(--trait); background: var(--fond); color: var(--texte);
+  }
+  input { width: 100%; max-width: 22rem; }
+  button {
+    cursor: pointer; background: var(--accent); color: #fff; border-color: transparent;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.discret { background: transparent; color: var(--accent); border-color: var(--trait); }
+  .tableau { width: 100%; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--trait); }
+  th { color: var(--doux); font-weight: 600; white-space: nowrap; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pastille {
+    display: inline-block; padding: .1rem .5rem; border-radius: 999px;
+    font-size: .8rem; border: 1px solid currentColor;
+  }
+  .certified { color: var(--vert); }
+  .error, .sending { color: var(--rouge); }
+  .transmise, .pending, .ready, .validating { color: var(--ambre); }
+  .alerte {
+    border-left: 3px solid var(--rouge); padding-left: .75rem; color: var(--rouge);
+  }
+  .info { border-left: 3px solid var(--accent); padding-left: .75rem; }
+  .rien { color: var(--doux); padding: 2rem 0; text-align: center; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FNE — certifications</h1>
+  <span class="doux" id="qui"></span>
+  <span style="flex:1"></span>
+  <button class="discret" id="sortir" hidden>Se déconnecter</button>
+</header>
+
+<main>
+  <div class="carte" id="reglage" hidden>
+    <p class="alerte">
+      <strong>Configuration incomplète.</strong>
+      <code>web/config.js</code> porte encore ses valeurs d'exemple. Renseignez
+      l'adresse de votre projet Supabase et sa clé <code>anon</code> — celle-ci
+      est publique par construction : c'est la RLS qui protège les données.
+    </p>
+  </div>
+
+  <div class="carte" id="connexion" hidden>
+    <h2 style="margin-top:0;font-size:1rem">Connexion</h2>
+    <label for="courriel">Adresse électronique</label>
+    <input id="courriel" type="email" autocomplete="username">
+    <label for="motdepasse">Mot de passe</label>
+    <input id="motdepasse" type="password" autocomplete="current-password">
+    <p><button id="entrer">Entrer</button></p>
+    <p class="alerte" id="erreurConnexion" hidden></p>
+  </div>
+
+  <div id="espace" hidden>
+    <div class="carte">
+      <p class="info" id="resume">Chargement…</p>
+      <p class="doux">
+        Cet écran <strong>demande</strong> ; il ne certifie pas. L'agent du poste
+        relit chaque demande, refait tous ses contrôles, et décide. Le registre
+        local reste la seule mémoire des certifications.
+      </p>
+    </div>
+
+    <div class="carte">
+      <div class="tableau">
+        <table>
+          <thead>
+            <tr>
+              <th>Pièce</th><th>Identité</th><th>État</th>
+              <th>Référence FNE</th><th>Mode de règlement</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="lignes"></tbody>
+        </table>
+      </div>
+      <p class="rien" id="rien" hidden>Aucune certification pour l'instant.</p>
+    </div>
+
+    <div class="carte">
+      <h2 style="margin-top:0;font-size:1rem">Demandes en cours</h2>
+      <div class="tableau">
+        <table>
+          <thead>
+            <tr><th>Pièce</th><th>Mode</th><th>État</th><th>Verdict de l'agent</th></tr>
+          </thead>
+          <tbody id="demandes"></tbody>
+        </table>
+      </div>
+      <p class="rien" id="aucuneDemande" hidden>Aucune demande.</p>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // Un gabarit non remplacé n'est pas une valeur. Cette leçon a coûté cinq
+  // incidents à ce projet, dont un où toutes les factures ont été refusées par
+  // la DGI sans que rien ne le dise.
+  const GABARIT = /^(A_COMPLETER|VOTRE_|VOS_|MON_|MA_|MES_|YOUR_|EXEMPLE_)|[<>«»…]/i;
+  const reglage = window.CONFIG_FNE || {};
+  const configure = reglage.url && reglage.cleAnon
+    && !GABARIT.test(reglage.url) && !GABARIT.test(reglage.cleAnon);
+
+  const $ = (id) => document.getElementById(id);
+
+  if (!configure) {
+    $('reglage').hidden = false;
+    return;
+  }
+
+  // La bibliothèque vient d'un CDN. Un réseau d'entreprise qui le bloque
+  // laisserait une page blanche et muette : une fonction dont on ignore
+  // pourquoi elle ne marche pas se croit en panne, et ce produit a déjà connu
+  // deux nouveautés crues absentes pour cette seule raison.
+  if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+    const bloc = $('reglage');
+    bloc.hidden = false;
+    bloc.replaceChildren();
+    const p = document.createElement('p');
+    p.className = 'alerte';
+    p.textContent =
+      "La bibliothèque Supabase n'a pas pu être chargée depuis le CDN. " +
+      "Un réseau qui filtre cdn.jsdelivr.net suffit à l'expliquer. " +
+      "Rien n'est cassé côté données : le poste continue de certifier " +
+      "normalement, et cet écran ne fait que lire.";
+    bloc.appendChild(p);
+    return;
+  }
+
+  const base = window.supabase.createClient(reglage.url, reglage.cleAnon);
+
+  // Les six codes de l'annexe « Lexique » de la DGI. Le portail affiche le
+  // libellé, l'API attend le code : envoyer le libellé ferait refuser la
+  // facture. La contrainte SQL les répète, et c'est voulu — l'écran peut se
+  // tromper, la base non.
+  const MODES = [
+    ['cash', 'Espèces'],
+    ['card', 'Carte bancaire'],
+    ['check', 'Chèque'],
+    ['mobile-money', 'Mobile money'],
+    ['transfer', 'Virement'],
+    ['deferred', 'À terme'],
+  ];
+
+  const ETATS = {
+    pending: 'en attente', validating: 'en contrôle', ready: 'prête',
+    sending: 'envoi en suspens', certified: 'certifiée',
+    transmise: 'déposée au portail', error: 'refusée',
+  };
+
+  // Ce que le registre autorise à repartir. La règle vit dans l'agent ; ici
+  // elle ne fait que griser un bouton, et l'agent refusera de toute façon.
+  const DEMANDABLE = new Set(['pending', 'validating', 'ready', 'error']);
+
+  let choix = {};
+
+  function texte(valeur) {
+    const noeud = document.createElement('span');
+    noeud.textContent = valeur == null || valeur === '' ? '—' : String(valeur);
+    return noeud;
+  }
+
+  async function entrer() {
+    $('erreurConnexion').hidden = true;
+    const { error } = await base.auth.signInWithPassword({
+      email: $('courriel').value.trim(),
+      password: $('motdepasse').value,
+    });
+
+    if (error) {
+      $('erreurConnexion').textContent = error.message;
+      $('erreurConnexion').hidden = false;
+    }
+  }
+
+  async function demander(ligne, mode) {
+    const { error } = await base.from('demandes_certification').insert({
+      dossier_id: ligne.dossier_id,
+      identite: ligne.identite,
+      piece: ligne.piece,
+      mode_paiement: mode,
+      demande_par: (await base.auth.getUser()).data.user.id,
+    });
+
+    if (error) {
+      // Le message de PostgreSQL, mot pour mot. Le reformuler masquerait la
+      // contrainte qui a parlé — unicité, RLS, mode inconnu.
+      alert('La demande n’a pas été enregistrée : ' + error.message);
+      return;
+    }
+
+    await rafraichir();
+  }
+
+  function rendreCertifications(donnees) {
+    const corps = $('lignes');
+    corps.replaceChildren();
+    $('rien').hidden = donnees.length > 0;
+
+    for (const ligne of donnees) {
+      const tr = document.createElement('tr');
+
+      const piece = document.createElement('td');
+      piece.appendChild(texte(ligne.piece));
+      tr.appendChild(piece);
+
+      const identite = document.createElement('td');
+      identite.appendChild(texte(ligne.identite));
+      tr.appendChild(identite);
+
+      const etat = document.createElement('td');
+      const pastille = document.createElement('span');
+      pastille.className = 'pastille ' + ligne.etat;
+      pastille.textContent = ETATS[ligne.etat] || ligne.etat;
+      etat.appendChild(pastille);
+      tr.appendChild(etat);
+
+      const reference = document.createElement('td');
+      reference.appendChild(texte(ligne.reference_fne));
+      tr.appendChild(reference);
+
+      const celluleMode = document.createElement('td');
+      const cellulebouton = document.createElement('td');
+
+      if (DEMANDABLE.has(ligne.etat)) {
+        const liste = document.createElement('select');
+        const vide = document.createElement('option');
+        vide.value = '';
+        vide.textContent = 'à choisir…';
+        liste.appendChild(vide);
+
+        for (const [code, libelle] of MODES) {
+          const option = document.createElement('option');
+          option.value = code;
+          option.textContent = libelle;
+          liste.appendChild(option);
+        }
+
+        // Le choix survit au rafraîchissement : sans cela, dérouler la liste
+        // puis attendre dix secondes remettrait tout à zéro.
+        liste.value = choix[ligne.id] || '';
+
+        const bouton = document.createElement('button');
+        bouton.textContent = 'Demander la certification';
+        bouton.disabled = !liste.value;
+
+        liste.addEventListener('change', () => {
+          choix[ligne.id] = liste.value;
+          bouton.disabled = !liste.value;
+        });
+
+        bouton.addEventListener('click', async () => {
+          // La DGI marque le mode de règlement obligatoire et Sage ne le porte
+          // pas : c'est un choix humain, jamais une valeur par défaut.
+          if (!liste.value) return;
+          bouton.disabled = true;
+          await demander(ligne, liste.value);
+        });
+
+        celluleMode.appendChild(liste);
+        cellulebouton.appendChild(bouton);
+      } else {
+        celluleMode.appendChild(texte(null));
+      }
+
+      tr.appendChild(celluleMode);
+      tr.appendChild(cellulebouton);
+      corps.appendChild(tr);
+    }
+  }
+
+  function rendreDemandes(donnees) {
+    const corps = $('demandes');
+    corps.replaceChildren();
+    $('aucuneDemande').hidden = donnees.length > 0;
+
+    for (const ligne of donnees) {
+      const tr = document.createElement('tr');
+      for (const valeur of [ligne.piece, ligne.mode_paiement, ligne.etat, ligne.resultat]) {
+        const td = document.createElement('td');
+        td.appendChild(texte(valeur));
+        tr.appendChild(td);
+      }
+      corps.appendChild(tr);
+    }
+  }
+
+  async function rafraichir() {
+    const [certifications, demandes] = await Promise.all([
+      base.from('certifications')
+        .select('id,dossier_id,identite,piece,etat,reference_fne')
+        .order('piece', { ascending: false })
+        .limit(200),
+      base.from('demandes_certification')
+        .select('id,piece,mode_paiement,etat,resultat')
+        .order('demande_le', { ascending: false })
+        .limit(50),
+    ]);
+
+    if (certifications.error) {
+      $('resume').textContent = 'Lecture impossible : ' + certifications.error.message;
+      $('resume').className = 'alerte';
+      return;
+    }
+
+    const lignes = certifications.data || [];
+    const parEtat = {};
+    for (const ligne of lignes) parEtat[ligne.etat] = (parEtat[ligne.etat] || 0) + 1;
+
+    // Une liste où rien n'est à faire doit dire pourquoi : un compteur à zéro
+    // ne dit pas ce qu'il faudrait faire pour qu'il monte.
+    $('resume').className = 'info';
+    $('resume').textContent = lignes.length === 0
+      ? 'Aucune certification n’est encore remontée. L’agent du poste publie son registre à chaque tour ; si rien n’apparaît, vérifiez que le miroir y est allumé.'
+      : Object.entries(parEtat)
+          .map(([etat, nombre]) => nombre + ' ' + (ETATS[etat] || etat))
+          .join(', ') + '.';
+
+    rendreCertifications(lignes);
+    rendreDemandes(demandes.data || []);
+  }
+
+  async function afficherSession(session) {
+    const connecte = Boolean(session);
+    $('connexion').hidden = connecte;
+    $('espace').hidden = !connecte;
+    $('sortir').hidden = !connecte;
+    $('qui').textContent = connecte ? session.user.email : '';
+
+    if (connecte) await rafraichir();
+  }
+
+  $('entrer').addEventListener('click', entrer);
+  $('motdepasse').addEventListener('keydown', (e) => { if (e.key === 'Enter') entrer(); });
+  $('sortir').addEventListener('click', () => base.auth.signOut());
+
+  base.auth.onAuthStateChange((_, session) => afficherSession(session));
+  base.auth.getSession().then(({ data }) => afficherSession(data.session));
+
+  // Le verdict de l'agent arrive au tour suivant, une minute plus tard : la
+  // page se relit d'elle-même plutôt que d'attendre un F5.
+  setInterval(() => { if (!$('espace').hidden) rafraichir(); }, 15000);
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SageFne.Agent.Configuration;
 using SageFne.Agent.Sante;
@@ -43,7 +42,7 @@ public sealed class RouteurTableau(
     SuiviRefus refus,
     FneApiOptions api,
     ISondeReseau sonde,
-    ILogger<RouteurTableau> logger)
+    Certification.ICertificateur certificateur)
 {
     private static readonly JsonSerializerOptions Format = new()
     {
@@ -62,8 +61,6 @@ public sealed class RouteurTableau(
     // déjà lu le registre avant cette inscription et part quand même. Deux POST,
     // deux factures chez la DGI, et rien pour les défaire. C'est arrivé une fois
     // par une autre voie — la pièce 1072 — et il a fallu un avoir.
-    private readonly HashSet<string> _enCours = [];
-    private readonly object _verrou = new();
 
     /// <summary>Répond à une requête, sans jamais toucher au réseau d'écoute.</summary>
     public async Task<ReponseHttp> RepondreAsync(
@@ -338,85 +335,29 @@ public sealed class RouteurTableau(
                 "choisi. La DGI l'exige, et Sage ne le porte pas — c'est à vous de le dire.");
         }
 
-        lock (_verrou)
+        // Un seul chemin d'envoi pour les deux écrans — le tableau local et la
+        // demande venue du SaaS. Sonde, verrou, mode retenu avant l'envoi : ce
+        // qui vit dans le Certificateur ne peut plus manquer au second
+        // appelant, et un second appelant est exactement ce qui a révélé les
+        // sept défauts de cette forme.
+        var issue = await certificateur.CertifierAsync(
+            piece, mode, domaine, "Tableau de bord", arret);
+
+        if (!issue.Reussi && issue.Etat is null)
         {
-            if (!_enCours.Add(piece))
-            {
-                return Erreur(409,
-                    $"Un envoi de la pièce {piece} est déjà en cours. Attendez sa réponse : " +
-                    "deux envois feraient deux factures chez la DGI, et une facture certifiée " +
-                    "ne s'annule pas.");
-            }
+            // Rien n'est parti : verrou déjà pris, ou plateforme injoignable.
+            // Le code HTTP distingue les deux pour l'écran.
+            var code = certificateur.EnCours(piece) ? 409 : 503;
+            return Erreur(code, issue.Message);
         }
 
-        try
-        {
-            // La joignabilité s'éprouve AVANT d'entrer dans le chemin d'envoi,
-            // comme dans le tour du service. Une fois le POST parti, plus rien
-            // ne distingue une coupure survenue avant de celle survenue après :
-            // la pièce reste en Sending et ne repartira jamais toute seule.
-            if (!await sonde.JoignableAsync(arret))
-            {
-                var essai = await sonde.EprouverAsync(arret);
-                return Erreur(503,
-                    $"Rien n'a été envoyé : {essai.Explication} La pièce {piece} est intacte " +
-                    "et reste certifiable dès que la plateforme répond.");
-            }
-
-            using var portee = fabrique.CreateScope();
-
-            // Retenu AVANT l'envoi : c'est le lecteur qui relit la pièce et
-            // construit le corps, et il ne peut prendre en compte que ce qui
-            // est déjà écrit. Le retenir après ferait partir la facture avec
-            // l'ancien mode, ou celui du paramétrage.
-            // Pièce inconnue : on ne retient rien, et c'est l'expéditeur qui le
-            // dira. Un second chemin d'erreur ici aurait rendu deux formes de
-            // réponse différentes pour un même 422.
-            var compte = await CompteTiersAsync(piece, domaine, arret);
-            if (compte is not null)
-            {
-                await portee.ServiceProvider.GetRequiredService<IModesPaiementClients>()
-                    .RetenirAsync(compte, mode, arret);
-            }
-
-            var expediteur = portee.ServiceProvider.GetRequiredService<InvoiceSender>();
-
-            logger.LogInformation(
-                "Tableau de bord : certification de la pièce {Piece} ({Domaine}) demandée à " +
-                "la main, mode de règlement « {Mode} » ({Code}).",
-                piece, SageDomaines.Libelle(domaine), ModePaiementFne.Libelle(mode), mode);
-
-            var resultat = await expediteur.EnvoyerAsync(piece, confirme: true, arret, domaine);
-
-            if (resultat.Reussi)
-            {
-                stabilite.Oublier(resultat.Conversion?.Header.Identite ?? piece);
-                logger.LogInformation("Pièce {Piece} certifiée depuis le tableau. {Message}",
-                    piece, resultat.Message);
-            }
-            else
-            {
-                logger.LogWarning("Pièce {Piece} non certifiée depuis le tableau : {Etat}. {Message}",
-                    piece, resultat.Etat, resultat.Message);
-            }
-
-            return ReponseHttp.Json(resultat.Reussi ? 200 : 422, Serialiser(new ResultatCertification(
-                Reussi: resultat.Reussi,
-                Piece: piece,
-                Etat: resultat.Etat.ToString(),
-                Message: resultat.Message,
-                ReferenceFne: resultat.Reponse?.ReferenceFne ?? "",
-                CodeHttp: resultat.Reponse?.CodeHttp,
-
-                // Le corps brut, tel quel. Le reformuler reviendrait à
-                // interpréter un message dont nous ne connaissons pas encore le
-                // vocabulaire — et c'est précisément ce vocabulaire qu'on
-                // cherche à apprendre.
-                ReponsePlateforme: resultat.Reponse?.CorpsBrut ?? "")));
-        }
-        finally
-        {
-            lock (_verrou) _enCours.Remove(piece);
-        }
+        return ReponseHttp.Json(issue.Reussi ? 200 : 422, Serialiser(new ResultatCertification(
+            Reussi: issue.Reussi,
+            Piece: piece,
+            Etat: issue.Etat?.ToString() ?? "",
+            Message: issue.Message,
+            ReferenceFne: issue.ReferenceFne,
+            CodeHttp: issue.CodeHttp,
+            ReponsePlateforme: issue.ReponsePlateforme)));
     }
 }

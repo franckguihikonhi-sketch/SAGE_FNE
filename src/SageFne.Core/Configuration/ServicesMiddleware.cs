@@ -62,6 +62,10 @@ public static class ServicesMiddleware
         {
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
         });
+        services.AddHttpClient<IDemandesClient, DemandesHttp>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
+        });
 
         // Le mode de règlement retenu client par client. À côté du registre
         // quand il y en a un ; en mémoire sinon — sur le jeu d'essai, rien ne

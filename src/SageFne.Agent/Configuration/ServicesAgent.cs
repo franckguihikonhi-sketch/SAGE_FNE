@@ -93,6 +93,14 @@ public static class ServicesAgent
     /// <summary>Le tableau de bord, servi sur la boucle locale.</summary>
     public static IServiceCollection AjouterTableau(this IServiceCollection services)
     {
+        // Le chemin d'envoi demandé à la main, partagé par le tableau local et
+        // par les demandes venues du SaaS. Singleton, parce qu'il porte le
+        // verrou anti-double-envoi : deux instances feraient deux verrous, donc
+        // aucun.
+        services.AddSingleton<Certification.Certificateur>();
+        services.AddSingleton<Certification.ICertificateur>(
+            f => f.GetRequiredService<Certification.Certificateur>());
+        services.AddSingleton<Saas.TraiteurDemandes>();
         services.AddSingleton<RouteurTableau>();
         return services;
     }

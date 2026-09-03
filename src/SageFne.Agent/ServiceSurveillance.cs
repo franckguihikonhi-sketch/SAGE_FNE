@@ -47,6 +47,7 @@ public sealed class ServiceSurveillance(
     VerificateurStabilite stabilite,
     SuiviRefus refus,
     SuiviJournal journal,
+    Saas.TraiteurDemandes traiteur,
     ILogger<ServiceSurveillance> logger) : BackgroundService
 {
     private readonly AgentOptions _reglages = reglages.Value;
@@ -426,6 +427,7 @@ public sealed class ServiceSurveillance(
         if (pretes.Count == 0)
         {
             await RefleterAsync(portee, decisions, arret);
+            await TraiterLesDemandesAsync(arret);
             return;
         }
 
@@ -488,6 +490,43 @@ public sealed class ServiceSurveillance(
         // Après les envois : le reflet porte alors les références obtenues ce
         // tour-ci, plutôt que l'état d'avant.
         await RefleterAsync(portee, decisions, arret);
+        await TraiterLesDemandesAsync(arret);
+    }
+
+    /// <summary>
+    /// Les clics venus de l'écran distant.
+    /// </summary>
+    /// <remarks>
+    /// Traités après le tour, et par le même chemin que le tableau local : une
+    /// demande n'ouvre aucune voie que le bouton d'ici n'ouvrirait pas. Le mode
+    /// « Automatic » ne change rien à cela, et « Manual » non plus : un humain a
+    /// cliqué, et c'est ce clic qui fait foi — exactement comme sur le bouton
+    /// local, qui passe déjà outre le mode.
+    ///
+    /// Le plafond d'envois par tour s'applique ici aussi. Il vaut pour ce qui
+    /// part vers la DGI, quelle qu'en soit l'origine.
+    /// </remarks>
+    private async Task TraiterLesDemandesAsync(CancellationToken arret)
+    {
+        try
+        {
+            var traitees = await traiteur.TraiterAsync(
+                Math.Max(1, _reglages.LimiteEnvoisParTour), arret);
+
+            if (traitees > 0)
+            {
+                _derniereActivite = DateTimeOffset.Now;
+                logger.LogInformation(
+                    "{Nombre} demande(s) venue(s) du SaaS traitée(s) ce tour-ci.", traitees);
+            }
+        }
+        catch (Exception erreur) when (erreur is not OperationCanceledException)
+        {
+            // Comme le miroir : ce chemin ne casse jamais le tour. L'agent doit
+            // continuer d'examiner et de certifier même si le SaaS est en
+            // panne — c'est le poste qui fait le travail, pas le cloud.
+            logger.LogWarning(erreur, "Demandes SaaS abandonnées pour ce tour.");
+        }
     }
 
     private async Task BattreAsync(CancellationToken arret)

@@ -49,7 +49,10 @@ public sealed class OptionsSaas
         ? new string('•', CleService.Length)
         : $"{CleService[..4]}{new string('•', 8)}{CleService[^4..]}";
 
+    /// <summary>L'adresse d'une table, côté PostgREST.</summary>
+    public Uri AdresseTable(string table) =>
+        new(new Uri(Url.TrimEnd('/') + "/"), $"rest/v1/{table}");
+
     /// <summary>L'adresse de la table des certifications.</summary>
-    public Uri AdresseCertifications() =>
-        new(new Uri(Url.TrimEnd('/') + "/"), "rest/v1/certifications");
+    public Uri AdresseCertifications() => AdresseTable("certifications");
 }

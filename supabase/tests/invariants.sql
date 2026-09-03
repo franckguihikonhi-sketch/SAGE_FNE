@@ -620,3 +620,68 @@ select case when survenu_le = min(survenu_le) over () then 'OK     la reconstitu
   from certification_tentatives
  where certification_id = '55555555-5555-5555-5555-555555555555'
  order by survenu_le limit 1;
+
+-- ---------------------------------------------------------------------------
+-- Les demandes venues de l'écran distant
+--
+-- Une demande dit « quelqu'un a cliqué », jamais « certifie ». Ce que la base
+-- garantit ici, c'est qu'elle ne puisse pas devenir un ordre en cours de route.
+-- ---------------------------------------------------------------------------
+
+\echo '--- Une demande ne se réécrit pas ---'
+
+insert into demandes_certification (id, dossier_id, identite, piece, mode_paiement, demande_par)
+values ('66666666-6666-6666-6666-666666666666',
+        '22222222-2222-2222-2222-222222222222', '0/6/1225', '1225', 'cash',
+        '77777777-7777-7777-7777-777777777777');
+
+select attendre_echec($$
+  update demandes_certification set piece = '9999'
+   where id = '66666666-6666-6666-6666-666666666666'$$,
+  'changer la pièce d''une demande déjà posée');
+
+select attendre_echec($$
+  update demandes_certification set mode_paiement = 'transfer'
+   where id = '66666666-6666-6666-6666-666666666666'$$,
+  'changer le mode de règlement après le clic');
+
+\echo '--- Un mode de règlement inventé n''entre pas ---'
+select attendre_echec($$
+  insert into demandes_certification (dossier_id, identite, piece, mode_paiement, demande_par)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1', '1', 'especes',
+          '77777777-7777-7777-7777-777777777777')$$,
+  'un libellé français là où la DGI attend un code');
+
+\echo '--- Deux clics ne font pas deux demandes ---'
+select attendre_echec($$
+  insert into demandes_certification (dossier_id, identite, piece, mode_paiement, demande_par)
+  values ('22222222-2222-2222-2222-222222222222', '0/6/1225', '1225', 'cash',
+          '77777777-7777-7777-7777-777777777777')$$,
+  'une seconde demande sur une pièce déjà en file');
+
+\echo '--- Une demande tranchée ne se rouvre pas ---'
+update demandes_certification set etat = 'prise'
+ where id = '66666666-6666-6666-6666-666666666666';
+update demandes_certification set etat = 'refusee', resultat = 'pièce bloquée : TVA_ABSENTE'
+ where id = '66666666-6666-6666-6666-666666666666';
+
+select attendre_echec($$
+  update demandes_certification set etat = 'en_attente'
+   where id = '66666666-6666-6666-6666-666666666666'$$,
+  'rouvrir une demande déjà tranchée');
+
+select case when traitee_le is not null then 'OK     la date de traitement est posée d''office'
+            else 'ÉCHEC — traitee_le est resté nul' end
+  from demandes_certification
+ where id = '66666666-6666-6666-6666-666666666666';
+
+\echo '--- Une pièce tranchée redevient demandable ---'
+-- La première demande est retombée : rien n'interdit d'en poser une autre, par
+-- exemple après avoir corrigé la TVA dans Sage.
+insert into demandes_certification (dossier_id, identite, piece, mode_paiement, demande_par)
+values ('22222222-2222-2222-2222-222222222222', '0/6/1225', '1225', 'cash',
+        '77777777-7777-7777-7777-777777777777');
+
+select case when count(*) = 2 then 'OK     une nouvelle demande est possible après un refus'
+            else format('ÉCHEC — %s demande(s)', count(*)) end
+  from demandes_certification where identite = '0/6/1225';

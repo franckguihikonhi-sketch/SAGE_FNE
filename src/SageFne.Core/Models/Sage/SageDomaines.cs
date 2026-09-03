@@ -18,6 +18,30 @@ public static class SageDomaines
     public const short Vente = 0;
     public const short Achat = 1;
 
+    /// <summary>
+    /// Le domaine porté par une identité de registre.
+    /// </summary>
+    /// <remarks>
+    /// L'identité s'écrit « domaine/DO_DocType/DO_Piece ». La lire plutôt que
+    /// de la redemander à l'appelant évite qu'une vente et un achat de même
+    /// numéro soient confondus — ce sont deux pièces distinctes, et c'est
+    /// justement pourquoi le domaine est entré dans l'identité.
+    ///
+    /// Une identité illisible rend la vente : c'est le domaine du middleware
+    /// depuis toujours, et le lecteur refusera de son côté une pièce qu'il n'y
+    /// trouve pas. Deviner l'achat serait plus grave — l'achat mène au
+    /// bordereau agricole, qui est une affirmation.
+    /// </remarks>
+    public static short DepuisIdentite(string? identite)
+    {
+        if (string.IsNullOrWhiteSpace(identite)) return Vente;
+
+        var separateur = identite.IndexOf('/');
+        if (separateur <= 0) return Vente;
+
+        return short.TryParse(identite[..separateur], out var domaine) ? domaine : Vente;
+    }
+
     public static string Libelle(short domaine) => domaine switch
     {
         Vente => "vente",
