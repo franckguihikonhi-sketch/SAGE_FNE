@@ -7,7 +7,9 @@ using SageFne.Agent.Surveillance;
 using SageFne.Core.Batch;
 using SageFne.Core.Configuration;
 using SageFne.Core.Data;
+using SageFne.Core.Certification;
 using SageFne.Core.Fne;
+using SageFne.Core.Saas;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace SageFne.Agent;
@@ -51,6 +53,8 @@ public sealed class ServiceSurveillance(
 
     private long _examinees;
     private long _envoyees;
+    private int _refletees;
+    private int _refusesParLaBase;
     private DateTimeOffset? _derniereActivite;
     private EtatLien _sage = EtatLien.Inconnu;
     private EtatLien _reseau = EtatLien.Inconnu;
@@ -59,6 +63,18 @@ public sealed class ServiceSurveillance(
     /// <summary>Compteurs publics, pour les essais et le diagnostic.</summary>
     public long Examinees => _examinees;
     public long Envoyees => _envoyees;
+
+    /// <summary>Lignes reflétées dans la base d'audit au dernier tour.</summary>
+    public int Refletees => _refletees;
+
+    /// <summary>
+    /// Lignes que la base d'audit a refusées au dernier tour.
+    /// </summary>
+    /// <remarks>
+    /// Distinct d'une panne, et affiché comme tel : un refus signifie que le
+    /// registre local porte une transition que le schéma tient pour impossible.
+    /// </remarks>
+    public int RefusesParLaBase => _refusesParLaBase;
 
     protected override async Task ExecuteAsync(CancellationToken arret)
     {
@@ -296,6 +312,74 @@ public sealed class ServiceSurveillance(
         return decisions;
     }
 
+    /// <summary>
+    /// Reflète le registre dans la base d'audit, après le tour.
+    /// </summary>
+    /// <remarks>
+    /// Après, et jamais pendant. Le miroir n'a aucune autorité : il ne décide
+    /// d'aucun envoi, ne bloque rien, et son échec ne doit produire qu'une
+    /// ligne de journal. La seule mémoire qui compte reste le registre fichier
+    /// — nous venons d'apprendre, sur une facture certifiée deux fois, ce que
+    /// coûtent deux mémoires qui se croient toutes deux vraies.
+    ///
+    /// Un refus de la base est signalé à part : ce n'est pas une panne, c'est
+    /// un désaccord de fond entre ce que le registre affirme et ce que le
+    /// schéma tient pour possible.
+    /// </remarks>
+    private async Task RefleterAsync(
+        IServiceScope portee, IReadOnlyList<DecisionAgent> decisions, CancellationToken arret)
+    {
+        var miroir = portee.ServiceProvider.GetRequiredService<IMiroirClient>();
+        if (!miroir.Actif || decisions.Count == 0) return;
+
+        try
+        {
+            var registre = portee.ServiceProvider.GetRequiredService<ICertificationLedger>();
+            var reglagesSaas = portee.ServiceProvider.GetRequiredService<OptionsSaas>();
+            var api = portee.ServiceProvider.GetRequiredService<FneApiOptions>();
+
+            var traces = await registre.LookupAsync(
+                [.. decisions.Select(decision => decision.Identite).Distinct()], arret);
+
+            if (traces.Count == 0) return;
+
+            var lignes = traces.Values
+                .Select(trace => MiroirSaas.Traduire(trace, reglagesSaas.DossierId, api.Environment == FneEnvironment.Production))
+                .ToList();
+
+            var resultat = await miroir.PublierAsync(lignes, arret);
+
+            if (resultat.Refusees > 0)
+            {
+                _refusesParLaBase = resultat.Refusees;
+                logger.LogWarning(
+                    "Base d'audit : {Nombre} ligne(s) REFUSÉE(S). Ce n'est pas une panne — le " +
+                    "schéma tient pour impossible ce que le registre affirme. {Detail}",
+                    resultat.Refusees, resultat.Detail);
+                return;
+            }
+
+            _refusesParLaBase = 0;
+
+            if (!resultat.Aboutie)
+            {
+                logger.LogWarning(
+                    "Base d'audit injoignable : {Pourquoi} Les certifications ne sont pas " +
+                    "affectées ; le reflet reprendra au tour suivant.",
+                    resultat.Empechement);
+                return;
+            }
+
+            _refletees = resultat.Publiees;
+        }
+        catch (Exception erreur) when (erreur is not OperationCanceledException)
+        {
+            // Le miroir ne casse jamais le tour. Une exception ici, et l'agent
+            // cesserait de certifier pour une raison qui n'a rien à voir.
+            logger.LogWarning(erreur, "Reflet vers la base d'audit abandonné pour ce tour.");
+        }
+    }
+
     private async Task UnTourAsync(CancellationToken arret)
     {
         // Une portée par tour : le registre, le dépôt Sage et le mapping se
@@ -338,7 +422,12 @@ public sealed class ServiceSurveillance(
         logger.LogInformation("{Synthese}", SuiviJournal.Synthese(decisions));
 
         var pretes = decisions.Where(decision => decision.Envoyable).ToList();
-        if (pretes.Count == 0) return;
+
+        if (pretes.Count == 0)
+        {
+            await RefleterAsync(portee, decisions, arret);
+            return;
+        }
 
         // Le plafond d'envois, distinct de celui de lecture. Ce qui dépasse
         // n'est pas perdu : il repassera au tour suivant, une minute plus tard,
@@ -395,6 +484,10 @@ public sealed class ServiceSurveillance(
                 "Pièce {Piece} : {Etat}. {Message} Aucun renvoi automatique.",
                 decision.Piece, resultat.Etat, resultat.Message);
         }
+
+        // Après les envois : le reflet porte alors les références obtenues ce
+        // tour-ci, plutôt que l'état d'avant.
+        await RefleterAsync(portee, decisions, arret);
     }
 
     private async Task BattreAsync(CancellationToken arret)

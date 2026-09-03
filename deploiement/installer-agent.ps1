@@ -78,6 +78,12 @@ param(
 
     # L'identite du contribuable aupres de la DGI. Elle ne vient pas de Sage :
     # la DGI la donne avec l'acces a la plateforme.
+    # La base d'audit du SaaS. Non secrets, contrairement a la cle de service :
+    # ils vivent dans appsettings.json comme le reste du parametrage. Vides, le
+    # miroir reste eteint et la certification ne change pas d'un octet.
+    [string]$SupabaseUrl = '',
+    [string]$Dossier = '',
+
     [string]$PointDeVente = '',
     [string]$Etablissement = '',
 
@@ -270,7 +276,13 @@ function Preparer-Poste {
 
     foreach ($secret in @(
         @{ Cle = 'ConnectionStrings:Sage'; Variable = 'ConnectionStrings__Sage'; Nom = 'chaîne de connexion Sage' },
-        @{ Cle = 'Fne:ApiKey';             Variable = 'Fne__ApiKey';             Nom = "clé d'API FNE" }
+        @{ Cle = 'Fne:ApiKey';             Variable = 'Fne__ApiKey';             Nom = "clé d'API FNE" },
+
+        # Facultative : sans elle le miroir vers la base d'audit reste eteint,
+        # et l'agent certifie exactement comme avant. Elle donne un acces
+        # complet a la base : meme traitement que la cle FNE, variable machine
+        # et jamais appsettings.json.
+        @{ Cle = 'Saas:CleService';        Variable = 'Saas__CleService';        Nom = "clé de la base d'audit"; Facultatif = $true }
     )) {
         $existant = [Environment]::GetEnvironmentVariable($secret.Variable, 'Machine')
         if ($existant) {
@@ -295,6 +307,12 @@ function Preparer-Poste {
             [Environment]::SetEnvironmentVariable($secret.Variable, $depuisSecrets, 'Machine')
             Set-Item "env:$($secret.Variable)" $depuisSecrets
             Bien "$($secret.Nom) : reprise des secrets du CLI, sans être affichée."
+        }
+        elseif ($secret.Facultatif) {
+            Note "$($secret.Nom) : absente. Le miroir vers la base d'audit reste eteint,"
+            Note "  et rien ne change pour la certification. Pour l'allumer :"
+            Note "    -Preparer -SupabaseUrl 'https://xxxx.supabase.co' -Dossier '<uuid>'"
+            Note "  puis posez la cle : [Environment]::SetEnvironmentVariable('Saas__CleService', '...', 'Machine')"
         }
         else {
             Alerte "$($secret.Nom) : absente. Posez-la vous-même -"
@@ -354,12 +372,14 @@ function Preparer-Poste {
     $stabiliteEnPlace = $null
     $fenetreEnPlace = $null
     $fneEnPlace = $null
+    $saasEnPlace = $null
     if (Test-Path $fichierAvant) {
         $ancien = Get-Content $fichierAvant -Raw -Encoding UTF8 | ConvertFrom-Json
         $modeEnPlace = $ancien.Agent.Mode
         $stabiliteEnPlace = $ancien.Agent.StabiliteMinutes
         $fenetreEnPlace = $ancien.Agent.FenetreJours
         $fneEnPlace = $ancien.Fne
+        $saasEnPlace = $ancien.Saas
     }
 
     $service = Get-Service $NomService -ErrorAction SilentlyContinue
@@ -469,6 +489,36 @@ function Preparer-Poste {
     }
 
     # Le parametre passe devant tout : c'est la correction qu'on vient taper.
+    # La section Saas est reprise comme la section Fne, et pour la meme raison :
+    # un reglage qu'on cesse de porter est un reglage perdu. FenetreJours est
+    # deja retombe de 30 a 7 de cette facon, et l'identite du dossier a
+    # « A_COMPLETER ».
+    if ($null -ne $saasEnPlace) {
+        if (-not $config.PSObject.Properties['Saas']) {
+            $config | Add-Member -NotePropertyName 'Saas' -NotePropertyValue ([pscustomobject]@{})
+        }
+
+        foreach ($champ in $saasEnPlace.PSObject.Properties) {
+            $valeur = $champ.Value
+            if ($null -eq $valeur) { continue }
+            if ($valeur -is [string]) {
+                if ([string]::IsNullOrWhiteSpace($valeur)) { continue }
+                if ($valeur -match $MotifGabarit) { continue }
+            }
+
+            Fixer-Propriete $config.Saas $champ.Name $valeur
+        }
+    }
+
+    if ($SupabaseUrl -or $Dossier) {
+        if (-not $config.PSObject.Properties['Saas']) {
+            $config | Add-Member -NotePropertyName 'Saas' -NotePropertyValue ([pscustomobject]@{})
+        }
+
+        if ($SupabaseUrl) { Fixer-Propriete $config.Saas 'Url' $SupabaseUrl }
+        if ($Dossier)     { Fixer-Propriete $config.Saas 'DossierId' $Dossier }
+    }
+
     if ($PointDeVente) { Fixer-Propriete $config.Fne 'PointOfSale' $PointDeVente }
     if ($Etablissement) { Fixer-Propriete $config.Fne 'Establishment' $Etablissement }
 
@@ -488,6 +538,28 @@ function Preparer-Poste {
     # toutes les factures a cause d'eux.
     Note "Point de vente    $($relu.Fne.PointOfSale)"
     Note "Etablissement     $($relu.Fne.Establishment)"
+
+    # Le miroir vers la base d'audit. Affiche meme eteint : une fonction dont on
+    # ignore qu'elle est eteinte se croit en panne.
+    $urlSaas = if ($relu.PSObject.Properties['Saas']) { $relu.Saas.Url } else { '' }
+    $dossierSaas = if ($relu.PSObject.Properties['Saas']) { $relu.Saas.DossierId } else { '' }
+    $cleSaas = [Environment]::GetEnvironmentVariable('Saas__CleService', 'Machine')
+
+    Note ""
+    if ($urlSaas -and $dossierSaas -and $cleSaas) {
+        Note "Base d'audit      $urlSaas"
+        Note "                  dossier $dossierSaas"
+        Note "                  L'agent y reflete son registre a chaque tour."
+        Note "                  Le registre local reste la seule reference."
+    }
+    else {
+        $manque = @()
+        if (-not $urlSaas)     { $manque += 'Saas:Url' }
+        if (-not $dossierSaas) { $manque += 'Saas:DossierId' }
+        if (-not $cleSaas)     { $manque += 'Saas__CleService (variable machine)' }
+        Note "Base d'audit      eteinte - il manque $($manque -join ', ')."
+        Note "                  La certification fonctionne exactement pareil."
+    }
 
     $identiteAFaire = @()
     foreach ($paire in @(

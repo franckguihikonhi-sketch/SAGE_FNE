@@ -6,6 +6,7 @@ using SageFne.Core.Certification;
 using SageFne.Core.Data;
 using SageFne.Core.Fne;
 using SageFne.Core.Mapping;
+using SageFne.Core.Saas;
 
 namespace SageFne.Core.Configuration;
 
@@ -48,6 +49,18 @@ public static class ServicesMiddleware
         services.AddHttpClient<IFneApiClient, FneApiClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(api.TimeoutSeconds, 5, 300));
+        });
+
+        // Le miroir vers la base d'audit. Inerte tant que la section « Saas »
+        // n'est pas renseignée : un poste qui certifie aujourd'hui continue
+        // exactement comme avant. Rien de ce que fait le miroir ne peut
+        // modifier une certification.
+        var saas = new OptionsSaas();
+        configuration.GetSection(OptionsSaas.Section).Bind(saas);
+        services.AddSingleton(saas);
+        services.AddHttpClient<IMiroirClient, MiroirHttp>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
         });
 
         // Le mode de règlement retenu client par client. À côté du registre
