@@ -320,6 +320,85 @@ public sealed class SageInvoiceRepository(string connectionString, ILogger<SageI
             .ToList();
     }
 
+    /// <summary>
+    /// Tous les domaines et types, avec un exemplaire de chacun.
+    /// </summary>
+    /// <remarks>
+    /// Aucun filtre sur DO_Domaine : c'est tout l'objet. Le middleware ne lit
+    /// que le domaine 0, et cette requête est le seul endroit d'où l'on peut
+    /// voir ce que le dossier contient par ailleurs.
+    ///
+    /// L'exemplaire est pris par row_number plutôt que par une sous-requête par
+    /// groupe : une seule lecture, et l'ordre décroissant donne le document le
+    /// plus récent, celui que l'exploitant reconnaîtra le mieux.
+    /// </remarks>
+    internal const string SqlDomaines = """
+        select
+          e.DO_Domaine as DO_Domaine,
+          e.DO_Type as DO_Type,
+          count(*) as Nombre,
+          min(e.DO_Date) as PremiereDate,
+          max(e.DO_Date) as DerniereDate,
+          sum(e.DO_TotalTTC) as TotalTTC,
+          max(rtrim(e.DO_Piece) + '|' + rtrim(e.DO_Tiers)) as Exemplaire
+        from F_DOCENTETE e
+        group by e.DO_Domaine, e.DO_Type
+        order by e.DO_Domaine, e.DO_Type
+        """;
+
+    public async Task<List<SageDomaineSummary>> GetDomainesAsync(
+        CancellationToken cancellation = default)
+    {
+        await using var connexion = await OuvrirAsync(cancellation);
+        await using var commande = Commande(connexion, SqlDomaines);
+
+        var domaines = new List<SageDomaineSummary>();
+        await using var lecteur = await commande.ExecuteReaderAsync(cancellation);
+        while (await lecteur.ReadAsync(cancellation))
+        {
+            domaines.Add(new SageDomaineSummary
+            {
+                Domaine = lecteur.Small("DO_Domaine"),
+                Type = lecteur.Small("DO_Type"),
+                Nombre = lecteur.Whole("Nombre"),
+                PremiereDate = lecteur.MomentOrNull("PremiereDate"),
+                DerniereDate = lecteur.MomentOrNull("DerniereDate"),
+                TotalTTC = lecteur.Amount("TotalTTC"),
+                Exemple = Avant(lecteur.Text("Exemplaire")),
+                Tiers = Apres(lecteur.Text("Exemplaire")),
+            });
+        }
+
+        logger.LogDebug("{Nombre} couple(s) domaine/type dans F_DOCENTETE.", domaines.Count);
+        return domaines;
+    }
+
+    /// <summary>
+    /// La pièce et le compte tiers viennent concaténés d'une seule agrégation.
+    /// </summary>
+    /// <remarks>
+    /// Deux <c>max()</c> séparés auraient pu prendre la pièce d'un document et
+    /// le compte d'un autre — un exemplaire qui n'existe pas, présenté comme
+    /// s'il existait. Concaténés, ils viennent forcément de la même ligne.
+    ///
+    /// Et non une fenêtre <c>row_number()</c> dans une CTE, qui aurait donné
+    /// l'exemplaire le plus récent : <see cref="ReadOnlyGuard"/> exige que le
+    /// texte commence par <c>select</c>, et refuse donc <c>with</c>. La requête
+    /// aurait échoué à l'exécution — l'affaiblir pour la faire passer aurait
+    /// été prendre le problème par le mauvais bout.
+    /// </remarks>
+    private static string Avant(string concatene)
+    {
+        var separateur = concatene.IndexOf('|');
+        return separateur < 0 ? concatene : concatene[..separateur];
+    }
+
+    private static string Apres(string concatene)
+    {
+        var separateur = concatene.IndexOf('|');
+        return separateur < 0 ? "" : concatene[(separateur + 1)..];
+    }
+
     internal const string SqlTypesDocuments = """
         select
           e.DO_Type as DO_Type,

@@ -83,6 +83,70 @@ if (ligneDeCommande.Verbe != Verbe.RegistreInfo
     }
 }
 
+// Diagnostic : ce que le dossier contient, TOUS domaines confondus. Le
+// middleware ne lit que DO_Domaine = 0 ; le reste n'avait jamais été regardé,
+// et il a fallu s'en apercevoir le jour où la question des achats s'est posée.
+//
+// Aucun domaine n'est nommé : Sage les numérote, l'usage veut que 0 soit la
+// vente et 1 l'achat, mais « l'usage veut » est le genre de supposition qui a
+// déjà coûté cher ici. On compte, on montre un exemplaire, et c'est
+// l'exploitant qui reconnaît ses documents.
+if (ligneDeCommande.Verbe == Verbe.Domaines)
+{
+    var depotDomaines = hote.Services.GetRequiredService<ISageInvoiceRepository>();
+    var domaines = await depotDomaines.GetDomainesAsync();
+
+    Titre("Domaines et types de documents — F_DOCENTETE, sans filtre");
+    Console.WriteLine(Source(connexionConfiguree));
+
+    if (domaines.Count == 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  Aucun document dans F_DOCENTETE.");
+        return 0;
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        $"  {"Domaine",7} {"Type",5} {"Documents",9} {"Total TTC",18}  {"Période",23}  Exemplaire");
+
+    short? domainePrecedent = null;
+    foreach (var ligne in domaines)
+    {
+        if (domainePrecedent is not null && ligne.Domaine != domainePrecedent)
+        {
+            Console.WriteLine();
+        }
+
+        var repere = ligne.Domaine == 0 ? " ←" : "  ";
+        Console.WriteLine(
+            $"  {ligne.Domaine,7}{repere.TrimEnd()} {ligne.Type,4} {ligne.Nombre,9} " +
+            $"{Somme(ligne.TotalTTC),18}  {Periode(ligne.PremiereDate, ligne.DerniereDate),23}  " +
+            $"{Tronquer(ligne.Exemple, 12),-12} {Tronquer(ligne.Tiers, 16)}");
+
+        domainePrecedent = ligne.Domaine;
+    }
+
+    Console.WriteLine($"  {new string('─', 100)}");
+    Console.WriteLine(
+        $"  {Pluriel(domaines.Select(d => d.Domaine).Distinct().Count(), "domaine")}, " +
+        $"{domaines.Count} couple(s) domaine/type, " +
+        $"{Pluriel(domaines.Sum(d => d.Nombre), "document")}.");
+
+    Console.WriteLine();
+    Console.WriteLine("""
+      Les lignes marquées « ← » sont le seul domaine que le middleware lit
+      aujourd'hui. Tout le reste est visible ici et nulle part ailleurs : ni le
+      tableau de bord, ni l'agent, ni la certification ne le regardent.
+
+      Rien n'est certifiable depuis cette commande. Elle compte, elle ne juge
+      pas : c'est à vous de reconnaître, sur les exemplaires, ce que chaque
+      domaine contient réellement dans votre dossier.
+      """);
+
+    return 0;
+}
+
 // Diagnostic : inventaire des types de documents du domaine des ventes. Aucune
 // conversion, aucun registre, rien d'écrit — deux SELECT et un tableau.
 if (ligneDeCommande.Verbe == Verbe.TypesDocuments)

@@ -58,6 +58,21 @@ public interface ISageInvoiceRepository
     Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken cancellation = default);
 
     /// <summary>
+    /// Inventaire de <b>tous</b> les domaines et types de F_DOCENTETE.
+    /// </summary>
+    /// <remarks>
+    /// Le middleware ne lit que <c>DO_Domaine = 0</c>. Tout le reste du dossier
+    /// — achats, stocks, ce que ce dossier-là utilise — n'a jamais été regardé,
+    /// et il a fallu s'en apercevoir le jour où la question des achats s'est
+    /// posée.
+    ///
+    /// Cet inventaire ne nomme aucun domaine : il compte. C'est l'exploitant
+    /// qui reconnaît ses documents, à partir des exemplaires affichés.
+    /// </remarks>
+    Task<List<SageDomaineSummary>> GetDomainesAsync(
+        CancellationToken cancellation = default);
+
+    /// <summary>
     /// Inventaire des types de documents présents dans le domaine des ventes.
     /// </summary>
     /// <remarks>

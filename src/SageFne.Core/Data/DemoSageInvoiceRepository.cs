@@ -34,6 +34,28 @@ public sealed class DemoSageInvoiceRepository(bool estReel = false)
     /// </remarks>
     public bool EstReel => estReel;
 
+    /// <summary>
+    /// Le jeu d'essai ne porte que des ventes : il le dit plutôt que de
+    /// fabriquer des achats qu'aucun dossier réel ne confirmerait.
+    /// </summary>
+    public Task<List<SageDomaineSummary>> GetDomainesAsync(
+        CancellationToken cancellation = default) =>
+        Task.FromResult(Entetes
+            .GroupBy(entete => (entete.Domaine, entete.Type))
+            .Select(groupe => new SageDomaineSummary
+            {
+                Domaine = groupe.Key.Domaine,
+                Type = groupe.Key.Type,
+                Nombre = groupe.Count(),
+                PremiereDate = groupe.Min(e => e.Date),
+                DerniereDate = groupe.Max(e => e.Date),
+                TotalTTC = groupe.Sum(e => e.TotalTTC),
+                Exemple = groupe.OrderByDescending(e => e.Date).First().Piece,
+                Tiers = groupe.OrderByDescending(e => e.Date).First().Tiers,
+            })
+            .OrderBy(d => d.Domaine).ThenBy(d => d.Type)
+            .ToList());
+
     private static readonly SageCustomer[] Clients =
     [
         new()

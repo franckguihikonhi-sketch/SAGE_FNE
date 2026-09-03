@@ -10,6 +10,7 @@ public enum Verbe
 
     /// <summary>Inventorier les types de documents du dossier. Lecture seule.</summary>
     TypesDocuments,
+    Domaines,
 
     /// <summary>Relevé complet d'une pièce : Sage d'un côté, FNE de l'autre.</summary>
     Detail,
@@ -319,6 +320,9 @@ public sealed record CommandLine
                     break;
                 case "doctypes":
                     verbe = Verbe.TypesDocuments;
+                    break;
+                case "domaines":
+                    verbe = Verbe.Domaines;
                     break;
                 case "detail":
                 case "apercu":
