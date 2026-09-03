@@ -1303,6 +1303,39 @@ catalogue que faire échouer le diagnostic pour l'apprendre. Les trois requêtes
 Sans chaîne de connexion, la commande tourne sur le jeu d'essai et le dit : les chiffres
 affichés ne sont alors pas ceux du dossier.
 
+## Les achats : ce que la DGI accepte, et ce qu'elle n'accepte pas
+
+L'endpoint « achat » de la DGI s'intitule **« Certification du bordereau d'achat de produits
+agricoles »**. Ce n'est pas « factures d'achat » au sens courant, et le corps de requête le
+confirme : contrairement à la vente, les lignes ne portent **aucune TVA** — pas de tableau
+`taxes` — et il n'existe **aucun champ `clientNcc`**. C'est le document qu'un acheteur émet
+quand son fournisseur, un producteur, ne peut pas facturer lui-même.
+
+**Pour une facture fournisseur ordinaire, il n'y a rien à certifier côté acheteur** : c'est le
+fournisseur qui certifie sa vente. Les 27 pages de la procédure n'offrent aucun autre endpoint —
+`GET`, webhook, export : zéro occurrence.
+
+Reste à savoir ce que le domaine achats d'un dossier contient réellement. **Le middleware ne lit
+que `DO_Domaine = 0`**, à quatre endroits ; le reste n'avait jamais été regardé.
+
+```
+dotnet run --project src/SageFne.Reader -- domaines
+```
+
+Cette commande **ne nomme aucun domaine**. Sage les numérote, et l'usage veut que 0 soit la
+vente et 1 l'achat — mais « l'usage veut » est exactement le genre de supposition qui a déjà
+coûté cher ici. Elle compte, montre un exemplaire par couple domaine/type, et c'est l'exploitant
+qui reconnaît ses documents. Rien n'y est certifiable.
+
+Deux détails de sa requête, qui ont chacun failli être un défaut :
+
+- Elle est passée par une CTE `with … row_number()` pour prendre l'exemplaire **le plus
+  récent**. `ReadOnlyGuard` exige que le texte commence par `select` : elle aurait échoué sur le
+  poste, pas dans les tests. C'est la requête qui a été réécrite, pas le garde-fou assoupli.
+- La pièce et le compte tiers viennent d'une **seule** agrégation, concaténés. Deux `max()`
+  séparés auraient pu prendre la pièce d'un document et le compte d'un autre : un exemplaire qui
+  n'existe pas, présenté comme s'il existait.
+
 ## Un lot, trois lectures
 
 Lire cinquante factures ne fait pas cent cinquante allers-retours vers SQL Server, mais
