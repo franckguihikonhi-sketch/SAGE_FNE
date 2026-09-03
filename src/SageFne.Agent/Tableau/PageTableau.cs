@@ -221,12 +221,32 @@ async function charger() {
       fetch('/api/etat').then((r) => r.json()),
       fetch('/api/factures').then((r) => r.json()),
     ]);
+    if (verifierBuild(e)) return;
+
     etat = e;
     dessinerEtat(e);
     dessinerFactures(f);
   } catch (err) {
     $('bandeau').innerHTML = '<span class="jeton alerte">Agent injoignable</span>';
   }
+}
+
+// Le binaire a-t-il changé sous nos pieds ? Un onglet resté ouvert pendant une
+// republication garde l'ancien code pour toujours : la page rafraîchit ses
+// données, jamais elle-même. Deux nouveautés livrées ont été crues absentes
+// pour cette seule raison.
+let build = null;
+
+function verifierBuild(e) {
+  if (!e.build) return false;
+  if (build === null) { build = e.build; return false; }
+  if (build === e.build) return false;
+
+  // Rechargement plutôt qu'un bandeau « une nouvelle version est disponible » :
+  // il n'y a rien à décider, et rien en cours qu'un rechargement ferait perdre —
+  // les choix de mode sont réappliqués depuis le serveur.
+  location.reload();
+  return true;
 }
 
 function dessinerEtat(e) {

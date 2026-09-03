@@ -1506,6 +1506,19 @@ liste affichant « Mobile money » ferait deux affirmations contraires sur le m�
 Le choix est retenu **avant** l'envoi, jamais après : c'est le lecteur qui relit la pièce et
 construit le corps, et il ne peut prendre en compte que ce qui est déjà écrit.
 
+### Une page qui se recharge quand le binaire change
+
+La page rafraîchit ses données toutes les quinze secondes, **jamais son propre code**. Un onglet
+resté ouvert pendant une republication garde donc l'ancien HTML pour toujours — et deux
+nouveautés livrées ont été crues absentes pour cette seule raison.
+
+« Faites `Ctrl+F5` » n'est pas une réponse : c'est reporter sur l'exploitant un défaut du
+produit. `/api/etat` porte désormais l'empreinte du binaire qui sert la page ; quand elle
+change, la page se recharge d'elle-même.
+
+Ce n'est pas le numéro de version de l'assemblage — il vaut `1.0.0.0` et ne bouge pas d'une
+publication à l'autre. C'est l'identifiant de module, qui change à chaque compilation.
+
 ### Le tableau de bord : voir les factures, et certifier d'un clic
 
 `http://localhost:5080` — l'agent sert une page qui liste les factures de la fenêtre, chacune

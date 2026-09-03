@@ -440,6 +440,44 @@ public class TableauTests
     }
 
     [Fact]
+    public async Task L_etat_porte_l_empreinte_du_binaire()
+    {
+        // Sans elle, un onglet resté ouvert pendant une republication garde
+        // l'ancien code pour toujours : la page rafraîchit ses données, jamais
+        // elle-même. Deux nouveautés livrées ont été crues absentes pour cette
+        // seule raison, et « faites Ctrl+F5 » reporte sur l'exploitant un
+        // défaut du produit.
+        using var fournisseur = Cabler();
+        var etat = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/etat"));
+
+        var build = etat.GetProperty("build").GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(build));
+
+        // Le numéro de version de l'assemblage vaut 1.0.0.0 et ne bougerait pas
+        // d'une publication à l'autre : c'est l'identifiant de module qu'il
+        // faut, et il n'y ressemble pas.
+        Assert.DoesNotContain(".", build);
+        Assert.Equal(12, build!.Length);
+    }
+
+    [Fact]
+    public async Task L_empreinte_ne_change_pas_entre_deux_lectures()
+    {
+        // Elle doit changer à la republication, pas à chaque appel : une
+        // empreinte instable rechargerait la page toutes les quinze secondes.
+        using var fournisseur = Cabler();
+        var routeur = Routeur(fournisseur);
+
+        var premier = Lire(await routeur.RepondreAsync("GET", "/api/etat"))
+            .GetProperty("build").GetString();
+        var second = Lire(await routeur.RepondreAsync("GET", "/api/etat"))
+            .GetProperty("build").GetString();
+
+        Assert.Equal(premier, second);
+    }
+
+    [Fact]
     public async Task Une_visite_ne_certifie_pas()
     {
         // Une adresse qui certifierait au simple GET partirait au premier

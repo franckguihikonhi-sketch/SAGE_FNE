@@ -67,6 +67,22 @@ public sealed record EtatTableau(
     int FenetreJours,
     string DemarrageLe,
 
+    /// <summary>
+    /// L'identifiant du binaire qui sert cette page.
+    /// </summary>
+    /// <remarks>
+    /// La page rafraîchit ses données toutes les quinze secondes mais jamais
+    /// son propre code : un onglet resté ouvert pendant une republication garde
+    /// l'ancien HTML pour toujours. Deux fois de suite, une nouveauté livrée a
+    /// été crue absente pour cette seule raison, et « faites Ctrl+F5 » n'est pas
+    /// une réponse — c'est reporter sur l'exploitant un défaut du produit.
+    ///
+    /// Le numéro de version de l'assemblage ne convient pas : il vaut 1.0.0.0
+    /// et ne bouge pas d'une publication à l'autre. L'identifiant de module,
+    /// lui, change à chaque compilation.
+    /// </remarks>
+    string Build,
+
     // Affichés parce que leur absence est invisible partout ailleurs : ils ne
     // viennent pas de Sage, aucun contrôle de pièce ne les regarde, et la DGI
     // refuse toutes les factures quand ils manquent.

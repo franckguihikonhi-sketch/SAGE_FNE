@@ -52,6 +52,10 @@ public sealed class RouteurTableau(
 
     private readonly AgentOptions _reglages = reglages.Value;
 
+    /// <summary>Change à chaque compilation du binaire qui sert la page.</summary>
+    private static readonly string Empreinte =
+        typeof(RouteurTableau).Assembly.ManifestModule.ModuleVersionId.ToString("N")[..12];
+
     // Les envois en cours, par pièce. Un double-clic sur « Certifier » lance
     // deux appels concurrents : le premier inscrit Sending, mais le second a
     // déjà lu le registre avant cette inscription et part quand même. Deux POST,
@@ -272,6 +276,7 @@ public sealed class RouteurTableau(
             PlateformeExplication: essai.Explication,
             FenetreJours: _reglages.FenetreJours,
             DemarrageLe: "",
+            Build: Empreinte,
             PointDeVente: fne.PointOfSale,
             Etablissement: fne.Establishment,
             IdentiteRenseignee: IdentitePosee(),
