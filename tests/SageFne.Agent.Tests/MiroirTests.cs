@@ -319,13 +319,23 @@ public class MiroirTests
         Assert.True(fournisseur.GetRequiredService<IMiroirClient>().Actif);
     }
 
+    private static IEnumerable<Type> Signatures(Type type) => type
+        .GetConstructors()
+        .SelectMany(c => c.GetParameters().Select(p => p.ParameterType))
+        .Concat(type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+            .Select(f => f.FieldType))
+        .Concat(type.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .SelectMany(m => m.GetParameters().Select(p => p.ParameterType).Append(m.ReturnType)));
+
     [Fact]
     public void Rien_dans_le_chemin_d_envoi_ne_connait_le_miroir()
     {
-        // La frontière qui compte. Si l'expéditeur ou le moteur de surveillance
-        // pouvaient consulter le miroir, une base injoignable finirait par
-        // décider — ou par empêcher — une certification. La seule mémoire qui
-        // fait autorité est le registre fichier.
+        // La frontière qui compte. Le miroir REFLÈTE après coup : s'il pouvait
+        // être consulté avant un envoi, une base injoignable finirait par
+        // empêcher une certification que le poste peut parfaitement faire seul.
+        //
+        // À distinguer de la réservation, qui DÉCIDE et doit donc y entrer :
+        // le test suivant l'exige.
         var interdits = new[]
         {
             typeof(SageFne.Core.Fne.InvoiceSender),
@@ -335,18 +345,32 @@ public class MiroirTests
 
         foreach (var type in interdits)
         {
-            var signatures = type
-                .GetConstructors()
-                .SelectMany(c => c.GetParameters().Select(p => p.ParameterType))
-                .Concat(type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic
-                                       | BindingFlags.Public).Select(f => f.FieldType))
-                .Concat(type.GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                    .SelectMany(m => m.GetParameters().Select(p => p.ParameterType)
-                        .Append(m.ReturnType)));
-
-            Assert.DoesNotContain(signatures, t =>
-                t.Namespace is not null && t.Namespace.StartsWith("SageFne.Core.Saas", StringComparison.Ordinal));
+            Assert.DoesNotContain(Signatures(type), t => t == typeof(IMiroirClient));
         }
+    }
+
+    [Fact]
+    public void L_expediteur_consulte_la_reservation_partagee()
+    {
+        // L'inverse du test précédent, et c'est voulu. Le registre fichier ne
+        // connaît que son poste : deux postes, deux registres qui s'ignorent,
+        // et la même pièce part deux fois. C'est arrivé sur la 1225, à sept
+        // heures d'intervalle, sans que personne édite quoi que ce soit dans
+        // Sage — le verrou de saisie de Sage ne protège pas d'une lecture.
+        Assert.Contains(
+            Signatures(typeof(SageFne.Core.Fne.InvoiceSender)),
+            t => t == typeof(IReservationClient));
+    }
+
+    [Fact]
+    public void La_reservation_reste_hors_du_moteur_de_surveillance()
+    {
+        // Elle appartient au seul endroit qui envoie. L'examen des pièces, lui,
+        // doit continuer même si la base d'audit est muette : un poste isolé
+        // travaille comme avant.
+        Assert.DoesNotContain(
+            Signatures(typeof(SageFne.Agent.Surveillance.MoteurSurveillance)),
+            t => t == typeof(IReservationClient));
     }
 
     // --- L'installeur -------------------------------------------------------

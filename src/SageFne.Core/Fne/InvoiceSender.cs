@@ -64,7 +64,12 @@ public sealed class InvoiceSender(
     ICertificationLedger registre,
     IFneApiClient client,
     ILogger<InvoiceSender> logger,
-    Microsoft.Extensions.Options.IOptions<Configuration.FneOptions> options)
+    Microsoft.Extensions.Options.IOptions<Configuration.FneOptions> options,
+
+    // Facultatif, et avec une valeur par défaut : les doublures de test qui
+    // construisent un expéditeur continuent de compiler. Ajouter un paramètre
+    // obligatoire ici a déjà cassé vingt sites d'appel d'un coup.
+    Saas.IReservationClient? reservation = null)
 {
     private readonly Configuration.FneOptions _options = options.Value;
 
@@ -168,6 +173,43 @@ public sealed class InvoiceSender(
                 conversion);
         }
 
+        // La mémoire anti-doublon partagée, quand elle existe. Le registre
+        // fichier ne connaît que ce poste : deux postes, deux registres qui
+        // s'ignorent, et la même pièce part deux fois — c'est arrivé sur la
+        // 1225, à sept heures d'intervalle, sans que personne édite quoi que ce
+        // soit dans Sage. Le verrou de saisie de Sage ne protège pas d'une
+        // lecture.
+        //
+        // Elle n'interdit pas à deux agents de travailler en parallèle : seule
+        // la PIÈCE est exclusive, jamais le dossier.
+        if (reservation is { Actif: true })
+        {
+            var sort = await reservation.ReserverAsync(
+                conversion.Header.Identite, piece, cancellation);
+
+            if (sort is Saas.SortReservation.Refusee)
+            {
+                return new EnvoiResultat(
+                    EtatFne.Error,
+                    $"La pièce {piece} est déjà partie, ou en vol depuis un autre poste : la " +
+                    "base d'audit refuse de la réserver. Rien n'a été envoyé.",
+                    conversion);
+            }
+
+            if (sort is Saas.SortReservation.Indisponible)
+            {
+                // Ne pas pouvoir prouver qu'une pièce est libre n'autorise pas
+                // à la croire libre. Elle repassera au tour suivant : un retard
+                // se rattrape, un doublon certifié non.
+                return new EnvoiResultat(
+                    EtatFne.Error,
+                    $"La base d'audit n'a pas répondu : impossible de vérifier que la pièce " +
+                    $"{piece} n'est pas déjà partie depuis un autre poste. Rien n'a été envoyé, " +
+                    "et elle repassera au tour suivant.",
+                    conversion);
+            }
+        }
+
         // Trace avant l'appel : c'est elle qui évitera le doublon si la réponse
         // se perd. Si elle échoue, rien ne part — une facture certifiée dont
         // nous n'aurions aucune trace serait pire que pas de facture du tout.
@@ -216,6 +258,16 @@ public sealed class InvoiceSender(
                             : $"{reponse.Erreur} Refus net : rien n'a été créé.",
                         reponse.CodeHttp),
                 cancellation);
+
+            // Un refus net rend la pièce à tout le monde : rien n'a été créé
+            // chez la DGI, elle peut repartir. Une issue INCONNUE, elle, reste
+            // réservée — la plateforme a pu enregistrer la facture, et la
+            // libérer autoriserait un second envoi depuis un autre poste.
+            if (!douteux && reservation is { Actif: true })
+            {
+                await reservation.LibererAsync(
+                    conversion.Header.Identite, reponse.Erreur ?? "refus net", cancellation);
+            }
 
             return new EnvoiResultat(
                 etat,

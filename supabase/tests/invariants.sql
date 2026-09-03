@@ -685,3 +685,97 @@ values ('22222222-2222-2222-2222-222222222222', '0/6/1225', '1225', 'cash',
 select case when count(*) = 2 then 'OK     une nouvelle demande est possible après un refus'
             else format('ÉCHEC — %s demande(s)', count(*)) end
   from demandes_certification where identite = '0/6/1225';
+
+-- ---------------------------------------------------------------------------
+-- La reservation : une piece ne part qu'une fois
+--
+-- L'invariant n'est pas « un seul agent ». Deux agents peuvent traiter deux
+-- factures differentes du meme dossier, et c'est meme souhaitable. Ce qui ne
+-- doit jamais arriver, c'est que la MEME piece parte deux fois — ce qui est
+-- arrive sur ce dossier, faute d'une memoire partagee entre les postes.
+-- ---------------------------------------------------------------------------
+
+\echo '--- Une piece libre se reserve ---'
+select case when reserver_piece('22222222-2222-2222-2222-222222222222', 'test',
+                                '0/6/2001', '2001', 'agent-A')
+            then 'OK     l''agent A reserve la piece 2001'
+            else 'ÉCHEC — une piece libre a été refusée' end;
+
+\echo '--- La meme piece ne se reserve pas deux fois ---'
+select case when reserver_piece('22222222-2222-2222-2222-222222222222', 'test',
+                                '0/6/2001', '2001', 'agent-B')
+            then 'ÉCHEC — deux agents ont réservé la même pièce'
+            else 'OK     refusé : la pièce 2001 est déjà en vol' end;
+
+\echo '--- Mais deux agents peuvent traiter deux pieces differentes ---'
+-- Le point qui distingue cette conception d'un verrou par dossier : rien
+-- n'oblige les agents a se mettre en file. Seule la piece est exclusive.
+select case when reserver_piece('22222222-2222-2222-2222-222222222222', 'test',
+                                '0/6/2002', '2002', 'agent-B')
+            then 'OK     l''agent B réserve la pièce 2002 pendant que A tient 2001'
+            else 'ÉCHEC — un second agent a été bloqué sur une autre pièce' end;
+
+select case when count(*) = 2 then 'OK     deux réservations coexistent'
+            else format('ÉCHEC — %s réservation(s)', count(*)) end
+  from certifications where piece in ('2001', '2002') and etat = 'sending';
+
+\echo '--- Une piece certifiee ne se reserve jamais ---'
+update certifications
+   set etat = 'certified', reference_fne = '2304903U26000002001', certifiee_le = now()
+ where identite = '0/6/2001';
+
+select case when reserver_piece('22222222-2222-2222-2222-222222222222', 'test',
+                                '0/6/2001', '2001', 'agent-A')
+            then 'ÉCHEC — une pièce certifiée a pu repartir'
+            else 'OK     refusé : la DGI l''a déjà enregistrée' end;
+
+\echo '--- Un refus NET rend la piece, une issue inconnue non ---'
+select case when liberer_piece('22222222-2222-2222-2222-222222222222', 'test',
+                               '0/6/2002', 'refus net : 400 Bad Request')
+            then 'OK     la pièce 2002 est rendue après un refus net'
+            else 'ÉCHEC — la libération a échoué' end;
+
+select case when reserver_piece('22222222-2222-2222-2222-222222222222', 'test',
+                                '0/6/2002', '2002', 'agent-A')
+            then 'OK     une pièce rendue peut repartir'
+            else 'ÉCHEC — une pièce rendue reste bloquée' end;
+
+-- Elle est de nouveau en vol : la liberer une seconde fois n'a pas de sens,
+-- mais surtout, liberer ce qui n'est pas reserve ne doit rien faire.
+select case when liberer_piece('22222222-2222-2222-2222-222222222222', 'test',
+                               '0/6/2001', 'tentative sur une pièce certifiée')
+            then 'ÉCHEC — une pièce certifiée a été rendue'
+            else 'OK     refusé : on ne libère que ce qui est en vol' end;
+
+\echo '--- L''environnement separe les essais de la production ---'
+-- Une piece certifiee en essai ne doit pas empecher la meme piece de partir en
+-- production : ce sont deux plateformes, deux histoires.
+select case when reserver_piece('22222222-2222-2222-2222-222222222222', 'production',
+                                '0/6/2001', '2001', 'agent-A')
+            then 'OK     la production a sa propre histoire'
+            else 'ÉCHEC — l''essai bloque la production' end;
+
+\echo '--- La supervision : un agent, une ligne, plusieurs agents par dossier ---'
+insert into battements (dossier_id, agent_id, poste, environnement, mode, examinees, envoyees)
+values ('22222222-2222-2222-2222-222222222222', 'agent-A', 'POSTE-COMPTA', 'test', 'Manual', 14, 2),
+       ('22222222-2222-2222-2222-222222222222', 'agent-B', 'POSTE-DIRECTION', 'test', 'Manual', 9, 1);
+
+select case when count(*) = 2 then 'OK     deux agents du même dossier ont chacun leur ligne'
+            else format('ÉCHEC — %s ligne(s)', count(*)) end
+  from battements where dossier_id = '22222222-2222-2222-2222-222222222222';
+
+insert into battements (dossier_id, agent_id, environnement, mode, examinees, envoyees)
+values ('22222222-2222-2222-2222-222222222222', 'agent-A', 'test', 'Manual', 28, 3)
+on conflict (dossier_id, agent_id) do update
+   set quand = now(), examinees = excluded.examinees, envoyees = excluded.envoyees;
+
+select case when examinees = 28 then 'OK     le battement se remplace, il ne s''empile pas'
+            else format('ÉCHEC — examinees = %s', examinees) end
+  from battements where agent_id = 'agent-A';
+
+\echo '--- Un agent qui se tait finit par se voir ---'
+update battements set quand = now() - interval '20 minutes' where agent_id = 'agent-A';
+
+select case when count(*) = 1 then 'OK     l''agent muet remonte dans la vue'
+            else 'ÉCHEC — un agent muet reste invisible' end
+  from agents_muets where agent_id = 'agent-A';

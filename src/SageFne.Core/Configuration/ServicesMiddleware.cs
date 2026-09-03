@@ -62,6 +62,13 @@ public static class ServicesMiddleware
         {
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
         });
+        // La réservation partagée : elle DÉCIDE, là où le miroir se contente de
+        // refléter. C'est pourquoi elle entre dans le chemin d'envoi et que le
+        // miroir n'y entre pas.
+        services.AddHttpClient<IReservationClient, ReservationHttp>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
+        });
         services.AddHttpClient<IDemandesClient, DemandesHttp>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(saas.TimeoutSeconds, 5, 120));
