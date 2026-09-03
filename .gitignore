@@ -2,3 +2,9 @@ bin/
 obj/
 *.user
 appsettings.*.local.json
+
+# La charge utile de l'installeur : l'agent publie, compresse, embarque dans
+# SageFneSetup.exe. Produite a la demande par deploiement/construire-installeur.ps1,
+# jamais versionnee - 36 Mo de binaire qui se reconstruisent en une commande.
+src/SageFne.Installeur/agent.zip
+publication/

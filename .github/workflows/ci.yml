@@ -61,6 +61,50 @@ jobs:
           PGPASSWORD: postgres
         run: ./supabase/tests/executer.sh "postgres://postgres@localhost:5432/postgres"
 
+  installeur:
+    name: Installeur Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # L'exécutable livré au client se construit ici, et nulle part ailleurs :
+      # un binaire compilé sur le poste de quelqu'un n'est pas reproductible, et
+      # personne ne saurait dire de quel commit il vient.
+      - name: Construire SageFneSetup.exe
+        shell: pwsh
+        run: ./deploiement/construire-installeur.ps1 -Version "1.0.${{ github.run_number }}"
+
+      # Il doit au moins démarrer, lire ses arguments et rendre son aide. Le
+      # reste - service, variables machine - demande un poste réel.
+      - name: Vérifier qu'il répond
+        shell: pwsh
+        run: |
+          $exe = 'publication/SageFneSetup.exe'
+          if (-not (Test-Path $exe)) { throw "L'exécutable n'a pas été produit." }
+
+          $aide = & $exe --aide
+          if ($LASTEXITCODE -ne 0) { throw "--aide a répondu $LASTEXITCODE." }
+          if (-not ($aide -join "`n").Contains('LECTURE SEULE')) {
+            throw "L'aide ne rappelle plus que le compte SQL doit être en lecture seule."
+          }
+
+          # Une simulation ne doit rien écrire, et refuser ce qui manque.
+          & $exe --simulation --silencieux
+          if ($LASTEXITCODE -eq 0) { throw "Une demande vide aurait dû être refusée." }
+
+          $taille = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+          Write-Host "  SageFneSetup.exe : $taille Mo, autonome."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SageFneSetup
+          path: publication/SageFneSetup.exe
+          retention-days: 90
+
   secrets:
     name: Aucun secret dans le dépôt
     runs-on: ubuntu-latest

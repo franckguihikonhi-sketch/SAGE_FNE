@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Console, et non WinExe : contrairement à l'agent, cet exécutable est
+         lancé exprès par un installateur qui doit voir ce qui se passe. La
+         règle « aucune fenêtre » vaut pour la surveillance et la
+         certification, pas pour l'installation qu'on a demandée. -->
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SageFneSetup</AssemblyName>
+    <RootNamespace>SageFne.Installeur</RootNamespace>
+
+    <!-- Un seul fichier, sans .NET à installer chez le client. C'est tout
+         l'objet : le poste d'un client n'a ni SDK, ni dépôt Git, ni
+         PowerShell débridé. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SageFne.Core\SageFne.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SageFne.Installeur.Tests" />
+  </ItemGroup>
+
+  <!-- La charge utile : l'agent publié, compressé, embarqué dans cet
+       exécutable. Produite par deploiement/construire-installeur.ps1 ou par la
+       CI ; absente, l'installeur compile quand même et le dit à l'exécution
+       plutôt que de casser la compilation de la solution. -->
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\agent.zip')">
+    <EmbeddedResource Include="agent.zip" LogicalName="SageFne.Installeur.agent.zip" />
+  </ItemGroup>
+
+</Project>
