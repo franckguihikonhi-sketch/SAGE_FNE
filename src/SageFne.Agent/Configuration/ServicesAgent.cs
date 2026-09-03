@@ -81,6 +81,12 @@ public static class ServicesAgent
             fournisseur.GetRequiredService<IOptions<AgentOptions>>().Value.Stabilite));
 
         services.AddSingleton<SuiviRefus>();
+
+        // Troisième mémoire, même raison que les deux autres : elle doit
+        // survivre au tour, sans quoi le journal réécrirait tout à chaque
+        // passage — ce qu'elle existe précisément pour éviter.
+        services.AddSingleton<SuiviJournal>();
+
         return services;
     }
 

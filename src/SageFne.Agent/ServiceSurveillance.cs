@@ -44,6 +44,7 @@ public sealed class ServiceSurveillance(
     // une attente après refus différents de ceux que l'agent applique.
     VerificateurStabilite stabilite,
     SuiviRefus refus,
+    SuiviJournal journal,
     ILogger<ServiceSurveillance> logger) : BackgroundService
 {
     private readonly AgentOptions _reglages = reglages.Value;
@@ -317,10 +318,24 @@ public sealed class ServiceSurveillance(
         _enAttente = decisions.Count(decision =>
             decision.Motif is MotifAttente.ModeNonAutomatique or MotifAttente.NonConforme);
 
-        foreach (var decision in decisions.Where(decision => decision.Motif != MotifAttente.Aucun))
+        // Une ligne par pièce ET par tour remplissait le journal de vingt mille
+        // lignes par jour, pour des pièces qui ne bougeront plus. Le détail
+        // n'est écrit que lorsqu'il apprend quelque chose ; le reste tient dans
+        // la synthèse qui suit.
+        var aEcrire = decisions
+            .Where(decision => decision.Motif != MotifAttente.Aucun)
+            .Where(journal.AEcrire)
+            .ToList();
+
+        foreach (var decision in aEcrire)
         {
             logger.LogInformation("{Explication}", decision.Explication);
         }
+
+        // La synthèse, elle, est écrite à chaque tour : c'est elle qui prouve
+        // que l'agent tourne encore. Un journal muet ne se distingue pas d'un
+        // service arrêté.
+        logger.LogInformation("{Synthese}", SuiviJournal.Synthese(decisions));
 
         var pretes = decisions.Where(decision => decision.Envoyable).ToList();
         if (pretes.Count == 0) return;
@@ -368,6 +383,7 @@ public sealed class ServiceSurveillance(
             {
                 _envoyees++;
                 stabilite.Oublier(decision.Identite);
+                journal.Oublier(decision.Identite);
                 logger.LogInformation("Pièce {Piece} certifiée. {Message}", decision.Piece, resultat.Message);
                 continue;
             }

@@ -1506,6 +1506,23 @@ liste affichant « Mobile money » ferait deux affirmations contraires sur le m�
 Le choix est retenu **avant** l'envoi, jamais après : c'est le lecteur qui relit la pièce et
 construit le corps, et il ne peut prendre en compte que ce qui est déjà écrit.
 
+### Un journal qu'on ne peut plus lire ne sert plus
+
+Le tour de garde écrivait une ligne par pièce retenue, **à chaque passage**. Sur quatorze pièces
+déjà traitées : quatorze lignes par minute, vingt mille par jour, pour des pièces qui ne
+bougeront plus jamais. La proportion empire à mesure que les factures s'accumulent dans la
+fenêtre — et c'est dans ce journal qu'on cherche quand quelque chose ne va pas.
+
+Le détail n'est donc écrit que lorsqu'il **apprend quelque chose** : une pièce nouvelle, ou une
+pièce dont l'état a changé. Le reste tient dans une ligne de synthèse — « 14 pièce(s) : 10 déjà
+traitées, 2 bloquées par un contrôle, 2 hors périmètre » — écrite à chaque tour, elle, car c'est
+elle qui prouve que l'agent tourne encore : **un journal muet ne se distingue pas d'un service
+arrêté**.
+
+La comparaison porte sur l'explication entière, pas sur le seul motif. « Il reste 240 s » et
+« il reste 180 s » sont deux informations différentes ; le motif seul les aurait confondues et
+l'exploitant aurait cru l'agent bloqué alors qu'il comptait.
+
 ### Une liste où rien n'est à faire doit dire pourquoi
 
 Le menu du mode de règlement et le bouton n'apparaissent que sur une ligne **prête à partir**.
