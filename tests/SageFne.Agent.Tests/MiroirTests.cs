@@ -83,9 +83,60 @@ public class MiroirTests
         string url, string cle, string dossier) =>
         Assert.False(new OptionsSaas { Url = url, CleService = cle, DossierId = dossier }.Actif);
 
+    [Theory]
+    [InlineData("VOTRE_PROJET.supabase.co", "cle", "dossier")]
+    [InlineData("A_COMPLETER", "cle", "dossier")]
+    [InlineData("https://x.supabase.co", "cle", "A_COMPLETER")]
+    public void Un_gabarit_non_remplace_ne_compte_pas_comme_une_configuration(
+        string url, string cle, string dossier) =>
+        Assert.False(Reglages(url, cle, dossier).Actif);
+
+    [Theory]
+    [InlineData("<service_role>")]
+    [InlineData("[service_role]")]
+    [InlineData("A_COMPLETER")]
+    [InlineData("VOTRE_CLE")]
+    public void Une_cle_restee_au_gabarit_laisse_le_miroir_eteint(string cle)
+    {
+        // Vécu : la ligne de documentation a été collée telle quelle dans la
+        // variable machine, chevrons compris. La valeur n'était pas vide, le
+        // miroir se croyait allumé, et chaque tour partait chercher un 401.
+        // Sixième fois qu'un exemple de ce projet passe pour une valeur.
+        Assert.False(Reglages(cle: cle).Actif);
+    }
+
     [Fact]
-    public void Un_gabarit_non_remplace_ne_compte_pas_comme_une_configuration() =>
-        Assert.False(Reglages(url: "VOTRE_PROJET.supabase.co").Actif);
+    public void La_documentation_du_SaaS_ne_porte_aucun_gabarit_entre_chevrons()
+    {
+        // PowerShell refuse les chevrons — « l'opérateur < est réservé » — et
+        // une valeur qui en porte s'installe pourtant en silence quand la
+        // commande passe. Les emplacements s'écrivent A_COMPLETER, que le
+        // middleware reconnaît et refuse.
+        var readme = Page("README.md");
+
+        Assert.DoesNotContain("<", readme);
+        Assert.Contains("A_COMPLETER", readme);
+
+        // Et « && » n'est pas un séparateur d'instruction sous PowerShell 5.1.
+        foreach (var bloc in readme.Split("```powershell").Skip(1))
+        {
+            Assert.DoesNotContain("&&", bloc[..bloc.IndexOf("```", StringComparison.Ordinal)]);
+        }
+    }
+
+    [Fact]
+    public void Toute_invocation_du_script_passe_par_ExecutionPolicy_Bypass()
+    {
+        // Windows refuse par défaut d'exécuter un .ps1, et son message ne dit
+        // pas quoi faire. Une commande de documentation qui l'oublie envoie
+        // l'exploitant dans un mur.
+        var readme = Page("README.md");
+
+        foreach (var ligne in readme.Split('\n').Where(l => l.Contains("installer-agent.ps1")))
+        {
+            Assert.Contains("-ExecutionPolicy Bypass", ligne);
+        }
+    }
 
     [Fact]
     public async Task Eteint_le_miroir_ne_forme_aucune_requete()
@@ -299,6 +350,18 @@ public class MiroirTests
     }
 
     // --- L'installeur -------------------------------------------------------
+
+    private static string Page(string nom)
+    {
+        var dossier = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dossier is not null && !File.Exists(Path.Combine(dossier.FullName, "SageFne.sln")))
+        {
+            dossier = dossier.Parent;
+        }
+
+        Assert.NotNull(dossier);
+        return File.ReadAllText(Path.Combine(dossier!.FullName, "web", nom));
+    }
 
     private static string Installeur()
     {

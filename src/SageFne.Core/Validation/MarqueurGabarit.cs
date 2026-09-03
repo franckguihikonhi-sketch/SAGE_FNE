@@ -47,7 +47,13 @@ public static class MarqueurGabarit
     ];
 
     /// <summary>Les signes d'un texte de documentation, jamais d'une valeur.</summary>
-    private static readonly char[] Signes = ['<', '>', '…', '«', '»'];
+    /// <remarks>
+    /// Les crochets ont rejoint les chevrons après qu'une clé de service a été
+    /// posée en variable machine sous la forme que la documentation montrait.
+    /// Les deux conventions se valent, et aucune valeur attendue ici — URL,
+    /// jeton, UUID, point de vente, référence DGI — n'en porte.
+    /// </remarks>
+    private static readonly char[] Signes = ['<', '>', '[', ']', '…', '«', '»'];
 
     /// <summary>Vrai quand la valeur est un trou à remplir, non une valeur.</summary>
     public static bool Est(string? valeur)

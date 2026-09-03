@@ -37,12 +37,21 @@ public sealed class OptionsSaas
     /// clé sans dossier, ne produirait que des refus répétés au journal. Mieux
     /// vaut rester silencieux tant que la configuration est incomplète.
     /// </remarks>
+    /// <remarks>
+    /// La clé est éprouvée comme les deux autres, et pas seulement sur sa
+    /// présence. Un exploitant a recopié « [service_role] » entre chevrons
+    /// depuis la documentation, tel quel, dans la variable machine : la valeur
+    /// n'était pas vide, le miroir se croyait allumé, et chaque tour partait
+    /// chercher un 401. Sixième fois qu'un exemple de ce projet passe pour une
+    /// valeur ; la vérification coûte une ligne.
+    ///
+    /// Ce que le contrôle ne fait pas, et ne doit jamais faire : afficher ce
+    /// qu'il a lu. Il rend un booléen.
+    /// </remarks>
     public bool Actif =>
-        !string.IsNullOrWhiteSpace(Url)
-        && !string.IsNullOrWhiteSpace(CleService)
-        && !string.IsNullOrWhiteSpace(DossierId)
-        && !Validation.MarqueurGabarit.Est(Url)
-        && !Validation.MarqueurGabarit.Est(DossierId);
+        !Validation.MarqueurGabarit.Absent(Url)
+        && !Validation.MarqueurGabarit.Absent(CleService)
+        && !Validation.MarqueurGabarit.Absent(DossierId);
 
     /// <summary>La clé, montrable dans un diagnostic sans la révéler.</summary>
     public string CleMasquee() => CleService.Length <= 8
