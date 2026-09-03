@@ -191,6 +191,70 @@ public static class ServicesMiddleware
         NomDuRegistre);
 
     /// <summary>
+    /// L'emplacement hors profil, celui que le service utilise.
+    /// </summary>
+    /// <remarks>
+    /// <c>C:\ProgramData\SageFne</c> sous Windows. Le service tourne sous un
+    /// compte qui n'est pas le vôtre : c'est le seul endroit que lui et le CLI
+    /// puissent tous deux atteindre. Ce n'est pas le défaut du CLI — un défaut
+    /// qui écrit hors du profil demande des droits que l'exploitant n'a pas
+    /// toujours — mais c'est celui vers lequel l'installeur pointe.
+    /// </remarks>
+    public static string CheminMachine() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "SageFne",
+        NomDuRegistre);
+
+    /// <summary>Un registre qui vit ailleurs que celui qu'on s'apprête à lire.</summary>
+    public sealed record RegistreAilleurs(string Chemin, string Pourquoi);
+
+    /// <summary>
+    /// Les autres registres présents sur la machine, celui en usage exclu.
+    /// </summary>
+    /// <remarks>
+    /// Le registre est la seule mémoire des certifications. Deux fichiers, deux
+    /// mémoires partielles : le CLI ignore ce que le service a certifié, et
+    /// renverrait à la DGI une facture qui porte déjà une référence. Un doublon
+    /// certifié ne se reprend pas.
+    ///
+    /// Ce n'est pas une hypothèse. <c>%APPDATA%</c> dépend du compte, le service
+    /// tourne sous un autre, et l'avertissement était écrit — dans la garde
+    /// d'installation de l'agent, où le CLI ne passe jamais. La règle vivait
+    /// chez un seul appelant ; elle est ici, où les deux la voient.
+    ///
+    /// Rien n'est déplacé ni fusionné : un registre se déplace en connaissance
+    /// de cause, et deux histoires partielles ne se recollent pas sans que
+    /// quelqu'un dise laquelle fait foi.
+    /// </remarks>
+    public static IReadOnlyList<RegistreAilleurs> RegistresConcurrents(
+        string cheminEnUsage,
+        string dossierDeLExecutable,
+        Func<string, bool>? existe = null)
+    {
+        existe ??= File.Exists;
+        var enUsage = Path.GetFullPath(cheminEnUsage);
+
+        RegistreAilleurs[] candidats =
+        [
+            new(CheminMachine(), "l'emplacement hors profil, celui vers lequel l'installeur fait pointer le service"),
+            new(CheminDurable(), "le défaut du CLI, propre à votre compte Windows"),
+            new(AncienChemin(dossierDeLExecutable), "l'ancien défaut, dans un dossier de compilation que « dotnet clean » efface"),
+        ];
+
+        var vus = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { enUsage };
+        var ailleurs = new List<RegistreAilleurs>();
+
+        foreach (var candidat in candidats)
+        {
+            var complet = Path.GetFullPath(candidat.Chemin);
+            if (!vus.Add(complet)) continue;
+            if (existe(complet)) ailleurs.Add(candidat with { Chemin = complet });
+        }
+
+        return ailleurs;
+    }
+
+    /// <summary>
     /// L'ancien emplacement par défaut, à côté de l'exécutable.
     /// </summary>
     /// <remarks>

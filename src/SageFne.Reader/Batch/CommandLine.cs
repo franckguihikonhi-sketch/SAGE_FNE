@@ -106,6 +106,25 @@ public enum Verbe
 }
 
 /// <summary>
+/// Quels verbes inscrivent au registre des certifications.
+/// </summary>
+/// <remarks>
+/// Posé à côté de l'énumération, et non chez l'appelant qui pose la question :
+/// un verbe ajouté ici se voit, un verbe ajouté dans une liste tenue ailleurs
+/// s'oublie. Toutes ces commandes finissent par appeler
+/// <c>ICertificationLedger.RecordAsync</c>, directement ou via l'expéditeur.
+/// </remarks>
+public static class Verbes
+{
+    public static bool EcritAuRegistre(Verbe verbe) => verbe
+        is Verbe.Envoyer
+        or Verbe.Debloquer
+        or Verbe.Reconcilier
+        or Verbe.CorrigerReconciliation
+        or Verbe.ReparerSource;
+}
+
+/// <summary>
 /// Lecture des arguments du dry run.
 /// </summary>
 /// <remarks>

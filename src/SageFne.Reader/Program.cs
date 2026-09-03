@@ -83,6 +83,52 @@ if (ligneDeCommande.Verbe != Verbe.RegistreInfo
     }
 }
 
+// Deux registres sur une machine, c'est deux mémoires partielles : le CLI
+// ignore ce que le service a certifié, et renverrait à la DGI une facture qui
+// porte déjà une référence. L'avertissement existait — dans la garde de
+// l'agent, où le CLI ne passe jamais.
+//
+// Le chemin explicitement choisi ne déclenche rien : nommer un fichier, c'est
+// déjà savoir lequel on lit.
+var cheminChoisi = ligneDeCommande.Registre is not null
+    || !string.IsNullOrWhiteSpace(builder.Configuration["Fne:CertificationLedgerPath"]);
+
+if (ligneDeCommande.Verbe != Verbe.RegistreInfo && registre is { } enUsage && !cheminChoisi)
+{
+    var ailleurs = ServicesMiddleware.RegistresConcurrents(enUsage, AppContext.BaseDirectory);
+    if (ailleurs.Count > 0)
+    {
+        var sortie = Verbes.EcritAuRegistre(ligneDeCommande.Verbe) ? Console.Error : Console.Out;
+        sortie.WriteLine();
+        sortie.WriteLine($"Ce CLI lirait « {Path.GetFullPath(enUsage)} », choisi par défaut.");
+        sortie.WriteLine("Un autre registre existe sur cette machine :");
+        foreach (var autre in ailleurs)
+        {
+            sortie.WriteLine($"  {autre.Chemin}");
+            sortie.WriteLine($"    {autre.Pourquoi}");
+        }
+
+        sortie.WriteLine();
+        sortie.WriteLine("Chacun ne porte qu'une partie de l'histoire. Nommez celui qui fait foi :");
+        sortie.WriteLine($"  --registre \"{ailleurs[0].Chemin}\"");
+
+        if (Verbes.EcritAuRegistre(ligneDeCommande.Verbe))
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Refus : cette commande écrit au registre. Inscrire dans le mauvais fichier, ou");
+            Console.Error.WriteLine(
+                "renvoyer une facture que l'autre sait déjà certifiée, ferait un doublon à la");
+            Console.Error.WriteLine("DGI — et un doublon certifié ne se reprend pas.");
+            return 1;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Lecture seule : la commande continue, mais sur ce registre-là.");
+        Console.WriteLine();
+    }
+}
+
 // Diagnostic : ce que le dossier contient, TOUS domaines confondus. Le
 // middleware ne lit que DO_Domaine = 0 ; le reste n'avait jamais été regardé,
 // et il a fallu s'en apercevoir le jour où la question des achats s'est posée.
@@ -430,21 +476,28 @@ if (ligneDeCommande.Verbe == Verbe.RegistreInfo)
         }
     }
 
-    // Le registre a d'abord été posé à côté de l'exécutable, dans bin\. Si un
-    // fichier y traîne encore, il porte peut-être des certifications que le
-    // nouvel emplacement ignore. Rien n'est déplacé : c'est montré, et c'est tout.
-    var ancien = ServicesMiddleware.AncienChemin(AppContext.BaseDirectory);
-    if (!string.Equals(Path.GetFullPath(ancien), fichier.Chemin, StringComparison.OrdinalIgnoreCase)
-        && File.Exists(ancien))
+    // Les autres registres de la machine. Une seule liste : l'ancien
+    // emplacement en faisait l'objet d'un traitement à part, et celui du
+    // service — le plus dangereux des trois, parce qu'il est vivant — n'était
+    // regardé nulle part.
+    var ailleurs = ServicesMiddleware.RegistresConcurrents(fichier.Chemin, AppContext.BaseDirectory);
+    if (ailleurs.Count > 0)
     {
-        var fiche = new FileInfo(ancien);
-        Titre("Un registre subsiste à l'ancien emplacement");
-        Console.WriteLine($"  {Path.GetFullPath(ancien)}");
-        Console.WriteLine($"  {fiche.Length} octets, modifié le {fiche.LastWriteTime:dd/MM/yyyy à HH:mm:ss}");
-        Console.WriteLine();
-        Console.WriteLine("  Ce dossier est une sortie de compilation : son contenu peut disparaître.");
-        Console.WriteLine("  Rien n'a été déplacé. Pour lire ce registre-là :");
-        Console.WriteLine($"    dotnet run --project src\\SageFne.Reader -- registre-info --registre \"{ancien}\"");
+        Titre("D'autres registres existent sur cette machine");
+        foreach (var autre in ailleurs)
+        {
+            var fiche = new FileInfo(autre.Chemin);
+            Console.WriteLine($"  {autre.Chemin}");
+            Console.WriteLine($"    {autre.Pourquoi}");
+            Console.WriteLine($"    {fiche.Length} octets, modifié le {fiche.LastWriteTime:dd/MM/yyyy à HH:mm:ss}");
+            Console.WriteLine($"    dotnet run --project src\\SageFne.Reader -- registre-info --registre \"{autre.Chemin}\"");
+            Console.WriteLine();
+        }
+
+        Console.WriteLine("  Chacun ne porte qu'une partie de l'histoire des certifications. Rien n'a été");
+        Console.WriteLine("  déplacé ni fusionné : c'est à vous de dire lequel fait foi. Tant que deux");
+        Console.WriteLine("  subsistent, les commandes qui écrivent au registre refusent de s'exécuter");
+        Console.WriteLine("  sans --registre.");
     }
 
     if (!fichier.Existe)
