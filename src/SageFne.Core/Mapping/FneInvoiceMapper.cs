@@ -63,12 +63,11 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
                     report?.Avertir("REMISE_NON_CONCORDANTE", $"ligne {ligne.Ligne} : {avertissement}");
                 }
 
-                if (string.IsNullOrWhiteSpace(ligne.Designation))
-                {
-                    report?.Erreur(
-                        "LIGNE_SANS_DESIGNATION",
-                        $"ligne {ligne.Ligne} : DL_Design est vide — la DGI l'exige.");
-                }
+                // Pas de contrôle de désignation ici : InvoiceValidator lève déjà
+                // DESIGNATION_VIDE, sur les deux domaines. En ajouter un second
+                // affichait deux codes pour un même fait — « DESIGNATION_VIDE,
+                // LIGNE_SANS_DESIGNATION » sur la même pièce — et laissait
+                // croire à deux problèmes distincts à corriger.
 
                 items.Add(new FneInvoiceItem
                 {
