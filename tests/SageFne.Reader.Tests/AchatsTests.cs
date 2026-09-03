@@ -5,7 +5,9 @@ using SageFne.Core.Certification;
 using SageFne.Core.Configuration;
 using SageFne.Core.Data;
 using SageFne.Core.Mapping;
+using SageFne.Core.Models.Fne;
 using SageFne.Core.Models.Sage;
+using SageFne.Core.Validation;
 
 namespace SageFne.Core.Tests;
 
@@ -129,6 +131,69 @@ public class AchatsTests
 
         Assert.StartsWith("1/", achat.Header.Identite);
         Assert.NotEqual("0/", achat.Header.Identite[..2]);
+    }
+
+    [Fact]
+    public async Task La_completude_ne_plante_pas_sur_un_achat()
+    {
+        // « taxes » est absent du bordereau, donc null sur les items. Tout
+        // lecteur qui le déréférence sans condition lève une
+        // NullReferenceException sur la première pièce d'achat venue — ce que
+        // faisait FneCompleteness, et que le compilateur signalait en CS8602.
+        var achat = await AchatAsync("AC001");
+
+        var manques = FneCompleteness.Verifier(achat.Invoice!, "B2B");
+
+        Assert.DoesNotContain(manques, manque => manque.Champ.EndsWith(".taxes"));
+    }
+
+    [Fact]
+    public async Task Un_achat_n_est_pas_bloque_sur_un_NCC_qu_il_n_envoie_pas()
+    {
+        // L'API n° 3 n'a pas de clientNcc. L'exiger en B2B bloquerait tout le
+        // domaine des achats sur un champ absent du corps de requête.
+        var achat = await AchatAsync("AC001");
+
+        Assert.DoesNotContain(
+            FneCompleteness.Verifier(achat.Invoice!, "B2B"),
+            manque => manque.Champ == "clientNcc");
+    }
+
+    [Fact]
+    public void Une_vente_reste_bloquee_quand_la_ligne_n_a_aucune_taxe()
+    {
+        // Le pendant du test précédent : la tolérance vaut pour l'achat seul.
+        var vente = new FneInvoice
+        {
+            InvoiceType = TypesFactureFne.Vente,
+            PointOfSale = "FISH-AFRIC",
+            Establishment = "FISH-AFRIC",
+            ClientCompanyName = "GEMS-CI",
+            ClientNcc = "1010983N",
+            ClientPhone = "0700000000",
+            Items = [new FneInvoiceItem
+            {
+                Reference = "ART1", Description = "Article",
+                Quantity = 1m, Amount = 1000m, Taxes = [],
+            }],
+        };
+
+        Assert.Contains(
+            FneCompleteness.Verifier(vente, "B2B"),
+            manque => manque.Champ == "items[0].taxes");
+    }
+
+    [Fact]
+    public async Task La_recherche_de_candidats_ne_plante_pas_sur_un_achat()
+    {
+        // « customTaxes » est absent lui aussi. La recherche du régime zéro
+        // porte sur les ventes, mais rien ne l'empêche de recevoir un achat :
+        // elle doit le traverser sans lever, pas s'y fier.
+        var achat = await AchatAsync("AC001");
+
+        var candidat = CandidatFne.Evaluer(achat, TauxRecherche.Normal, 1m);
+
+        Assert.NotNull(candidat);
     }
 
     [Fact]

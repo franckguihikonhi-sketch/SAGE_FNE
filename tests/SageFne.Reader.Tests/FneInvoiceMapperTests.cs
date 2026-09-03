@@ -14,6 +14,23 @@ namespace SageFne.Core.Tests;
 /// </summary>
 public class FneInvoiceMapperTests
 {
+    // Sur une vente, « taxes » et « customTaxes » sont toujours présents —
+    // vides au besoin, jamais absents. L'omission est réservée au bordereau
+    // d'achat, dont le tableau de paramètres ne les comporte pas. Passer par
+    // ces deux aides fait échouer le test si une vente perdait ses listes,
+    // là où un « ! » l'aurait tue.
+    private static IReadOnlyList<string> Taxes(FneInvoiceItem article)
+    {
+        Assert.NotNull(article.Taxes);
+        return article.Taxes;
+    }
+
+    private static IReadOnlyList<FneCustomTax> Prelevements(FneInvoiceItem article)
+    {
+        Assert.NotNull(article.CustomTaxes);
+        return article.CustomTaxes;
+    }
+
     private static readonly SageDocumentHeader Entete = new()
     {
         Domaine = 0,
@@ -76,8 +93,8 @@ public class FneInvoiceMapperTests
     {
         var article = Premier(Ligne(taxe1: 18m, code1: "TVA"));
 
-        Assert.Equal(["TVA"], article.Taxes);
-        Assert.Empty(article.CustomTaxes);
+        Assert.Equal(["TVA"], Taxes(article));
+        Assert.Empty(Prelevements(article));
     }
 
     [Fact]
@@ -87,7 +104,7 @@ public class FneInvoiceMapperTests
         // porté par la ligne permet de les distinguer.
         var article = Premier(Ligne(taxe1: 9m, code1: "TVA"));
 
-        Assert.Equal(["TVAB"], article.Taxes);
+        Assert.Equal(["TVAB"], Taxes(article));
     }
 
     [Fact]
@@ -97,8 +114,8 @@ public class FneInvoiceMapperTests
 
         // La TVA est à 0 % et son régime n'est pas classé : aucun code fiscal.
         // L'AIRSI, lui, est un prélèvement et part quand même en customTaxes.
-        Assert.Empty(article.Taxes);
-        var prelevement = Assert.Single(article.CustomTaxes);
+        Assert.Empty(Taxes(article));
+        var prelevement = Assert.Single(Prelevements(article));
         Assert.Equal("AIRSI", prelevement.Name);
         Assert.Equal(1.5m, prelevement.Amount);
     }
@@ -110,8 +127,8 @@ public class FneInvoiceMapperTests
         // Deviner reviendrait à déclarer à la DGI un régime fiscal qu'on ignore.
         var article = Premier(Ligne());
 
-        Assert.Empty(article.Taxes);
-        Assert.Empty(article.CustomTaxes);
+        Assert.Empty(Taxes(article));
+        Assert.Empty(Prelevements(article));
     }
 
     [Fact]
@@ -146,7 +163,7 @@ public class FneInvoiceMapperTests
     {
         var facture = Mappeur(regime: "ConventionalExemption").Map(Entete, [Ligne()], Client);
 
-        Assert.Equal(["TVAC"], facture.Items.Single().Taxes);
+        Assert.Equal(["TVAC"], Taxes(facture.Items.Single()));
     }
 
     [Fact]
@@ -154,7 +171,7 @@ public class FneInvoiceMapperTests
     {
         var facture = Mappeur(regime: "LegalExemptionTEE_RME").Map(Entete, [Ligne()], Client);
 
-        Assert.Equal(["TVAD"], facture.Items.Single().Taxes);
+        Assert.Equal(["TVAD"], Taxes(facture.Items.Single()));
     }
 
     [Fact]
@@ -173,7 +190,7 @@ public class FneInvoiceMapperTests
         // pour autant, et il serait faux de la certifier en TVAD.
         var article = Premier(Ligne(taxe1: 12m, code1: "TVA"));
 
-        Assert.Empty(article.Taxes);
+        Assert.Empty(Taxes(article));
     }
 
     [Fact]
@@ -181,8 +198,8 @@ public class FneInvoiceMapperTests
     {
         var article = Premier(Ligne(taxe1: 18m, code1: "TVA", taxe2: 1.5m, code2: "AIRSI"));
 
-        Assert.Equal(["TVA"], article.Taxes);
-        Assert.Equal(1.5m, Assert.Single(article.CustomTaxes).Amount);
+        Assert.Equal(["TVA"], Taxes(article));
+        Assert.Equal(1.5m, Assert.Single(Prelevements(article)).Amount);
     }
 
     [Fact]
@@ -190,8 +207,8 @@ public class FneInvoiceMapperTests
     {
         var article = Premier(Ligne(taxe1: 9m, code1: "TVA", taxe2: 1.5m, code2: "AIRSI"));
 
-        Assert.Equal(["TVAB"], article.Taxes);
-        Assert.Equal("AIRSI", Assert.Single(article.CustomTaxes).Name);
+        Assert.Equal(["TVAB"], Taxes(article));
+        Assert.Equal("AIRSI", Assert.Single(Prelevements(article)).Name);
     }
 
     [Fact]
@@ -202,10 +219,10 @@ public class FneInvoiceMapperTests
         var enTroisieme = Premier(Ligne(taxe1: 18m, code1: "TVA", taxe3: 1.5m, code3: "airsi"));
 
 
-        Assert.Equal(["TVA"], enPremier.Taxes);
-        Assert.Equal("AIRSI", Assert.Single(enPremier.CustomTaxes).Name);
-        Assert.Equal(["TVA"], enTroisieme.Taxes);
-        Assert.Equal("AIRSI", Assert.Single(enTroisieme.CustomTaxes).Name);
+        Assert.Equal(["TVA"], Taxes(enPremier));
+        Assert.Equal("AIRSI", Assert.Single(Prelevements(enPremier)).Name);
+        Assert.Equal(["TVA"], Taxes(enTroisieme));
+        Assert.Equal("AIRSI", Assert.Single(Prelevements(enTroisieme)).Name);
     }
 
     [Fact]

@@ -272,7 +272,7 @@ public sealed class FneInvoiceMapper(IOptions<FneOptions> options, IZeroVatPolic
 
         return new FneInvoice
         {
-            InvoiceType = estAchat ? "purchase" : "sale",
+            InvoiceType = estAchat ? TypesFactureFne.Achat : TypesFactureFne.Vente,
             PaymentMethod = modeEnvoye,
             Template = _options.Template,
             IsRne = _options.IsRne,

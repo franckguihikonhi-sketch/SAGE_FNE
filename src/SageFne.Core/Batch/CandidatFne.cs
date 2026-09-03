@@ -89,7 +89,7 @@ public sealed class CandidatFne
             .ToList();
 
         var customTaxes = conversion.Invoice?.Items
-            .SelectMany(item => item.CustomTaxes)
+            .SelectMany(item => item.CustomTaxes ?? [])
             .Select(taxe => taxe.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase)

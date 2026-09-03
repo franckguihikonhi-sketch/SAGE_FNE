@@ -54,6 +54,7 @@ public static class FneCompleteness
     public static List<Manque> Verifier(FneInvoice facture, string template)
     {
         var manques = new List<Manque>();
+        var estAchat = TypesFactureFne.EstAchat(facture);
 
         void Exiger(string champ, string valeur, string origine, string consequence)
         {
@@ -73,7 +74,10 @@ public static class FneCompleteness
         Exiger("clientPhone", facture.ClientPhone, "CT_Telephone",
             "téléphone du client : obligatoire sur le formulaire de la DGI.");
 
-        if (GabaritFne.ExigeNcc(template))
+        // Le tableau des paramètres du bordereau d'achat ne comporte pas de
+        // clientNcc : l'exiger reviendrait à bloquer un achat sur un champ que
+        // nous n'envoyons pas.
+        if (!estAchat && GabaritFne.ExigeNcc(template))
         {
             Exiger("clientNcc", facture.ClientNcc, "CT_Identifiant",
                 "identifiant fiscal du client : obligatoire en B2B, la certification serait refusée.");
@@ -86,7 +90,10 @@ public static class FneCompleteness
 
             Exiger($"{ou}.description", item.Description, "DL_Design", "libellé de la ligne.");
 
-            if (item.Taxes.Count == 0)
+            // Sur une vente, une ligne sans code de taxe ne peut pas partir.
+            // Sur un achat, taxes est absent par construction — le réclamer
+            // bloquerait toutes les pièces d'un domaine entier.
+            if (!estAchat && (item.Taxes is null || item.Taxes.Count == 0))
             {
                 manques.Add(new Manque($"{ou}.taxes", "DL_Taxe1/2/3 et DL_CodeTaxe1/2/3",
                     "code de taxe FNE : aucune ligne ne peut partir sans."));

@@ -2533,10 +2533,13 @@ if (ligneDeCommande.Verbe == Verbe.Detail)
                 "prix unitaire HT net — déduit de DL_MontantHT / DL_Qte si remise");
             Champ($"items[{rang}].discount", Nombre(item.Discount), "remise déjà déduite du prix net");
             Champ($"items[{rang}].measurementUnit", item.MeasurementUnit, "F_DOCLIGNE.EU_Enumere");
-            Champ($"items[{rang}].taxes", string.Join(", ", item.Taxes),
+            Champ($"items[{rang}].taxes",
+                item.Taxes is null ? "(champ non envoyé)" : string.Join(", ", item.Taxes),
                 "taux de DL_TaxeN — 18→TVA, 9→TVAB, 0→régime déclaré");
             Champ($"items[{rang}].customTaxes",
-                string.Join(", ", item.CustomTaxes.Select(taxe => $"{taxe.Name} {taxe.Amount}")),
+                item.CustomTaxes is null
+                    ? "(champ non envoyé)"
+                    : string.Join(", ", item.CustomTaxes.Select(taxe => $"{taxe.Name} {taxe.Amount}")),
                 "prélèvements explicitement mappés (Fne:CustomTaxes)");
         }
 
