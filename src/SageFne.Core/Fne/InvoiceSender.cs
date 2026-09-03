@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using SageFne.Core.Batch;
 using SageFne.Core.Certification;
 using SageFne.Core.Data;
+using SageFne.Core.Models.Sage;
 using SageFne.Core.Validation;
 
 namespace SageFne.Core.Fne;
@@ -57,7 +58,12 @@ public sealed class InvoiceSender(
     public async Task<EnvoiResultat> EnvoyerAsync(
         string piece,
         bool confirme,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+
+        // En dernier et par défaut la vente : tous les appelants existants
+        // envoient des ventes, et aucun ne doit changer pour que l'achat
+        // devienne possible.
+        short domaine = SageDomaines.Vente)
     {
         // Avant la lecture, avant tout le reste : une facture fabriquée ne
         // s'envoie pas à la DGI. Sans chaîne de connexion Sage, le middleware
@@ -81,12 +87,17 @@ public sealed class InvoiceSender(
                 "l'amorçage de Windows.");
         }
 
-        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), cancellation);
+        var lot = await lecteur.ReadAsync(
+            InvoiceQuery.Piece(piece) with { Domaine = domaine }, cancellation);
+
         var conversion = lot.Conversions.FirstOrDefault();
 
         if (conversion is null)
         {
-            return new EnvoiResultat(EtatFne.Error, $"Aucune facture au numéro {piece}.");
+            return new EnvoiResultat(
+                EtatFne.Error,
+                $"Aucune pièce au numéro {piece} dans le domaine des " +
+                $"{SageDomaines.Libelle(domaine)}s.");
         }
 
         if (conversion.Etat == EtatPiece.EnSuspens)

@@ -29,6 +29,17 @@ public sealed record ConstatTableau(string Code, string Message, bool Bloquant);
 public sealed record LigneTableau(
     string Piece,
     string Identite,
+
+    /// <summary>« vente » ou « achat ». Les deux vivent dans la même liste.</summary>
+    /// <remarks>
+    /// Et il faut que cela se voie : une vente et un achat ne partent pas sous
+    /// le même <c>invoiceType</c>, ne portent pas les mêmes règles, et n'ont
+    /// pas la même conséquence fiscale. Deux listes séparées auraient évité la
+    /// confusion mais aussi la vue d'ensemble, qui est ce qu'on demande à un
+    /// tableau de bord.
+    /// </remarks>
+    string Domaine,
+
     string Date,
     string Client,
     string ClientNom,

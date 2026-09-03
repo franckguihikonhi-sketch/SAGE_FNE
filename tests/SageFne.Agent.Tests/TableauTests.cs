@@ -478,6 +478,51 @@ public class TableauTests
     }
 
     [Fact]
+    public async Task Les_achats_et_les_ventes_sont_dans_la_meme_liste()
+    {
+        // Demandé explicitement. Deux listes séparées auraient évité la
+        // confusion mais aussi la vue d'ensemble, qui est ce qu'on demande à un
+        // tableau de bord.
+        using var fournisseur = Cabler();
+        var lignes = Lire(await Routeur(fournisseur).RepondreAsync("GET", "/api/factures"))
+            .EnumerateArray().ToList();
+
+        Assert.Contains(lignes, l => l.GetProperty("domaine").GetString() == "vente");
+        Assert.Contains(lignes, l => l.GetProperty("domaine").GetString() == "achat");
+    }
+
+    [Fact]
+    public async Task Un_achat_se_certifie_depuis_le_tableau()
+    {
+        // Sans le domaine dans la demande, la pièce serait cherchée parmi les
+        // ventes et déclarée introuvable — le bouton aurait échoué à tous les
+        // coups sur les achats.
+        var espion = new ClientEspion(new FneSignResult(true, 201, "REFERENCE", "JETON", "{}"));
+        using var fournisseur = CablerAvecPlateforme(espion);
+
+        var reponse = await Certifier(
+            fournisseur, "AC001", "{\"modePaiement\":\"cash\",\"domaine\":\"achat\"}");
+
+        Assert.Equal(200, reponse.Code);
+        Assert.NotNull(espion.Vue);
+        Assert.Equal("purchase", espion.Vue!.InvoiceType);
+    }
+
+    [Fact]
+    public async Task Un_achat_demande_sans_son_domaine_est_introuvable()
+    {
+        // Le pendant du précédent : il montre ce que coûte l'oubli du domaine,
+        // et prouve que le domaine ne s'élargit pas tout seul.
+        var espion = new ClientEspion(new FneSignResult(true, 201, "REFERENCE", "JETON", "{}"));
+        using var fournisseur = CablerAvecPlateforme(espion);
+
+        var reponse = await Certifier(fournisseur, "AC001", "{\"modePaiement\":\"cash\"}");
+
+        Assert.Equal(422, reponse.Code);
+        Assert.Null(espion.Vue);
+    }
+
+    [Fact]
     public async Task Une_visite_ne_certifie_pas()
     {
         // Une adresse qui certifierait au simple GET partirait au premier

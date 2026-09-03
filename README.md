@@ -1315,6 +1315,33 @@ quand son fournisseur, un producteur, ne peut pas facturer lui-même.
 fournisseur qui certifie sa vente. Les 27 pages de la procédure n'offrent aucun autre endpoint —
 `GET`, webhook, export : zéro occurrence.
 
+### Les achats sur le même écran, avec leur bouton
+
+Ventes et achats vivent dans **la même liste**, distingués par une colonne « sens ». Deux listes
+séparées auraient évité la confusion mais aussi la vue d'ensemble, qui est ce qu'on demande à un
+tableau de bord.
+
+Trois règles de la vente **ne s'appliquent pas** à l'achat, et les appliquer aurait tout bloqué :
+
+- le **NCC** — le tableau des paramètres du bordereau n'en porte aucun, parce qu'un producteur
+  n'en a pas ;
+- la **TVA** — une ligne sans taxe est la normale sur un achat, pas un défaut ; `TVA_ABSENTE`
+  aurait bloqué les 318 pièces du dossier réel ;
+- le champ `taxes` lui-même, **omis** du corps plutôt qu'envoyé vide : un tableau vide affirme
+  « aucune taxe », l'absence de champ n'affirme rien, et nous ignorons ce que la plateforme fait
+  du premier.
+
+Le chemin d'achat vit **à côté** de celui des ventes, pas dedans : les ventes certifient en
+production, et leur chemin ne doit pas bouger d'un octet pour accueillir l'achat.
+
+**Certifier en `purchase`, c'est affirmer un bordereau d'achat.** Rien dans Sage ne distingue un
+bordereau d'une facture fournisseur : la pièce porte donc le constat `ACHAT_BORDEREAU_DECLARE`,
+et la fenêtre de confirmation le dit en toutes lettres avant le clic. L'écran n'empêche pas, il
+énonce — la décision revient à l'exploitant.
+
+**L'agent en `Automatic` n'envoie que des ventes.** Les achats ne partent que par le bouton. Un
+document dont la qualification dépend d'un jugement humain ne se certifie pas tout seul.
+
 Reste à savoir ce que le domaine achats d'un dossier contient réellement. **Le middleware ne lit
 que `DO_Domaine = 0`**, à quatre endroits ; le reste n'avait jamais été regardé.
 

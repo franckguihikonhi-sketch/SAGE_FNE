@@ -10,6 +10,7 @@ using SageFne.Core.Configuration;
 using SageFne.Core.Data;
 using SageFne.Core.Fne;
 using System.Text.Json.Serialization;
+using SageFne.Core.Models.Sage;
 using SageFne.Core.Validation;
 using FneOptions = SageFne.Core.Configuration.FneOptions;
 
@@ -125,11 +126,13 @@ public sealed class RouteurTableau(
     }
 
     /// <summary>Le compte tiers d'une pièce, pour y rattacher le mode retenu.</summary>
-    private async Task<string?> CompteTiersAsync(string piece, CancellationToken arret)
+    private async Task<string?> CompteTiersAsync(
+        string piece, short domaine, CancellationToken arret)
     {
         using var portee = fabrique.CreateScope();
         var lecteur = portee.ServiceProvider.GetRequiredService<InvoiceBatchReader>();
-        var lot = await lecteur.ReadAsync(InvoiceQuery.Piece(piece), arret);
+        var lot = await lecteur.ReadAsync(
+            InvoiceQuery.Piece(piece) with { Domaine = domaine }, arret);
 
         var tiers = lot.Conversions.FirstOrDefault()?.Header.Tiers;
         return string.IsNullOrWhiteSpace(tiers) ? null : tiers;
@@ -184,7 +187,13 @@ public sealed class RouteurTableau(
         using var portee = fabrique.CreateScope();
         var lecteur = portee.ServiceProvider.GetRequiredService<InvoiceBatchReader>();
 
+        // Les deux domaines, dans la même liste. Deux lectures et non une : le
+        // domaine est un critère de la requête, et l'élargir en un « où domaine
+        // in (0,1) » ferait rentrer les achats dans tous les autres chemins qui
+        // partagent cette requête.
         var lot = await lecteur.ReadAsync(Requete(), arret);
+        var achats = await lecteur.ReadAsync(
+            Requete() with { Domaine = SageDomaines.Achat }, arret);
 
         // Le moteur du service, avec ses deux mémoires partagées : l'écran
         // affiche donc le compte à rebours réel de la stabilité et l'attente
@@ -205,7 +214,7 @@ public sealed class RouteurTableau(
             .GetRequiredService<Microsoft.Extensions.Options.IOptions<FneOptions>>()
             .Value.PaymentMethod;
 
-        return [.. lot.Conversions
+        return [.. lot.Conversions.Concat(achats.Conversions)
             .Select(conversion => Traduire(
                 conversion, moteur.Decider(conversion), identite, modes, parDefaut))
             .OrderByDescending(ligne => ligne.Date)
@@ -233,6 +242,7 @@ public sealed class RouteurTableau(
         return new LigneTableau(
             Piece: entete.Piece,
             Identite: entete.Identite,
+            Domaine: SageDomaines.Libelle(entete.Domaine),
             Date: entete.Date.ToString("yyyy-MM-dd"),
             Client: entete.Tiers,
             ClientNom: conversion.Customer?.Intitule ?? "",
@@ -293,7 +303,11 @@ public sealed class RouteurTableau(
 
     /// <summary>Ce que le navigateur envoie avec le clic.</summary>
     private sealed record DemandeCertification(
-        [property: JsonPropertyName("modePaiement")] string? ModePaiement);
+        [property: JsonPropertyName("modePaiement")] string? ModePaiement,
+
+        // La liste porte les deux domaines : sans lui, une pièce d'achat serait
+        // cherchée parmi les ventes et déclarée introuvable.
+        [property: JsonPropertyName("domaine")] string? Domaine);
 
     private async Task<ReponseHttp> CertifierAsync(
         string piece, string corps, CancellationToken arret)
@@ -312,6 +326,10 @@ public sealed class RouteurTableau(
         // par un avoir.
         var demande = LireDemande(corps);
         var mode = ModePaiementFne.Normaliser(demande?.ModePaiement);
+
+        var domaine = string.Equals(demande?.Domaine, "achat", StringComparison.OrdinalIgnoreCase)
+            ? SageDomaines.Achat
+            : SageDomaines.Vente;
 
         if (mode is null)
         {
@@ -354,7 +372,7 @@ public sealed class RouteurTableau(
             // Pièce inconnue : on ne retient rien, et c'est l'expéditeur qui le
             // dira. Un second chemin d'erreur ici aurait rendu deux formes de
             // réponse différentes pour un même 422.
-            var compte = await CompteTiersAsync(piece, arret);
+            var compte = await CompteTiersAsync(piece, domaine, arret);
             if (compte is not null)
             {
                 await portee.ServiceProvider.GetRequiredService<IModesPaiementClients>()
@@ -364,11 +382,11 @@ public sealed class RouteurTableau(
             var expediteur = portee.ServiceProvider.GetRequiredService<InvoiceSender>();
 
             logger.LogInformation(
-                "Tableau de bord : certification de la pièce {Piece} demandée à la main, " +
-                "mode de règlement « {Mode} » ({Code}).",
-                piece, ModePaiementFne.Libelle(mode), mode);
+                "Tableau de bord : certification de la pièce {Piece} ({Domaine}) demandée à " +
+                "la main, mode de règlement « {Mode} » ({Code}).",
+                piece, SageDomaines.Libelle(domaine), ModePaiementFne.Libelle(mode), mode);
 
-            var resultat = await expediteur.EnvoyerAsync(piece, confirme: true, arret);
+            var resultat = await expediteur.EnvoyerAsync(piece, confirme: true, arret, domaine);
 
             if (resultat.Reussi)
             {

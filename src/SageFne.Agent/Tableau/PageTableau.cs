@@ -73,6 +73,9 @@ public static class PageTableau
   .p-bloque { background: #fde8e4; color: #a13224; }
   .p-attente{ background: #fdf1d6; color: #8a5a00; }
   .p-neutre { background: #eef1f4; color: var(--gris); }
+  .sens { font-size: 12px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .sens-vente { background: #eef1f4; color: var(--gris); }
+  .sens-achat { background: #efe7f8; color: #5b3a86; }
   .motif { color: var(--doux); font-size: 12.5px; margin-top: 3px; max-width: 52ch; }
   .conduite { color: var(--vert); font-size: 12.5px; font-weight: 600; margin-top: 4px; }
   .codes { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -138,12 +141,12 @@ public static class PageTableau
   <table>
     <thead>
       <tr>
-        <th>Date</th><th>Pièce</th><th>Client</th>
+        <th>Date</th><th>Pièce</th><th>Sens</th><th>Client</th>
         <th class="num">Total TTC</th><th>État</th><th></th>
       </tr>
     </thead>
     <tbody id="corps">
-      <tr><td colspan="6" class="vide">Lecture du dossier Sage…</td></tr>
+      <tr><td colspan="7" class="vide">Lecture du dossier Sage…</td></tr>
     </tbody>
   </table>
   <footer id="pied"></footer>
@@ -156,6 +159,14 @@ public static class PageTableau
     <p class="grave">Une facture certifiée ne s'annule pas. La seule correction
        possible ensuite est un avoir.</p>
     <p id="c-client" style="color:var(--doux)"></p>
+
+    <p id="c-achat" hidden style="background:#efe7f8;border:1px solid #d3c2e8;
+       border-radius:6px;padding:10px 12px;color:#4a2e70">
+       <b>C'est un achat.</b> Il partira en <code>invoiceType: purchase</code> — le type
+       que la DGI réserve au <b>bordereau d'achat de produits agricoles</b>.
+       Une facture fournisseur ordinaire n'a pas à être certifiée par l'acheteur :
+       c'est le fournisseur qui certifie sa vente. En cliquant, vous affirmez qu'il
+       s'agit bien d'un bordereau d'achat.</p>
 
     <p><b>Mode de paiement :</b> <span id="c-mode-libelle"></span><br>
        <span class="mode">Sage ne porte pas cette information : elle part telle quelle
@@ -328,7 +339,7 @@ function dessinerEtat(e) {
 
 function dessinerFactures(lignes) {
   if (!lignes.length) {
-    $('corps').innerHTML = '<tr><td colspan="6" class="vide">'
+    $('corps').innerHTML = '<tr><td colspan="7" class="vide">'
       + 'Aucune facture sur la fenêtre. Élargissez <code>Agent:FenetreJours</code> '
       + 'pour en lire davantage.</td></tr>';
     $('pied').textContent = '';
@@ -385,8 +396,10 @@ function dessinerFactures(lignes) {
     return `<tr>
       <td>${jour(l.date)}</td>
       <td class="piece">${html(l.piece)}</td>
+      <td><span class="sens sens-${l.domaine === 'achat' ? 'achat' : 'vente'}">${html(l.domaine)}</span></td>
       <td>${html(l.clientNom || l.client)}
-          <div class="motif">${html(l.client)}${l.clientNcc ? ' · NCC ' + html(l.clientNcc) : ''}</div></td>
+          <div class="motif">${html(l.client)}${l.clientNcc ? ' · NCC ' + html(l.clientNcc) : ''}
+          ${l.domaine === 'achat' ? ' · fournisseur' : ''}</div></td>
       <td class="num">${fcfa(l.totalTTC)}</td>
       <td><span class="pastille ${classe}">${html(libelle)}</span>
           ${conduite}
@@ -432,24 +445,30 @@ function demander(piece, lignes) {
   const libelle = (modes.find((m) => m.code === modeChoisi) || {}).libelle || modeChoisi;
   $('c-mode-libelle').textContent = libelle;
 
+  // Certifier un achat, c'est affirmer un bordereau d'achat de produits
+  // agricoles. Rien dans Sage ne permet de le vérifier : c'est l'exploitant qui
+  // l'affirme, et il doit le lire avant de cliquer, pas après.
+  const estAchat = ligne && ligne.domaine === 'achat';
+  $('c-achat').hidden = !estAchat;
+
   $('confirmation').returnValue = '';
   $('confirmation').showModal();
   $('c-oui').onclick = () => {
     $('confirmation').close();
-    certifier(piece, modeChoisi);
+    certifier(piece, modeChoisi, ligne ? ligne.domaine : 'vente');
   };
 }
 
 $('c-non').onclick = () => $('confirmation').close();
 
-async function certifier(piece, modePaiement) {
+async function certifier(piece, modePaiement, domaine) {
   occupe = piece;
   document.querySelectorAll('button[data-piece]').forEach((b) => (b.disabled = true));
   try {
     const r = await fetch(`/api/factures/${encodeURIComponent(piece)}/certifier`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modePaiement }),
+      body: JSON.stringify({ modePaiement, domaine }),
     });
     const d = await r.json();
     montrer(d);
