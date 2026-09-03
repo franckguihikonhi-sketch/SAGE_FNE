@@ -1506,6 +1506,23 @@ liste affichant « Mobile money » ferait deux affirmations contraires sur le m�
 Le choix est retenu **avant** l'envoi, jamais après : c'est le lecteur qui relit la pièce et
 construit le corps, et il ne peut prendre en compte que ce qui est déjà écrit.
 
+### Une liste où rien n'est à faire doit dire pourquoi
+
+Le menu du mode de règlement et le bouton n'apparaissent que sur une ligne **prête à partir**.
+Le jour où les quatorze factures de la fenêtre étaient toutes traitées — dix certifiées, deux
+bloquées, deux au portail — l'écran n'en montrait aucun, et rien n'expliquait pourquoi. La
+nouveauté livrée a été crue absente.
+
+« 0 prêtes à certifier » était pourtant à l'écran, dans un compteur. **Un compteur à zéro ne dit
+pas ce qu'il faudrait faire pour qu'il monte.** L'écran énonce donc désormais la répartition
+complète, et rappelle la date de démarrage à partir de laquelle une facture devient candidate —
+`demarrageLe` valait la chaîne vide depuis le premier jour, si bien que l'écran ne pouvait pas
+répondre à la première question qu'on se pose devant une liste inerte.
+
+Les avis portent aussi leur gravité : une facture inventée ou une plateforme muette sont des
+alertes ; « rien à faire pour l'instant » est une information. Tout peindre en rouge fait qu'on
+ne lit plus rien.
+
 ### Une page qui se recharge quand le binaire change
 
 La page rafraîchit ses données toutes les quinze secondes, **jamais son propre code**. Un onglet

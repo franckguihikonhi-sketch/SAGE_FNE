@@ -275,7 +275,11 @@ public sealed class RouteurTableau(
             PlateformeJoignable: essai.Joignable,
             PlateformeExplication: essai.Explication,
             FenetreJours: _reglages.FenetreJours,
-            DemarrageLe: "",
+            // Renseigné, enfin. Il valait la chaîne vide depuis le premier
+            // jour : l'écran ne pouvait pas dire à partir de quand une facture
+            // entre dans le périmètre, et c'est la première question qu'on se
+            // pose devant une liste où rien n'est à faire.
+            DemarrageLe: fne.DemarrageLe?.ToString("yyyy-MM-dd") ?? "",
             Build: Empreinte,
             PointDeVente: fne.PointOfSale,
             Etablissement: fne.Establishment,

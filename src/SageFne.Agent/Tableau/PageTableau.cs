@@ -49,6 +49,7 @@ public static class PageTableau
     background: #fff8f5; border: 1px solid #f5c6ba; color: #8a2c1b;
     padding: 12px 14px; border-radius: 8px; margin-bottom: 16px;
   }
+  .avis.calme { background: #f7f9fb; border-color: var(--trait); color: var(--gris); }
   .chiffres { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
   .chiffre {
     background: var(--carte); border: 1px solid var(--trait); border-radius: 8px;
@@ -265,28 +266,56 @@ function dessinerEtat(e) {
   j.push(`<span class="jeton">Lu à ${html(e.lu)}</span>`);
   $('bandeau').innerHTML = j.join('');
 
+  // Un avis porte sa gravité : une facture inventée ou une plateforme muette
+  // sont des alertes ; « rien à faire pour l'instant » est une information.
+  // Tout peindre en rouge fait qu'on ne lit plus rien.
   const avis = [];
+  const alerter = (texte) => avis.push({ texte, calme: false });
+  const informer = (texte) => avis.push({ texte, calme: true });
+
   if (!e.surDonneesReelles) {
-    avis.push("L'agent ne lit pas votre dossier Sage mais un jeu d'essai. "
+    alerter("L'agent ne lit pas votre dossier Sage mais un jeu d'essai. "
       + "Rien de ce qui s'affiche ici n'est réel, et rien ne peut être certifié.");
   }
   if (e.environnement === 'PRODUCTION') {
-    avis.push('La plateforme est en PRODUCTION : chaque certification est un acte fiscal réel.');
+    alerter('La plateforme est en PRODUCTION : chaque certification est un acte fiscal réel.');
   }
   if (!e.plateformeJoignable) {
-    avis.push('La plateforme DGI ne répond pas : ' + html(e.plateformeExplication));
+    alerter('La plateforme DGI ne répond pas : ' + html(e.plateformeExplication));
   }
   if (!e.identiteRenseignee) {
     // Sans eux, la DGI refuse TOUTES les factures — « Establishment is
     // invalid ». Ils ne viennent pas de Sage : aucun contrôle de pièce ne peut
     // les voir, et une facture irréprochable part quand même se faire refuser.
-    avis.push('<b>Aucune facture ne peut être certifiée.</b> L\'identité du dossier '
+    alerter('<b>Aucune facture ne peut être certifiée.</b> L\'identité du dossier '
       + 'auprès de la DGI n\'est pas renseignée — point de vente « '
       + html(e.pointDeVente) + ' », établissement « ' + html(e.etablissement) + ' ». '
       + 'Ces valeurs vous sont données par la DGI avec votre accès à la plateforme ; '
       + 'elles ne viennent pas de Sage.');
   }
-  $('avis').innerHTML = avis.map((a) => `<div class="avis">${a}</div>`).join('');
+  // Une liste où rien n'est à faire, sans un mot pour dire pourquoi. C'est ce
+  // qu'a vu l'exploitant en cherchant en vain le menu du mode de règlement : il
+  // ne s'affiche que sur les lignes certifiables, et il n'y en avait aucune.
+  // « 0 prêtes à certifier » était bien à l'écran, dans un compteur — mais un
+  // compteur à zéro ne dit pas ce qu'il faudrait faire pour qu'il monte.
+  if (e.total > 0 && e.certifiables === 0) {
+    const parts = [];
+    if (e.certifiees) parts.push(`${e.certifiees} déjà certifiée(s)`);
+    if (e.bloquees) parts.push(`${e.bloquees} bloquée(s)`);
+    const reste = e.total - e.certifiees - e.bloquees;
+    if (reste > 0) parts.push(`${reste} au portail, en suspens ou hors périmètre`);
+
+    informer('<b>Aucune facture n\'attend d\'être certifiée.</b> Sur les '
+      + `${e.total} lue(s) sur la fenêtre : ${parts.join(', ')}. `
+      + 'Le menu du mode de règlement et le bouton n\'apparaissent que sur une '
+      + 'ligne prête à partir — il n\'y en a aucune. '
+      + (e.demarrageLe
+          ? `Seules les factures datées du ${jour(e.demarrageLe)} ou après sont candidates.`
+          : ''));
+  }
+
+  $('avis').innerHTML = avis
+    .map((a) => `<div class="avis${a.calme ? ' calme' : ''}">${a.texte}</div>`).join('');
 
   $('chiffres').innerHTML = [
     ['Lues sur la fenêtre', e.total],
