@@ -212,4 +212,89 @@ public class InstalleurTests
         Assert.Contains("--desinstaller", aide);
         Assert.Contains("NI le registre", aide);
     }
+
+    // --- Reconnaître qu'un poste appartient déjà à un autre client ----------
+
+    private const string Pose = """
+        { "Fne": {
+            "PointOfSale": "FISH-AFRIC",
+            "Establishment": "FISH-AFRIC",
+            "CertificationLedgerPath": "C:\\ProgramData\\SageFne\\certifications.json" } }
+        """;
+
+    [Fact]
+    public void Une_reinstallation_sur_le_meme_client_ne_dit_rien()
+    {
+        // Banale, et elle doit rester silencieuse : un avertissement qui sort à
+        // chaque fois est un avertissement qu'on apprend à ignorer.
+        Assert.Null(Reconnaissance.Avertissement(Reconnaissance.Lire(Pose), Complete()));
+    }
+
+    [Fact]
+    public void Installer_par_dessus_un_autre_client_se_dit_tout_haut()
+    {
+        // Le vrai danger d'un déploiement multi-clients. Chaque client a son
+        // propre accès FNE : se tromper de poste ferait certifier les factures
+        // de l'un sous le NCC de l'autre.
+        var alerte = Reconnaissance.Avertissement(
+            Reconnaissance.Lire(Pose),
+            Complete() with { PointDeVente = "SOCOPRIX", Etablissement = "SOCOPRIX" });
+
+        Assert.NotNull(alerte);
+        Assert.Contains("FISH-AFRIC", alerte);
+        Assert.Contains("SOCOPRIX", alerte);
+        Assert.Contains("mauvais NCC", alerte);
+    }
+
+    [Fact]
+    public void L_avertissement_rappelle_de_mettre_l_ancien_registre_de_cote()
+    {
+        // Il porte les certifications de l'ancien client : l'effacer perdrait
+        // la seule trace de ce qui a été déclaré à la DGI pour lui.
+        var alerte = Reconnaissance.Avertissement(
+            Reconnaissance.Lire(Pose), Complete() with { PointDeVente = "AUTRE", Etablissement = "AUTRE" });
+
+        Assert.Contains("certifications.json", alerte);
+        Assert.Contains("n'effacez rien", alerte);
+    }
+
+    [Fact]
+    public void Un_poste_neuf_n_avertit_de_rien()
+    {
+        Assert.Null(Reconnaissance.Avertissement(Reconnaissance.Lire(""), Complete()));
+        Assert.Null(Reconnaissance.Avertissement(null, Complete()));
+    }
+
+    [Fact]
+    public void Un_gabarit_en_place_n_est_pas_une_identite()
+    {
+        // « A_COMPLETER » n'appartient à personne : une installation par-dessus
+        // n'est pas un changement de client.
+        var gabarit = """{ "Fne": { "PointOfSale": "A_COMPLETER", "Establishment": "A_COMPLETER" } }""";
+
+        Assert.Null(Reconnaissance.Avertissement(Reconnaissance.Lire(gabarit), Complete()));
+    }
+
+    [Fact]
+    public void Un_appsettings_abime_ne_fait_pas_croire_a_un_autre_client() =>
+        Assert.Null(Reconnaissance.Lire("pas du json"));
+
+    // --- La vérification sur place -------------------------------------------
+
+    [Fact]
+    public void La_verification_se_demande_explicitement()
+    {
+        Assert.False(LigneDeCommande.Lire([]).Demande.Verifier);
+        Assert.True(LigneDeCommande.Lire(["--verifier"]).Demande.Verifier);
+    }
+
+    [Fact]
+    public void L_aide_dit_de_verifier_chez_le_client_avant_d_installer()
+    {
+        var aide = LigneDeCommande.Aide;
+
+        Assert.Contains("--verifier", aide);
+        Assert.Contains("CHEZ LE CLIENT", aide);
+        Assert.Contains("mauvais NCC", aide);
+    }
 }

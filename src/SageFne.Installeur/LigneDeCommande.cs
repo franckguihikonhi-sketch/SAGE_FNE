@@ -86,6 +86,9 @@ public static class LigneDeCommande
                 case "--silencieux":
                     demande = demande with { Silencieux = true };
                     break;
+                case "--verifier":
+                    demande = demande with { Verifier = true };
+                    break;
                 case "--desinstaller":
                     demande = demande with { Desinstaller = true };
                     break;
@@ -131,9 +134,20 @@ public static class LigneDeCommande
           --journaux CHEMIN        defaut C:\ProgramData\SageFne\journaux
           --service NOM            defaut SageFneAgent
 
+          --verifier               eprouver la base Sage et l'identite FNE, sans rien ecrire
           --simulation             montrer ce qui serait fait, sans rien ecrire
           --silencieux             ne rien demander ; echouer si une valeur manque
           --desinstaller           retirer le service et les fichiers de ce poste
+
+        A FAIRE CHEZ LE CLIENT, DEVANT LUI, AVANT D'INSTALLER :
+
+          SageFneSetup.exe --verifier --sage "..." --point-de-vente "..." --etablissement "..."
+
+        Cette commande n'ecrit rien. Elle joint la base Sage, dit ce qu'elle y
+        trouve, et rappelle l'identite FNE qui serait posee. Le danger d'un
+        deploiement multi-clients n'est pas technique : c'est d'installer la cle
+        de l'un sur le poste de l'autre. Les factures partiraient sous le
+        mauvais NCC, et une facture certifiee ne s'annule que par un avoir.
 
         La desinstallation ne touche NI le registre des certifications, NI les
         journaux : ils sont la seule trace de ce qui a ete declare a la DGI, et

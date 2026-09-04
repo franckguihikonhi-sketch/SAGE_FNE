@@ -75,6 +75,12 @@ if (!EstAdministrateur())
     return 1;
 }
 
+// Éprouver la base et l'identité, devant le client, sans rien écrire.
+if (demande.Verifier)
+{
+    return await VerifierAsync(demande);
+}
+
 if (demande.Simulation)
 {
     Titre("Simulation");
@@ -129,6 +135,17 @@ int Installer(Demande demande, byte[] charge)
     Titre("Fichiers");
     var ancien = Path.Combine(demande.Destination, "appsettings.json");
     var reglagesEnPlace = File.Exists(ancien) ? File.ReadAllText(ancien) : null;
+
+    // Avant d'écrire : ce poste appartient-il déjà à quelqu'un d'autre ? Une
+    // réinstallation sur le même client est banale ; une installation par-
+    // dessus un AUTRE client ne l'est pas.
+    if (Reconnaissance.Avertissement(Reconnaissance.Lire(reglagesEnPlace ?? ""), demande) is { } alerte)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  ATTENTION");
+        Console.WriteLine($"  {alerte}");
+        Console.WriteLine();
+    }
 
     if (FusionReglages.Illisible(reglagesEnPlace))
     {
@@ -306,6 +323,104 @@ int Desinstaller(Demande demande)
     Console.WriteLine("  une facture certifiée ne s'annule que par un avoir.");
     return 0;
 }
+
+/// <summary>
+/// Ce que ce poste contient, et quelle identité y serait posée. N'écrit rien.
+/// </summary>
+/// <remarks>
+/// À passer chez le client, devant lui, avant d'installer. Ce qui s'y voit ne
+/// se voit nulle part ailleurs : la base Sage réellement jointe, ce qu'elle
+/// contient, et l'identité FNE qu'on s'apprête à poser. Les clients ne
+/// partagent aucun accès FNE, et se tromper de poste ferait certifier sous le
+/// mauvais NCC.
+/// </remarks>
+async Task<int> VerifierAsync(Demande demande)
+{
+    Titre("Ce poste");
+
+    var fichier = Path.Combine(demande.Destination, "appsettings.json");
+    var enPlace = Reconnaissance.Lire(File.Exists(fichier) ? File.ReadAllText(fichier) : "");
+
+    if (enPlace is { Renseignee: true })
+    {
+        Console.WriteLine($"  Identité déjà posée   {enPlace.PointDeVente} / {enPlace.Etablissement}");
+        Console.WriteLine($"  Registre en place     {(enPlace.Registre == "" ? "(non renseigné)" : enPlace.Registre)}");
+    }
+    else
+    {
+        Console.WriteLine("  Aucune installation antérieure.");
+    }
+
+    Titre("Ce qui serait posé");
+    Console.WriteLine($"  Point de vente        {Renseigne(demande.PointDeVente)}");
+    Console.WriteLine($"  Établissement         {Renseigne(demande.Etablissement)}");
+    Console.WriteLine($"  Environnement         {(demande.Production ? "PRODUCTION" : "essai")}");
+    Console.WriteLine($"  Clé d'API FNE         {(demande.CleFne == "" ? "(non fournie)" : Masquer(demande.CleFne))}");
+
+    if (Reconnaissance.Avertissement(enPlace, demande) is { } alerte)
+    {
+        Titre("ATTENTION");
+        Console.WriteLine($"  {alerte}");
+    }
+
+    Titre("La base Sage");
+
+    if (!SageFne.Core.Configuration.ServicesMiddleware.ConnexionRenseignee(demande.ChaineSage))
+    {
+        Console.WriteLine("  Aucune chaîne de connexion exploitable : rien n'a été joint.");
+        Console.WriteLine("  Donnez --sage pour que cette vérification serve à quelque chose.");
+        return 1;
+    }
+
+    try
+    {
+        var depot = new SageFne.Core.Data.SageInvoiceRepository(
+            demande.ChaineSage,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SageFne.Core.Data.SageInvoiceRepository>.Instance);
+
+        var domaines = await depot.GetDomainesAsync();
+
+        if (domaines.Count == 0)
+        {
+            Console.WriteLine("  Base jointe, mais aucun document dans F_DOCENTETE.");
+            Console.WriteLine("  Est-ce bien le dossier du client ?");
+            return 1;
+        }
+
+        Console.WriteLine($"  {"Domaine",-8} {"Type",-6} {"Documents",10}  Exemple");
+        foreach (var ligne in domaines.OrderByDescending(d => d.Nombre).Take(8))
+        {
+            Console.WriteLine(
+                $"  {ligne.Domaine,-8} {ligne.Type,-6} {ligne.Nombre,10}  " +
+                $"pièce {ligne.Exemple} — {ligne.Tiers}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("  FAITES RECONNAÎTRE CES DOCUMENTS AU CLIENT. S'il ne reconnaît ni les");
+        Console.WriteLine("  numéros de pièce ni les comptes tiers, la chaîne de connexion ne");
+        Console.WriteLine("  désigne pas son dossier — et rien ne doit être installé.");
+    }
+    catch (Exception erreur)
+    {
+        Console.WriteLine($"  Base Sage injoignable : {erreur.Message}");
+        Console.WriteLine();
+        Console.WriteLine("  Vérifiez le serveur, le nom de la base, et que le compte SQL existe");
+        Console.WriteLine("  et n'a que le rôle db_datareader.");
+        return 1;
+    }
+
+    Titre("Rien n'a été écrit");
+    Console.WriteLine("  Aucun service, aucun fichier, aucune variable machine.");
+    Console.WriteLine("  Relancez sans --verifier pour installer.");
+    return 0;
+}
+
+string Renseigne(string valeur) => valeur == "" ? "(non fourni)" : valeur;
+
+/// <summary>La clé, reconnaissable sans être lisible.</summary>
+string Masquer(string cle) => cle.Length <= 8
+    ? new string('•', cle.Length)
+    : $"{cle[..4]}{new string('•', 8)}{cle[^4..]}";
 
 // --- Ce qui parle à Windows -------------------------------------------------
 

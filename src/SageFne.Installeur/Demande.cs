@@ -42,6 +42,19 @@ public sealed record Demande
     /// <summary>Ne rien demander : échouer si une valeur manque.</summary>
     public bool Silencieux { get; init; }
 
+    /// <summary>
+    /// Éprouver, sans rien écrire : ce que la base Sage contient, et quelle
+    /// identité FNE serait posée.
+    /// </summary>
+    /// <remarks>
+    /// À faire chez le client, devant lui, avant d'installer. Le vrai danger
+    /// d'un déploiement multi-clients n'est pas technique : c'est d'installer
+    /// la clé de l'un sur le poste de l'autre. Les factures partiraient alors
+    /// sous le mauvais NCC, et une facture certifiée ne s'annule que par un
+    /// avoir.
+    /// </remarks>
+    public bool Verifier { get; init; }
+
     /// <summary>Retirer le service et les fichiers de ce poste.</summary>
     /// <remarks>
     /// Un produit livré chez un client doit savoir partir. Ce qu'il ne retire

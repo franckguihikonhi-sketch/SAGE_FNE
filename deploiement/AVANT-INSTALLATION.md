@@ -247,6 +247,18 @@ Registre au plan de sauvegarde   oui / non    validé par ____________
 
 ---
 
+## Une fois sur place
+
+Cette fiche s'arrête au moment où vous arrivez chez le client.
+`SUR-PLACE.md` prend la suite : ce qu'on éprouve sur le poste, dans quel ordre,
+et ce qu'on fait reconnaître au client avant d'écrire quoi que ce soit.
+
+La commande qui compte, et qui n'écrit rien :
+
+```powershell
+.\SageFneSetup.exe --verifier --sage "VOTRE_CHAINE_SAGE" --point-de-vente "SON_POINT" --etablissement "SON_ETABLISSEMENT"
+```
+
 ## Ce que le produit ne fait pas encore
 
 Dit ici plutôt que découvert chez un client :
