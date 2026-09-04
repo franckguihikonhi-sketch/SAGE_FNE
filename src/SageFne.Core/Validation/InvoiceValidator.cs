@@ -109,6 +109,26 @@ public static class InvoiceValidator
             return;
         }
 
+        // Un avoir passé sous forme de facture : la pièce est correcte dans
+        // Sage, et c'est le chemin d'envoi qui diffère. Un seul constat, qui
+        // nomme la commande à employer, plutôt que douze « quantité invalide »
+        // qui font chercher une erreur de saisie inexistante.
+        var estAvoir = PieceAvoir.Est(lignes);
+
+        if (estAvoir)
+        {
+            var origine = PieceAvoir.ReferencePortee(lignes) is { } reference
+                ? $" Le document porte la référence « {reference} » (DO_Ref) : c'est peut-être " +
+                  "la facture corrigée, à vérifier."
+                : "";
+
+            rapport.Erreur(
+                "PIECE_AVOIR",
+                $"La pièce {entete.Piece} corrige une facture au lieu d'en être une. La DGI " +
+                "n'accepte pas de vente négative : un avoir se fait par « avoir », sur le numéro " +
+                "de la facture d'ORIGINE, et non sur celui-ci." + origine);
+        }
+
         foreach (var ligne in lignes)
         {
             var ou = $"ligne {ligne.Ligne}";
@@ -125,7 +145,12 @@ public static class InvoiceValidator
                 rapport.Avertir("ARTICLE_SANS_REFERENCE", $"{ou} : AR_Ref vide.");
             }
 
-            if (ligne.Quantite <= 0m)
+            // Sur un avoir, une quantité négative est la forme normale, pas une
+            // faute : la signaler ligne par ligne noierait le seul constat qui
+            // apprenne quelque chose. Sur une facture ordinaire, elle reste une
+            // erreur — un zéro ou un négatif isolé au milieu de lignes
+            // positives est une vraie anomalie de saisie.
+            if (!estAvoir && ligne.Quantite <= 0m)
             {
                 rapport.Erreur("QUANTITE_INVALIDE", $"{ou} : quantité de {ligne.Quantite}, attendue strictement positive.");
             }
