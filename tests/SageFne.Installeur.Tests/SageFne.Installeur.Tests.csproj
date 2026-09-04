@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- L'installeur cible win-x64 pour sa publication. Les tests, eux,
+         tournent sur l'integration continue sous Linux : ils n'eprouvent que
+         ce qui ne parle pas a Windows - lecture des arguments, controles,
+         fusion des reglages. Le reste se verifie sur un poste reel. -->
+    <RuntimeIdentifier></RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SageFne.Core\SageFne.Core.csproj" />
+    <ProjectReference Include="..\..\src\SageFne.Installeur\SageFne.Installeur.csproj" />
+  </ItemGroup>
+
+</Project>

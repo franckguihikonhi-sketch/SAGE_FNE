@@ -1,0 +1,133 @@
+using SageFne.Core.Models.Sage;
+
+namespace SageFne.Core.Data;
+
+/// <summary>
+/// Lecture des documents de vente du dossier Sage. Aucune écriture.
+/// </summary>
+public interface ISageInvoiceRepository
+{
+    /// <summary>
+    /// Vrai quand les documents lus viennent d'un vrai dossier Sage.
+    /// </summary>
+    /// <remarks>
+    /// Faux pour le jeu d'essai, et c'est <see cref="Fne.InvoiceSender"/> qui
+    /// s'en sert : une facture inventée ne s'envoie pas à la DGI.
+    ///
+    /// Ce refus existait, mais dans la commande <c>envoyer</c> du CLI — chez
+    /// l'appelant, pas dans le composant qui envoie. L'agent, deuxième appelant,
+    /// ne l'a donc jamais eu : sur un poste sans chaîne de connexion Sage, il
+    /// aurait certifié à la DGI les quatre factures fabriquées du jeu d'essai,
+    /// et le tableau de bord offrait le même chemin d'un clic. Le défaut a été
+    /// constaté en cliquant : un POST est réellement parti, et seule une clé
+    /// d'API invalide l'a arrêté.
+    ///
+    /// La règle vit donc là où l'envoi se fait, et non là où on le demande.
+    /// C'est le même principe que <see cref="Fne.IFneApiClient.Reel"/>.
+    /// </remarks>
+    bool EstReel { get; }
+
+    /// <summary>Entête d'une pièce de vente (DO_Domaine = 0).</summary>
+    Task<SageDocumentHeader?> GetInvoiceAsync(string piece, CancellationToken cancellation = default);
+
+    /// <summary>Lignes de la pièce, dans l'ordre de DL_Ligne.</summary>
+    Task<List<SageDocumentLine>> GetInvoiceLinesAsync(string piece, CancellationToken cancellation = default);
+
+    /// <summary>Fiche du client, par son compte tiers.</summary>
+    Task<SageCustomer?> GetCustomerAsync(string ctNum, CancellationToken cancellation = default);
+
+    /// <summary>Entêtes répondant au critère, dans l'ordre des dates puis des pièces.</summary>
+    Task<List<SageDocumentHeader>> GetInvoicesAsync(InvoiceQuery query, CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Toutes les lignes du lot, en une seule lecture.
+    /// </summary>
+    /// <remarks>
+    /// Lire les lignes facture par facture ferait un aller-retour par pièce :
+    /// sur un mois de facturation, c'est la différence entre une seconde et
+    /// une minute. Le regroupement se fait ensuite en mémoire.
+    /// </remarks>
+    Task<List<SageDocumentLine>> GetLinesAsync(InvoiceQuery query, CancellationToken cancellation = default);
+
+    /// <summary>Fiches clients demandées, en une seule lecture.</summary>
+    Task<List<SageCustomer>> GetCustomersAsync(
+        IReadOnlyCollection<string> ctNums,
+        CancellationToken cancellation = default);
+
+    /// <summary>Paramétrage des taxes du dossier, pour information.</summary>
+    Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Inventaire de <b>tous</b> les domaines et types de F_DOCENTETE.
+    /// </summary>
+    /// <remarks>
+    /// Le middleware ne lit que <c>DO_Domaine = 0</c>. Tout le reste du dossier
+    /// — achats, stocks, ce que ce dossier-là utilise — n'a jamais été regardé,
+    /// et il a fallu s'en apercevoir le jour où la question des achats s'est
+    /// posée.
+    ///
+    /// Cet inventaire ne nomme aucun domaine : il compte. C'est l'exploitant
+    /// qui reconnaît ses documents, à partir des exemplaires affichés.
+    /// </remarks>
+    Task<List<SageDomaineSummary>> GetDomainesAsync(
+        CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Inventaire des types de documents présents dans le domaine des ventes.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostic : quels DO_Type ce dossier utilise, combien de documents
+    /// chacun porte, et quelques exemplaires pour juger sur pièce.
+    /// </remarks>
+    Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(
+        int exemplesParType = 5,
+        CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Tous les documents portant ce numéro de pièce, quel que soit leur type.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostic : le lot ne lit que les factures, donc demander une pièce qui
+    /// se trouve être un bon de livraison ne renvoie rien, sans dire pourquoi.
+    /// Cette lecture-là voit tout et permet de l'expliquer.
+    /// </remarks>
+    Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(
+        string piece,
+        CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Numéros de pièce présents sous plusieurs types à la fois.
+    /// </summary>
+    /// <remarks>
+    /// La question décisive sur la relation 6 → 7 : si la comptabilisation
+    /// modifie la ligne existante, aucun numéro ne porte les deux types et le
+    /// risque de double certification n'existe pas. S'il en sort, il faut le
+    /// savoir avant d'envoyer quoi que ce soit.
+    /// </remarks>
+    Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(
+        CancellationToken cancellation = default);
+
+    /// <summary>
+    /// Ce que les tables du dossier ne portent pas, parmi ce que la lecture
+    /// attend.
+    /// </summary>
+    /// <remarks>
+    /// Les colonnes de Sage varient d'une version à l'autre : le dossier HT n'a
+    /// pas de DL_DocType. Plutôt que de le découvrir par une exception au milieu
+    /// d'un lot, on le demande au catalogue.
+    /// </remarks>
+    Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(
+        CancellationToken cancellation = default);
+
+    /// <summary>
+    /// FA_CodeFamille par référence d'article, en une lecture.
+    /// </summary>
+    /// <remarks>
+    /// F_DOCLIGNE ne porte pas la famille : classer une exonération au niveau
+    /// de la famille suppose donc d'aller la chercher dans F_ARTICLE. Une seule
+    /// lecture pour tout le lot, et seulement quand une ligne est à 0 %.
+    /// </remarks>
+    Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+        IReadOnlyCollection<string> arRefs,
+        CancellationToken cancellation = default);
+}

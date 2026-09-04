@@ -1,0 +1,285 @@
+using Microsoft.Extensions.Options;
+using SageFne.Core.Batch;
+using SageFne.Core.Certification;
+using SageFne.Core.Configuration;
+using SageFne.Core.Data;
+using SageFne.Core.Mapping;
+using SageFne.Core.Models.Sage;
+
+namespace SageFne.Core.Tests;
+
+public class InvoiceBatchReaderTests
+{
+    /// <summary>
+    /// Dépôt d'essai qui compte ses appels : c'est la seule façon de vérifier,
+    /// sans base, que le lot ne fait pas un aller-retour par facture.
+    /// </summary>
+    private sealed class DepotCompteur : ISageInvoiceRepository
+    {
+        /// <summary>La doublure tient lieu de vrai dossier : elle peut envoyer.</summary>
+        public bool EstReel => true;
+
+        public Task<List<SageDomaineSummary>> GetDomainesAsync(
+            CancellationToken cancellation = default) =>
+            Task.FromResult(new List<SageDomaineSummary>());
+
+        public int AppelsEntetes { get; private set; }
+        public int AppelsLignes { get; private set; }
+        public int AppelsClients { get; private set; }
+        public int AppelsUnitaires { get; private set; }
+
+        public List<SageDocumentHeader> Entetes { get; init; } = [];
+        public List<SageDocumentLine> Lignes { get; init; } = [];
+        public List<SageCustomer> Clients { get; init; } = [];
+
+        public Task<List<SageDocumentHeader>> GetInvoicesAsync(InvoiceQuery query, CancellationToken ct = default)
+        {
+            AppelsEntetes++;
+            return Task.FromResult(Entetes
+                .Where(entete => query.Pieces.Count == 0 || query.Pieces.Contains(entete.Piece))
+                .Take(query.Limite)
+                .ToList());
+        }
+
+        public Task<List<SageDocumentLine>> GetLinesAsync(InvoiceQuery query, CancellationToken ct = default)
+        {
+            AppelsLignes++;
+            return Task.FromResult(Lignes
+                .Where(ligne => query.Pieces.Count == 0 || query.Pieces.Contains(ligne.Piece))
+                .ToList());
+        }
+
+        public Task<List<SageCustomer>> GetCustomersAsync(IReadOnlyCollection<string> ctNums, CancellationToken ct = default)
+        {
+            AppelsClients++;
+            return Task.FromResult(Clients.Where(client => ctNums.Contains(client.CtNum)).ToList());
+        }
+
+        public Task<SageDocumentHeader?> GetInvoiceAsync(string piece, CancellationToken ct = default)
+        {
+            AppelsUnitaires++;
+            return Task.FromResult(Entetes.FirstOrDefault(entete => entete.Piece == piece));
+        }
+
+        public Task<List<SageDocumentLine>> GetInvoiceLinesAsync(string piece, CancellationToken ct = default)
+        {
+            AppelsUnitaires++;
+            return Task.FromResult(Lignes.Where(ligne => ligne.Piece == piece).ToList());
+        }
+
+        public Task<SageCustomer?> GetCustomerAsync(string ctNum, CancellationToken ct = default)
+        {
+            AppelsUnitaires++;
+            return Task.FromResult(Clients.FirstOrDefault(client => client.CtNum == ctNum));
+        }
+
+        public Task<List<SageTaxDefinition>> GetTaxesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageTaxDefinition>());
+
+        public Task<List<SageDocumentTypeSummary>> GetDocumentTypesAsync(int e = 5, CancellationToken ct = default) =>
+            Task.FromResult(new List<SageDocumentTypeSummary>());
+
+        public Task<List<SageDocumentHeader>> GetDocumentsByPieceAsync(string p, CancellationToken ct = default) =>
+            Task.FromResult(Entetes.Where(entete => entete.Piece == p).ToList());
+
+        public Task<List<SageDocumentDuplicate>> GetPiecesMultiTypesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageDocumentDuplicate>());
+
+        public Task<List<SageColonnesManquantes>> GetColonnesManquantesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<SageColonnesManquantes>());
+
+        public Task<Dictionary<string, string>> GetArticleFamiliesAsync(
+            IReadOnlyCollection<string> r, CancellationToken ct = default) =>
+            Task.FromResult(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static SageDocumentHeader Entete(string piece, string tiers, int jour) => new()
+    {
+        Domaine = 0,
+        Type = 6,
+        Piece = piece,
+        Date = new DateTime(2025, 12, jour),
+        Tiers = tiers,
+        TotalHT = 0m,
+    };
+
+    private static SageDocumentLine Ligne(string piece, int rang, decimal ht) => new()
+    {
+        Domaine = 0,
+        Type = 6,
+        Piece = piece,
+        Ligne = rang,
+        ArticleReference = $"ART-{rang}",
+        Designation = $"Article {rang}",
+        Quantite = 1m,
+        PrixUnitaire = ht,
+        MontantHT = ht,
+        MontantTTC = ht,
+        Unite = "KG",
+        // Ces tests portent sur le lot, pas sur la fiscalité : une TVA au taux
+        // normal évite d'y mêler la question du régime d'exonération.
+        Taxe1 = 18m,
+        CodeTaxe1 = "TVA",
+    };
+
+    private static SageCustomer Client(
+        string ctNum, string ncc = "1432262S", string telephone = "0700000000") => new()
+    {
+        CtNum = ctNum,
+        Intitule = $"Client {ctNum}",
+        Identifiant = ncc,
+        // La DGI marque le téléphone obligatoire : sans lui la pièce est
+        // bloquée, et ces tests-ci portent sur autre chose.
+        Telephone = telephone,
+    };
+
+    /// <summary>Registre d'essai qui compte ses lectures.</summary>
+    internal sealed class RegistreCompteur : ICertificationLedger
+    {
+        public int Lectures { get; private set; }
+        public Dictionary<string, CertifiedInvoice> Entrees { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyDictionary<string, CertifiedInvoice>> LookupAsync(
+            IReadOnlyCollection<string> identites,
+            CancellationToken ct = default)
+        {
+            Lectures++;
+            return Task.FromResult<IReadOnlyDictionary<string, CertifiedInvoice>>(
+                identites.Where(Entrees.ContainsKey).ToDictionary(id => id, id => Entrees[id]));
+        }
+
+        public Task RecordAsync(CertifiedInvoice certification, CancellationToken ct = default)
+        {
+            Entrees[certification.Identite] = certification;
+            return Task.CompletedTask;
+        }
+    }
+
+    private static InvoiceBatchReader Lecteur(
+        ISageInvoiceRepository depot,
+        ICertificationLedger? registre = null)
+    {
+        var options = Options.Create(new FneOptions { Template = "B2B", PaymentMethod = "deferred" });
+        return new InvoiceBatchReader(
+            depot,
+            new FneInvoiceMapper(options),
+            registre ?? new RegistreCompteur(),
+            options);
+    }
+
+    private static DepotCompteur DepotDeTrois() => new()
+    {
+        Entetes = [Entete("1", "C1", 3), Entete("2", "C2", 4), Entete("3", "C1", 5)],
+        Lignes =
+        [
+            Ligne("1", 1, 1000m),
+            Ligne("2", 1, 2000m), Ligne("2", 2, 3000m),
+            Ligne("3", 1, 4000m),
+        ],
+        Clients = [Client("C1"), Client("C2")],
+    };
+
+    [Fact]
+    public async Task Le_lot_tient_en_trois_lectures_quel_que_soit_le_nombre_de_factures()
+    {
+        var depot = DepotDeTrois();
+
+        await Lecteur(depot).ReadAsync(new InvoiceQuery());
+
+        // Trois factures, mais une lecture d'entêtes, une de lignes, une de
+        // clients — et aucune lecture pièce par pièce.
+        Assert.Equal(1, depot.AppelsEntetes);
+        Assert.Equal(1, depot.AppelsLignes);
+        Assert.Equal(1, depot.AppelsClients);
+        Assert.Equal(0, depot.AppelsUnitaires);
+    }
+
+    [Fact]
+    public async Task Chaque_facture_recoit_ses_propres_lignes()
+    {
+        var lot = await Lecteur(DepotDeTrois()).ReadAsync(new InvoiceQuery());
+
+        Assert.Equal(3, lot.Total);
+        Assert.Equal([1, 2, 1], lot.Conversions.Select(conversion => conversion.Lines.Count));
+        Assert.Equal(4, lot.Lignes);
+        Assert.All(lot.Conversions, conversion =>
+            Assert.All(conversion.Lines, ligne => Assert.Equal(conversion.Header.Piece, ligne.Piece)));
+    }
+
+    [Fact]
+    public async Task Les_factures_portent_le_bon_client()
+    {
+        var lot = await Lecteur(DepotDeTrois()).ReadAsync(new InvoiceQuery());
+
+        Assert.Equal(["C1", "C2", "C1"], lot.Conversions.Select(conversion => conversion.Customer!.CtNum));
+    }
+
+    [Fact]
+    public async Task Une_piece_en_defaut_n_arrete_pas_le_lot()
+    {
+        var depot = DepotDeTrois();
+        // Le client de la deuxième pièce n'a pas de NCC.
+        depot.Clients[1] = Client("C2", ncc: "");
+
+        var lot = await Lecteur(depot).ReadAsync(new InvoiceQuery());
+
+        Assert.Equal(3, lot.Total);
+        Assert.Equal(2, lot.ACertifier);
+        Assert.Equal(1, lot.Bloquees);
+        Assert.Contains(lot.Conversions[1].Report.Constats, constat => constat.Code == "NCC_MANQUANT");
+        // Les deux autres sont bien traduites.
+        Assert.NotNull(lot.Conversions[0].Invoice);
+        Assert.NotNull(lot.Conversions[2].Invoice);
+    }
+
+    [Fact]
+    public async Task Un_client_introuvable_bloque_sa_piece_sans_planter()
+    {
+        var depot = DepotDeTrois();
+        depot.Clients.RemoveAll(client => client.CtNum == "C2");
+
+        var lot = await Lecteur(depot).ReadAsync(new InvoiceQuery());
+
+        Assert.Null(lot.Conversions[1].Invoice);
+        Assert.Contains(lot.Conversions[1].Report.Constats, constat => constat.Code == "CLIENT_INTROUVABLE");
+        Assert.Equal(2, lot.ACertifier);
+    }
+
+    [Fact]
+    public async Task Une_piece_sans_ligne_est_signalee()
+    {
+        var depot = DepotDeTrois();
+        depot.Lignes.RemoveAll(ligne => ligne.Piece == "3");
+
+        var lot = await Lecteur(depot).ReadAsync(new InvoiceQuery());
+
+        Assert.Contains(lot.Conversions[2].Report.Constats, constat => constat.Code == "SANS_LIGNE");
+        Assert.Null(lot.Conversions[2].Invoice);
+    }
+
+    [Fact]
+    public async Task Un_lot_vide_le_dit_sans_echouer()
+    {
+        var lot = await Lecteur(new DepotCompteur()).ReadAsync(new InvoiceQuery { Pieces = ["9999"] });
+
+        Assert.Equal(0, lot.Total);
+        Assert.Contains(lot.Constats, constat => constat.Code == "LOT_VIDE");
+    }
+
+    [Fact]
+    public async Task Atteindre_la_limite_est_signale()
+    {
+        var lot = await Lecteur(DepotDeTrois()).ReadAsync(new InvoiceQuery { Limite = 3 });
+
+        Assert.Equal(3, lot.Total);
+        Assert.Contains(lot.Constats, constat => constat.Code == "LIMITE_ATTEINTE");
+    }
+
+    [Fact]
+    public async Task Les_totaux_du_lot_sont_ceux_des_lignes()
+    {
+        var lot = await Lecteur(DepotDeTrois()).ReadAsync(new InvoiceQuery());
+
+        Assert.Equal(10000m, lot.TotalHT);
+    }
+}
